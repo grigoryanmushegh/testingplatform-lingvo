@@ -950,6 +950,7 @@ const toRoman = n => {
 // Matching Headings group — shows shared headings list once (roman numerals), then paragraph rows
 function MatchingHeadingsGroup({ questions, answers, submitted, scoreQ, onChange }) {
   const headings = questions[0]?.options || [];
+  const taskInstructions = questions[0]?.instructions || "";
   // Track which headings are already used by other paragraphs
   const usedMap = {};
   questions.forEach(q=>{
@@ -959,6 +960,13 @@ function MatchingHeadingsGroup({ questions, answers, submitted, scoreQ, onChange
   });
   return (
     <div style={{...cardStyle({marginBottom:14,overflow:"hidden",border:`1px solid ${C.s200}`})}}>
+      {taskInstructions&&(
+        <div style={{padding:"12px 18px",borderBottom:`1px solid ${C.s200}`,background:"#FFFBF0"}}>
+          {taskInstructions.split("\n").map((line,i)=>(
+            <div key={i} style={{fontSize:13,color:C.s800,lineHeight:1.6,fontWeight:i===0?700:400}}>{line}</div>
+          ))}
+        </div>
+      )}
       <div style={{background:C.brandL,padding:"14px 18px",borderBottom:`1px solid ${C.brand}20`}}>
         <div style={{fontSize:10,fontWeight:800,color:C.brand,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>List of Headings</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 16px"}}>
@@ -1036,6 +1044,7 @@ function MatchingGroup({ questions, answers, submitted, scoreQ, onChange }) {
   const options = questions[0]?.options || [];
   const type = questions[0]?.type || "matching";
   const labels = MATCH_GROUP_LABELS[type] || MATCH_GROUP_LABELS.matching;
+  const taskInstructions = questions[0]?.instructions || "";
   // For sentence endings — each option used once; for others — reuse allowed
   const oneUseOnly = type==="matching_endings";
   const usedMap = {};
@@ -1048,6 +1057,13 @@ function MatchingGroup({ questions, answers, submitted, scoreQ, onChange }) {
   }
   return (
     <div style={{...cardStyle({marginBottom:14,overflow:"hidden",border:`1px solid ${C.s200}`})}}>
+      {taskInstructions&&(
+        <div style={{padding:"12px 18px",borderBottom:`1px solid ${C.s200}`,background:"#FFFBF0"}}>
+          {taskInstructions.split("\n").map((line,i)=>(
+            <div key={i} style={{fontSize:13,color:C.s800,lineHeight:1.6,fontWeight:i===0?700:400}}>{line}</div>
+          ))}
+        </div>
+      )}
       {/* Shared options box */}
       <div style={{background:C.brandL,padding:"14px 18px",borderBottom:`1px solid ${C.brand}20`}}>
         <div style={{fontSize:10,fontWeight:800,color:C.brand,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{labels.box}</div>
@@ -2962,6 +2978,19 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1}) {
                   style={inputStyle}/>
               </div>
             </div>
+
+            {/* Task Instructions — only on Group Leader */}
+            {isGroupLeader&&(
+              <div style={{marginBottom:10}}>
+                <label style={labelStyle}>Task Instructions <span style={{color:C.s400,fontWeight:400}}>(shown to candidate above the options)</span></label>
+                <textarea
+                  value={q.instructions||""}
+                  onChange={e=>qbUpdateQ(setQuestions,q.id,"instructions",e.target.value)}
+                  placeholder={`e.g. Questions ${qStart+qi}–${qStart+qi+3}\nChoose the correct letter A–F for each answer.\nWrite the correct letter in boxes on your answer sheet.`}
+                  rows={3}
+                  style={{...inputStyle,resize:"vertical",fontFamily:"inherit",lineHeight:1.5,fontSize:13}}/>
+              </div>
+            )}
 
             {/* Shared Options List — only on Group Leader */}
             {isGroupLeader&&(
