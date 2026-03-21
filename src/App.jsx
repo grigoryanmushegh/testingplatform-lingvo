@@ -64,17 +64,29 @@ const DB_KEY   = "lv_ielts_v2";
 const _emptyDB = () => ({participants:[],bookings:[],tests:[],testSuites:[],assignments:[],speakingSlots:[]});
 let   _db      = _emptyDB();
 let   _flushTmr = null;
+let   _sbOk    = false; // tracks whether Supabase is reachable
 
 const _flushNow = async db => {
-  if(!supabase) return;
-  try { await supabase.from("ielts_store").upsert({id:"main",data:db,updated_at:new Date().toISOString()}); } catch{}
+  if(!supabase) return false;
+  try {
+    const {error} = await supabase.from("ielts_store").upsert({id:"main",data:db,updated_at:new Date().toISOString()});
+    if(error) { console.warn("[DB] Supabase write error:", error.message); return false; }
+    _sbOk = true;
+    return true;
+  } catch(e) { console.warn("[DB] Supabase write failed:", e); return false; }
 };
-const _flush = db => { clearTimeout(_flushTmr); _flushTmr = setTimeout(()=>_flushNow(db), 600); };
+// Immediate write — no debounce — used for critical saves (registration, results)
+const _flushImmediate = db => _flushNow(db);
+const _flush = db => { clearTimeout(_flushTmr); _flushTmr = setTimeout(()=>_flushNow(db), 300); };
 
 const loadDB  = ()         => _db;
 const saveDB  = db         => { _db=db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{} _flush(db); };
+// Critical save — writes to Supabase immediately, no debounce
+const saveDBNow = async db => { _db=db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{} await _flushImmediate(db); };
 const dbPush  = (col,item) => { _db[col]=[item,...(_db[col]||[])]; saveDB(_db); };
+const dbPushNow = async (col,item) => { _db[col]=[item,...(_db[col]||[])]; await saveDBNow(_db); };
 const dbSave  = (col,items)=> { _db[col]=items; saveDB(_db); };
+const dbSaveNow = async (col,items) => { _db[col]=items; await saveDBNow(_db); };
 
 // Force re-fetch from Supabase (used by admin Refresh button)
 export async function reloadDB() {
@@ -1663,7 +1675,7 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
   const bc = bandColor(overall);
 
   useEffect(()=>{
-    dbPush("participants",{
+    dbPushNow("participants",{
       id:genId("IELTS"), candidate:candidateInfo,
       date:new Date().toLocaleDateString("en-GB"),
       timestamp:Date.now(),
@@ -2785,16 +2797,16 @@ function AssignManager() {
     setPublishedSuites((loadDB().testSuites||[]).filter(s=>s.status==="published"));
   };
 
-  const assign = () => {
+  const assign = async () => {
     if(!email.trim()||!suiteId) return;
     const a = {id:genId("ASGN"),email:email.trim().toLowerCase(),suiteId,assignedAt:Date.now(),used:false};
     const updated = [a,...assignments];
-    setAssignments(updated); dbSave("assignments",updated);
+    setAssignments(updated); await dbSaveNow("assignments",updated);
     setEmail(""); setSuiteId("");
     setSaved(true); setTimeout(()=>setSaved(false),2500);
   };
 
-  const remove = id => { const u=assignments.filter(a=>a.id!==id); setAssignments(u); dbSave("assignments",u); };
+  const remove = async id => { const u=assignments.filter(a=>a.id!==id); setAssignments(u); await dbSaveNow("assignments",u); };
   const suiteName = id => (loadDB().testSuites||[]).find(s=>s.id===id)?.name||"(deleted suite)";
 
   const filtered = searchEmail.trim()
@@ -3693,8 +3705,8 @@ export default function App() {
   );
 
   // After registration form → go to lobby (step 1)
-  const handleRegComplete = (info) => {
-    dbPush("participants", {
+  const handleRegComplete = async (info) => {
+    await dbPushNow("participants", {
       id: genId("REG"),
       candidate: info,
       status: "registered",
