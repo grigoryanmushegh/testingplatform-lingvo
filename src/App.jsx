@@ -2940,8 +2940,12 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1}) {
         const isGroupMatch  = GROUP_MATCH_TYPES.has(q.type);
         const isGroupLeader = isGroupMatch && (qi===0 || questions[qi-1].type!==q.type);
         const isGroupFollow = isGroupMatch && !isGroupLeader;
-        // Find the leader for this follower
-        const leaderIdx     = isGroupFollow ? [...questions].slice(0,qi).map((x,i)=>({x,i})).reverse().find(({x})=>x.type===q.type)?.i ?? -1 : -1;
+        // Find the actual group leader (first Q in the consecutive same-type chain)
+        const leaderIdx = isGroupFollow ? (()=>{
+          let idx = qi - 1;
+          while(idx > 0 && questions[idx-1]?.type === q.type) idx--;
+          return idx;
+        })() : -1;
         const leaderQ       = leaderIdx>=0 ? questions[leaderIdx] : null;
         const sharedOptions = isGroupMatch ? (isGroupLeader ? q.options : (leaderQ?.options||[])) : [];
         const isOptionType  = OPTION_TYPES.has(q.type) && !isGroupMatch; // only MCQ
