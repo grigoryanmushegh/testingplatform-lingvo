@@ -1243,9 +1243,8 @@ function WritingTest({ onComplete, testData }) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiFb, setAiFb]           = useState({});
   const [submitted, setSubmitted] = useState(false);
-
-  if(!ready) return <PreTestScreen icon="✍️" label="Writing Test" onStart={()=>setReady(true)}/>;
   const [dbCustomTasks, setDbCustomTasks] = useState(null);
+
   useEffect(()=>{
     if(!testData) {
       // No suite writing data — fall back to latest saved writing test in DB
@@ -1254,6 +1253,8 @@ function WritingTest({ onComplete, testData }) {
       if(wTests.length>0) setDbCustomTasks(wTests[wTests.length-1]);
     }
   },[testData]);
+
+  if(!ready) return <PreTestScreen icon="✍️" label="Writing Test" onStart={()=>setReady(true)}/>;
 
   const customTasks = testData || dbCustomTasks;
   const builtinTask = WRITING_TASKS[tIdx];
