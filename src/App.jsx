@@ -3521,7 +3521,8 @@ function TestLobby({ candidate, onStart }) {
   const [lastChecked, setLastChecked] = useState(new Date());
   const [pulse, setPulse] = useState(false);
 
-  const recheck = () => {
+  const recheck = async () => {
+    await reloadDB();
     const res = peekAssignment(candidate.email);
     setInfo(res);
     setLastChecked(new Date());
