@@ -76,6 +76,17 @@ const saveDB  = db         => { _db=db; try{localStorage.setItem(DB_KEY,JSON.str
 const dbPush  = (col,item) => { _db[col]=[item,...(_db[col]||[])]; saveDB(_db); };
 const dbSave  = (col,items)=> { _db[col]=items; saveDB(_db); };
 
+// Force re-fetch from Supabase (used by admin Refresh button)
+export async function reloadDB() {
+  if(supabase){
+    try{
+      const {data,error}=await supabase.from("ielts_store").select("data").eq("id","main").single();
+      if(data?.data){ _db=data.data; localStorage.setItem(DB_KEY,JSON.stringify(_db)); return; }
+    }catch{}
+  }
+  try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
+}
+
 export async function initDB() {
   if(supabase){
     try{
@@ -344,6 +355,48 @@ function StepNav({ step, steps }) {
   );
 }
 
+// Pre-test countdown screen — shown 60 s before each section starts
+function PreTestScreen({ icon, label, color="#11CD87", onStart }) {
+  const [left, setLeft] = useState(60);
+  useEffect(()=>{
+    if(left<=0){onStart();return;}
+    const t=setTimeout(()=>setLeft(l=>l-1),1000);
+    return()=>clearTimeout(t);
+  },[left]);
+  const pct = left/60;
+  return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+      height:"calc(100vh - 130px)",background:"#0F172A",gap:32,padding:32}}>
+      <div style={{fontSize:56}}>{icon}</div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:13,color:"rgba(255,255,255,.5)",fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>
+          Upcoming Section
+        </div>
+        <div style={{fontSize:28,fontWeight:800,color:"#fff",marginBottom:4}}>{label}</div>
+        <div style={{fontSize:13,color:"rgba(255,255,255,.4)"}}>Please prepare. The test will begin shortly.</div>
+      </div>
+      {/* Circular countdown */}
+      <div style={{position:"relative",width:160,height:160}}>
+        <svg width="160" height="160" style={{transform:"rotate(-90deg)"}}>
+          <circle cx="80" cy="80" r="70" fill="none" stroke="rgba(255,255,255,.08)" strokeWidth="8"/>
+          <circle cx="80" cy="80" r="70" fill="none" stroke={color} strokeWidth="8"
+            strokeDasharray={`${2*Math.PI*70}`}
+            strokeDashoffset={`${2*Math.PI*70*(1-pct)}`}
+            strokeLinecap="round" style={{transition:"stroke-dashoffset 1s linear"}}/>
+        </svg>
+        <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:42,fontWeight:900,color,lineHeight:1}}>{left}</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,.4)",marginTop:4}}>seconds</div>
+        </div>
+      </div>
+      <button onClick={onStart} style={{background:color,color:"#064E3B",border:"none",borderRadius:12,
+        padding:"12px 32px",fontSize:14,fontWeight:800,cursor:"pointer",letterSpacing:"0.03em"}}>
+        Start Now →
+      </button>
+    </div>
+  );
+}
+
 function Countdown({ seconds, onExpire }) {
   const [left, setLeft] = useState(seconds);
   useEffect(()=>{
@@ -446,9 +499,13 @@ function Registration({ onNext }) {
 
 // ── LISTENING TEST ────────────────────────────────────────────────────────────
 function ListeningTest({ onComplete, testData }) {
+  const [ready, setReady]           = useState(false); // pre-test countdown
+  const [phase, setPhase]           = useState("main"); // "main" | "checking"
   const [answers, setAnswers]       = useState({});
   const [submitted, setSubmitted]   = useState(false);
   const [secIdx, setSecIdx]         = useState(0);
+
+  if(!ready) return <PreTestScreen icon="🎧" label="Listening Test" onStart={()=>setReady(true)}/>;
   // Build sections — supports new multi-section format, old flat questions array, or built-in
   let sections;
   if(testData?.sections?.length>0) {
@@ -492,12 +549,36 @@ function ListeningTest({ onComplete, testData }) {
     setTimeout(()=>onComplete({correct,total:allQ.length,answers,allQuestions:allQ}),600);
   };
 
+  const handleMainExpire = () => { if(!submitted) setPhase("checking"); };
+
+  // 10-min checking phase overlay
+  if(phase==="checking" && !submitted) return (
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
+      <SectionHeader icon="🎧" label="Listening Test" title="Checking Time"
+        right={<Countdown seconds={10*60} onExpire={handleSubmit}/>}/>
+      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+        background:"#0F172A",gap:24,padding:32}}>
+        <div style={{fontSize:48}}>🔍</div>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:24,fontWeight:800,color:"#fff",marginBottom:8}}>Checking Time</div>
+          <div style={{fontSize:14,color:"rgba(255,255,255,.5)",maxWidth:420,lineHeight:1.6}}>
+            The listening section has ended. You have <strong style={{color:"#11CD87"}}>10 minutes</strong> to review and check your answers before they are submitted automatically.
+          </div>
+        </div>
+        <button onClick={handleSubmit}
+          style={{background:"#11CD87",color:"#064E3B",border:"none",borderRadius:12,padding:"12px 32px",fontSize:14,fontWeight:800,cursor:"pointer"}}>
+          Submit Answers Now
+        </button>
+      </div>
+    </div>
+  );
+
   const sec = sections[secIdx];
 
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
       <SectionHeader icon="🎧" label="Listening Test" title="IELTS Academic Listening"
-        right={<Countdown seconds={30*60} onExpire={handleSubmit}/>}/>
+        right={<Countdown seconds={40*60} onExpire={handleMainExpire}/>}/>
 
       <div style={{display:"grid",gridTemplateColumns:"300px 1fr",flex:1,overflow:"hidden"}}>
         {/* Sidebar */}
@@ -514,8 +595,8 @@ function ListeningTest({ onComplete, testData }) {
                     <span style={{fontSize:16}}>🎵</span>
                     <span style={{color:"rgba(255,255,255,.7)",fontSize:12,fontWeight:600}}>{sec.label}</span>
                   </div>
-                  <audio controls src={sec.audioUrl} style={{width:"100%",height:36}}
-                    controlsList="nodownload" preload="metadata"/>
+                  <audio controls autoPlay src={sec.audioUrl} style={{width:"100%",height:36}}
+                    controlsList="nodownload" preload="auto"/>
                 </div>
                 <div style={{marginTop:8,padding:"6px 10px",background:"rgba(13,148,136,.12)",border:"1px solid rgba(13,148,136,.25)",borderRadius:7}}>
                   <p style={{color:"rgba(100,255,220,.8)",fontSize:11,lineHeight:1.5}}>▶ Press play to start. Audio changes with each section.</p>
@@ -665,6 +746,7 @@ function ListeningQ({ q, answer, submitted, correct, onChange }) {
 
 // ── READING TEST ──────────────────────────────────────────────────────────────
 function ReadingTest({ onComplete, testData }) {
+  const [ready, setReady]         = useState(false);
   const [pIdx, setPIdx]           = useState(0);
   const [answers, setAnswers]     = useState({});
   const [submitted, setSubmitted] = useState(false);
@@ -672,6 +754,8 @@ function ReadingTest({ onComplete, testData }) {
   const [highlights, setHl]       = useState([]);
   const [hlColor, setHlColor]     = useState("y");
   const passRef = useRef(null);
+
+  if(!ready) return <PreTestScreen icon="📖" label="Reading Test" onStart={()=>setReady(true)}/>;
   // Build sections & passage map — supports new multi-passage format, old single-passage, or built-in
   let extraPassages = {};
   let sections;
@@ -1108,11 +1192,14 @@ function ReadingQ({ q, answer, submitted, correct, onChange }) {
 
 // ── WRITING TEST + AI ─────────────────────────────────────────────────────────
 function WritingTest({ onComplete, testData }) {
+  const [ready, setReady]         = useState(false);
   const [tIdx, setTIdx]           = useState(0);
   const [texts, setTexts]         = useState({0:"",1:""});
   const [aiLoading, setAiLoading] = useState(false);
   const [aiFb, setAiFb]           = useState({});
   const [submitted, setSubmitted] = useState(false);
+
+  if(!ready) return <PreTestScreen icon="✍️" label="Writing Test" onStart={()=>setReady(true)}/>;
   const [dbCustomTasks, setDbCustomTasks] = useState(null);
   useEffect(()=>{
     if(!testData) {
@@ -1141,20 +1228,23 @@ function WritingTest({ onComplete, testData }) {
     const text = texts[idx];
     if(countWords(text)<50) return;
     setAiLoading(true);
+    const OPENAI_KEY = import.meta.env.VITE_OPENAI_API_KEY || "";
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages",{
+      const res = await fetch("https://api.openai.com/v1/chat/completions",{
         method:"POST",
-        headers:{"Content-Type":"application/json"},
+        headers:{"Content-Type":"application/json","Authorization":`Bearer ${OPENAI_KEY}`},
         body:JSON.stringify({
-          model:"claude-sonnet-4-20250514", max_tokens:1000,
-          system:`You are a strict IELTS examiner. Score the writing on all 4 official criteria. Return ONLY valid JSON — no markdown, no extra text — in this exact shape:
+          model:"gpt-4o", max_tokens:1200,
+          messages:[
+            {role:"system",content:`You are a strict IELTS examiner. Score the writing on all 4 official criteria. Return ONLY valid JSON — no markdown, no extra text — in this exact shape:
 {"band":6.5,"taskAchievement":{"band":6.5,"comment":"2-sentence specific comment on task achievement."},"coherenceCohesion":{"band":7.0,"comment":"2-sentence specific comment on structure and cohesion."},"lexicalResource":{"band":6.5,"comment":"2-sentence specific comment on vocabulary range."},"grammaticalRange":{"band":6.0,"comment":"2-sentence specific comment on grammar accuracy."},"wordCount":160,"summary":"2-3 sentence overall comment.","strengths":["specific strength 1","specific strength 2"],"improvements":["specific area 1","specific area 2"],"keyTip":"single most impactful tip to raise the band score","corrections":[{"original":"phrase from text","corrected":"corrected version","note":"brief reason"}]}
-Use 0.5 increments 1–9. Be strict and realistic.`,
-          messages:[{role:"user",content:`IELTS Writing ${WRITING_TASKS[idx].task}\n\nPrompt: ${WRITING_TASKS[idx].prompt}\n\nCandidate's response (${countWords(text)} words):\n${text}`}]
+Use 0.5 increments 1–9. Be strict and realistic.`},
+            {role:"user",content:`IELTS Writing ${WRITING_TASKS[idx].task}\n\nPrompt: ${WRITING_TASKS[idx].prompt}\n\nCandidate's response (${countWords(text)} words):\n${text}`}
+          ]
         })
       });
       const data = await res.json();
-      const raw  = (data.content?.[0]?.text||"{}").replace(/```json|```/g,"").trim();
+      const raw  = (data.choices?.[0]?.message?.content||"{}").replace(/```json|```/g,"").trim();
       setAiFb(f=>({...f,[idx]:JSON.parse(raw)}));
     } catch {
       setAiFb(f=>({...f,[idx]:{band:5.5,taskAchievement:{band:5.5,comment:"Could not retrieve AI feedback. Please check your connection."},coherenceCohesion:{band:5.5,comment:""},lexicalResource:{band:5.5,comment:""},grammaticalRange:{band:5.5,comment:""},summary:"AI evaluation unavailable — please check your connection and try again.",strengths:[],improvements:[],keyTip:"",corrections:[]}}));
@@ -1174,16 +1264,19 @@ Use 0.5 increments 1–9. Be strict and realistic.`,
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
       <SectionHeader icon="✍️" label="Writing Test" title="IELTS Academic Writing"
         right={
-          <div style={{display:"flex",gap:8}}>
-            {WRITING_TASKS.map((t,i)=>(
-              <button key={i} onClick={()=>setTIdx(i)} style={{
-                padding:"8px 16px",borderRadius:8,fontSize:12,fontWeight:700,border:"none",cursor:"pointer",transition:"all .15s",
-                background:tIdx===i?"rgba(255,255,255,.2)":"rgba(255,255,255,.08)",
-                color:tIdx===i?"#fff":"rgba(255,255,255,.5)",
-              }}>
-                {t.task} {aiFb[i]&&<span style={{color:"#fde68a"}}>✓{aiFb[i].band}</span>}
-              </button>
-            ))}
+          <div style={{display:"flex",gap:12,alignItems:"center"}}>
+            <Countdown seconds={60*60} onExpire={handleSubmit}/>
+            <div style={{display:"flex",gap:8}}>
+              {WRITING_TASKS.map((t,i)=>(
+                <button key={i} onClick={()=>setTIdx(i)} style={{
+                  padding:"8px 16px",borderRadius:8,fontSize:12,fontWeight:700,border:"none",cursor:"pointer",transition:"all .15s",
+                  background:tIdx===i?"rgba(255,255,255,.2)":"rgba(255,255,255,.08)",
+                  color:tIdx===i?"#fff":"rgba(255,255,255,.5)",
+                }}>
+                  {t.task} {aiFb[i]&&<span style={{color:"#fde68a"}}>✓{aiFb[i].band}</span>}
+                </button>
+              ))}
+            </div>
           </div>
         }/>
 
@@ -1680,8 +1773,14 @@ function AdminDashboard({ onExit }) {
   const [db, setDb]           = useState(loadDB());
   const [selected, setSelected] = useState(null);
 
-  const refresh = () => setDb(loadDB());
-  useEffect(()=>{const t=setInterval(refresh,8000);return()=>clearInterval(t);},[]);
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = async () => {
+    setRefreshing(true);
+    await reloadDB();
+    setDb({...loadDB()});
+    setRefreshing(false);
+  };
+  useEffect(()=>{const t=setInterval(refresh,15000);return()=>clearInterval(t);},[]);
 
   if(!auth) return (
     <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0F172A,#064E3B)",display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -1718,7 +1817,10 @@ function AdminDashboard({ onExit }) {
           {selected&&<span style={{color:"rgba(255,255,255,.3)",fontSize:12}}>/ {selected.candidate?.name||selected.email||"Profile"}</span>}
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <button onClick={refresh} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.06)",color:"rgba(255,255,255,.7)",border:"1px solid rgba(255,255,255,.12)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>↻ Refresh</button>
+          <button onClick={refresh} disabled={refreshing} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.06)",color:"rgba(255,255,255,.7)",border:"1px solid rgba(255,255,255,.12)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600,opacity:refreshing?.6:1}}>
+            <span style={{display:"inline-block",animation:refreshing?"spin 0.6s linear infinite":"none"}}>↻</span>
+            {refreshing?"Syncing…":"Refresh"}
+          </button>
           <button onClick={onExit} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(225,29,72,.12)",color:"#FDA4AF",border:"1px solid rgba(225,29,72,.25)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>← Exit Admin</button>
         </div>
       </div>
@@ -3516,12 +3618,25 @@ function TestLobby({ candidate, onStart }) {
 }
 
 export default function App() {
+  const [dbReady, setDbReady]   = useState(false);
   const [view, setView]         = useState("home");
   const [step, setStep]         = useState(0);
   const [candidate, setCand]    = useState(null);
   const [activeSuite, setActiveSuite] = useState(null);
   const [scores, setScores]     = useState({});
   const [booking, setBooking]   = useState(null);
+
+  useEffect(()=>{ initDB().then(()=>setDbReady(true)); },[]);
+
+  if(!dbReady) return (
+    <div style={{minHeight:"100vh",background:"#0F172A",display:"flex",flexDirection:"column",
+      alignItems:"center",justifyContent:"center",gap:20}}>
+      <div style={{width:48,height:48,border:"4px solid rgba(17,205,135,.2)",borderTopColor:"#11CD87",
+        borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+      <div style={{color:"rgba(255,255,255,.5)",fontSize:14,fontWeight:600}}>Loading platform…</div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
 
   // After registration form → go to lobby (step 1)
   const handleRegComplete = (info) => {
