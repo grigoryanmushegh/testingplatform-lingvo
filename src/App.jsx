@@ -693,12 +693,25 @@ function ListeningTest({ onComplete, testData }) {
   );
 }
 
+function TaskInstructionBlock({ instructions }) {
+  if(!instructions) return null;
+  return (
+    <div style={{background:"#FFFBF0",border:"1px solid #FDE68A",borderRadius:8,padding:"10px 14px",marginBottom:10}}>
+      {instructions.split("\n").map((line,i)=>(
+        <div key={i} style={{fontSize:13,color:C.s800,lineHeight:1.6,fontWeight:i===0?700:400}}>{line}</div>
+      ))}
+    </div>
+  );
+}
+
 function ListeningQ({ q, answer, submitted, correct, onChange }) {
   const borderCol = submitted?(correct===true?C.teal:correct===false?C.rose:C.s200):C.s200;
   const isOptionType = OPTION_TYPES.has(q.type);
   const isTextInput  = TEXT_INPUT_TYPES.has(q.type)||q.type==="short";
   const inputHint = q.hint || (isTextInput?"Write your answer":"");
   return (
+    <>
+    {q.instructions&&<TaskInstructionBlock instructions={q.instructions}/>}
     <div style={{...cardStyle({borderLeft:`4px solid ${borderCol}`,marginBottom:10,padding:16})}}>
       <div style={{display:"flex",gap:10,marginBottom:10}}>
         <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:6,padding:"2px 7px",flexShrink:0,marginTop:2}}>{q.id}</span>
@@ -741,6 +754,7 @@ function ListeningQ({ q, answer, submitted, correct, onChange }) {
         </div>
       )}
     </div>
+    </>
   );
 }
 
@@ -1140,6 +1154,8 @@ function ReadingQ({ q, answer, submitted, correct, onChange }) {
   const inputHint = q.hint || (isTextInput?"Write your answer":"");
 
   return (
+    <>
+    {q.instructions&&<TaskInstructionBlock instructions={q.instructions}/>}
     <div style={{...cardStyle({borderLeft:`4px solid ${borderCol}`,marginBottom:10,padding:16})}}>
       <div style={{display:"flex",gap:10,marginBottom:10}}>
         <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:6,padding:"2px 7px",flexShrink:0,marginTop:1}}>Q{q.id}</span>
@@ -1203,6 +1219,7 @@ function ReadingQ({ q, answer, submitted, correct, onChange }) {
         </div>
       )}
     </div>
+    </>
   );
 }
 
@@ -2979,14 +2996,16 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1}) {
               </div>
             </div>
 
-            {/* Task Instructions — only on Group Leader */}
-            {isGroupLeader&&(
+            {/* Task Instructions — shown on every question, optional */}
+            {(!isGroupFollow)&&(
               <div style={{marginBottom:10}}>
-                <label style={labelStyle}>Task Instructions <span style={{color:C.s400,fontWeight:400}}>(shown to candidate above the options)</span></label>
+                <label style={labelStyle}>
+                  Task Instructions <span style={{color:C.s400,fontWeight:400}}>(optional — shown above this question in the test; leave blank if continuing same block)</span>
+                </label>
                 <textarea
                   value={q.instructions||""}
                   onChange={e=>qbUpdateQ(setQuestions,q.id,"instructions",e.target.value)}
-                  placeholder={`e.g. Questions ${qStart+qi}–${qStart+qi+3}\nChoose the correct letter A–F for each answer.\nWrite the correct letter in boxes on your answer sheet.`}
+                  placeholder={`e.g. Questions ${qStart+qi}–${qStart+qi+3}\nChoose the correct letter, A, B, C or D.\nWrite the correct letter in boxes on your answer sheet.`}
                   rows={3}
                   style={{...inputStyle,resize:"vertical",fontFamily:"inherit",lineHeight:1.5,fontSize:13}}/>
               </div>
