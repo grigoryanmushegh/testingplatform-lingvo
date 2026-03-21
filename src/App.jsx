@@ -1264,6 +1264,7 @@ function ReadingQ({ q, answer, submitted, correct, onChange }) {
 function WritingTest({ onComplete, testData }) {
   const [ready, setReady]         = useState(false);
   const [tIdx, setTIdx]           = useState(0);
+  const [imgZoom, setImgZoom]     = useState(false);
   const [texts, setTexts]         = useState({0:"",1:""});
   const [aiLoading, setAiLoading] = useState(false);
   const [aiFb, setAiFb]           = useState({});
@@ -1394,9 +1395,25 @@ Use 0.5 increments 1–9. Be strict and realistic.`},
             <div style={{...tagStyle(),marginBottom:8}}>{task.task} Prompt</div>
             <p style={{color:C.s800,fontSize:14,lineHeight:1.85,whiteSpace:"pre-wrap"}}>{task.prompt}</p>
             {task.image&&(
-              <div style={{marginTop:14,borderRadius:10,overflow:"hidden",border:`1px solid ${C.s200}`,background:C.s100}}>
-                <img src={task.image} alt="Task chart" style={{width:"100%",maxHeight:220,objectFit:"contain",display:"block",background:"#fff"}}/>
-              </div>
+              <>
+                {/* Lightbox overlay */}
+                {imgZoom&&(
+                  <div onClick={()=>setImgZoom(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.85)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:24,cursor:"zoom-out"}}>
+                    <div style={{position:"relative",maxWidth:"90vw",maxHeight:"90vh",borderRadius:16,overflow:"hidden",boxShadow:"0 32px 80px rgba(0,0,0,.6)"}}>
+                      <img src={task.image} alt="Task chart" style={{display:"block",maxWidth:"90vw",maxHeight:"88vh",objectFit:"contain",background:"#fff"}}/>
+                      <div style={{position:"absolute",top:12,right:12,background:"rgba(0,0,0,.55)",borderRadius:8,padding:"4px 10px",color:"#fff",fontSize:12,fontWeight:600}}>✕ Click anywhere to close</div>
+                    </div>
+                  </div>
+                )}
+                {/* Thumbnail — click to zoom */}
+                <div onClick={()=>setImgZoom(true)} style={{marginTop:14,borderRadius:10,overflow:"hidden",border:`2px solid ${C.brand}`,background:C.s100,cursor:"zoom-in",position:"relative",boxShadow:"0 4px 12px rgba(17,205,135,.15)"}}>
+                  <img src={task.image} alt="Task chart" style={{width:"100%",maxHeight:320,objectFit:"contain",display:"block",background:"#fff",transition:"transform .2s"}}/>
+                  <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(15,23,42,.7))",padding:"20px 14px 10px",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                    <span style={{fontSize:14}}>🔍</span>
+                    <span style={{color:"#fff",fontSize:12,fontWeight:700}}>Click to enlarge</span>
+                  </div>
+                </div>
+              </>
             )}
           </div>
 
