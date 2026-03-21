@@ -1312,6 +1312,21 @@ function WritingTest({ onComplete, testData }) {
     if(countWords(text)<50) return;
     setAiLoading(true);
     const OPENAI_KEY = import.meta.env.VITE_OPENAI_API_KEY || "";
+    const errFb = (msg) => ({
+      band:null,
+      taskAchievement:{band:null,comment:""},
+      coherenceCohesion:{band:null,comment:""},
+      lexicalResource:{band:null,comment:""},
+      grammaticalRange:{band:null,comment:""},
+      summary: msg,
+      strengths:[],improvements:[],keyTip:"",corrections:[],
+      _error: msg
+    });
+    // Guard: no key configured
+    if(!OPENAI_KEY) {
+      setAiFb(f=>({...f,[idx]:errFb("OpenAI API key is not configured. Please add VITE_OPENAI_API_KEY to your Vercel environment variables and redeploy.")}));
+      setAiLoading(false); return;
+    }
     try {
       const res = await fetch("https://api.openai.com/v1/chat/completions",{
         method:"POST",
@@ -1327,10 +1342,19 @@ Use 0.5 increments 1–9. Be strict and realistic.`},
         })
       });
       const data = await res.json();
-      const raw  = (data.choices?.[0]?.message?.content||"{}").replace(/```json|```/g,"").trim();
+      // Surface API-level errors (401 wrong key, 429 quota, 500 server, etc.)
+      if(!res.ok || data.error) {
+        const apiMsg = data.error?.message || `API error ${res.status}`;
+        console.error("[OpenAI]", apiMsg);
+        setAiFb(f=>({...f,[idx]:errFb(`OpenAI error: ${apiMsg}`)}));
+        setAiLoading(false); return;
+      }
+      const raw = (data.choices?.[0]?.message?.content||"").replace(/```json|```/g,"").trim();
+      if(!raw) { setAiFb(f=>({...f,[idx]:errFb("OpenAI returned an empty response. Please try again.")})); setAiLoading(false); return; }
       setAiFb(f=>({...f,[idx]:JSON.parse(raw)}));
-    } catch {
-      setAiFb(f=>({...f,[idx]:{band:5.5,taskAchievement:{band:5.5,comment:"Could not retrieve AI feedback. Please check your connection."},coherenceCohesion:{band:5.5,comment:""},lexicalResource:{band:5.5,comment:""},grammaticalRange:{band:5.5,comment:""},summary:"AI evaluation unavailable — please check your connection and try again.",strengths:[],improvements:[],keyTip:"",corrections:[]}}));
+    } catch(e) {
+      console.error("[OpenAI fetch error]", e);
+      setAiFb(f=>({...f,[idx]:errFb(`Connection error: ${e?.message||"Could not reach OpenAI. Check your internet connection."}`)}));
     }
     setAiLoading(false);
   };
@@ -1410,7 +1434,14 @@ Use 0.5 increments 1–9. Be strict and realistic.`},
 
         {/* AI Feedback side */}
         <div style={{overflow:"auto",padding:28,background:C.bg}}>
-          {fb?(
+          {fb?( fb._error ? (
+            <div className="fu" style={{background:"#FFF1F2",border:"1px solid #FECDD3",borderRadius:12,padding:24}}>
+              <div style={{fontSize:18,marginBottom:10}}>⚠️</div>
+              <div style={{fontWeight:700,color:C.rose,marginBottom:8,fontSize:14}}>AI Check Failed</div>
+              <div style={{fontSize:13,color:C.s800,lineHeight:1.6,marginBottom:16}}>{fb._error}</div>
+              <button onClick={()=>checkAI(tIdx)} style={{...btnStyle("primary"),padding:"9px 20px",fontSize:13}}>Try Again</button>
+            </div>
+          ) : (
             <div className="fu">
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
                 <div>
@@ -1487,7 +1518,7 @@ Use 0.5 increments 1–9. Be strict and realistic.`},
                 </div>
               )}
             </div>
-          ):(
+          )):(
             <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",gap:16}}>
               <div style={{width:80,height:80,borderRadius:20,background:"linear-gradient(135deg,#11CD87,#0BA870)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:34,boxShadow:"0 8px 24px rgba(17,205,135,.3)"}}>🤖</div>
               <div>
