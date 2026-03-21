@@ -1861,7 +1861,7 @@ function AdminDashboard({ onExit }) {
               <h3 style={{fontSize:11,color:C.s400,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:12}}>Recent Candidates</h3>
               {(()=>{
                 const byEmail={};
-                pts.forEach(p=>{const key=p.candidate?.email?.toLowerCase()||p.id;if(!byEmail[key])byEmail[key]={email:key,candidate:p.candidate,attempts:[]};byEmail[key].attempts.push(p);});
+                pts.forEach(p=>{const cand=p.candidate||p;const key=(cand?.email||p.email||p.id||"").toLowerCase();if(!byEmail[key])byEmail[key]={email:key,candidate:cand,attempts:[]};byEmail[key].attempts.push(p);});
                 const recentProfiles=Object.values(byEmail).map(g=>({...g,attempts:g.attempts.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0))})).sort((a,b)=>(b.attempts[0]?.timestamp||0)-(a.attempts[0]?.timestamp||0)).slice(0,8);
                 return <ParticipantTable profiles={recentProfiles} onSelect={profile=>{setSelected(profile);setTab("participants");}}/>;
               })()}
@@ -1874,8 +1874,9 @@ function AdminDashboard({ onExit }) {
                 // Group all attempts by email → one profile per candidate
                 const byEmail = {};
                 pts.forEach(p => {
-                  const key = p.candidate?.email?.toLowerCase() || p.id;
-                  if(!byEmail[key]) byEmail[key] = {email:key, candidate:p.candidate, attempts:[]};
+                  const cand = p.candidate || p;
+                  const key = (cand?.email || p.email || p.id || "").toLowerCase();
+                  if(!byEmail[key]) byEmail[key] = {email:key, candidate:cand, attempts:[]};
                   byEmail[key].attempts.push(p);
                 });
                 const profiles = Object.values(byEmail)
@@ -3640,7 +3641,14 @@ export default function App() {
 
   // After registration form → go to lobby (step 1)
   const handleRegComplete = (info) => {
-    dbPush("participants", {...info, registeredAt: new Date().toISOString()});
+    dbPush("participants", {
+      id: genId("REG"),
+      candidate: info,
+      status: "registered",
+      registeredAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      date: new Date().toLocaleDateString("en-GB"),
+    });
     setCand(info);
     setStep(1);
   };
