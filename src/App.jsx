@@ -517,6 +517,18 @@ function ListeningTest({ onComplete, testData }) {
   const [submitted, setSubmitted]   = useState(false);
   const [secIdx, setSecIdx]         = useState(0);
 
+  // Warn student before leaving/refreshing the page during the test
+  useEffect(()=>{
+    if(!ready || submitted) return;
+    const handler = e => {
+      e.preventDefault();
+      e.returnValue = "⚠️ Your test is in progress. If you leave or refresh, your test will be closed and progress lost!";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [ready, submitted]);
+
   if(!ready) return <PreTestScreen icon="🎧" label="Listening Test" onStart={()=>setReady(true)}/>;
   // Build sections — supports new multi-section format, old flat questions array, or built-in
   let sections;
@@ -608,7 +620,8 @@ function ListeningTest({ onComplete, testData }) {
                     <span style={{color:"rgba(255,255,255,.7)",fontSize:12,fontWeight:600}}>{sec.label}</span>
                   </div>
                   <audio controls autoPlay src={sec.audioUrl} style={{width:"100%",height:36}}
-                    controlsList="nodownload" preload="auto"/>
+                    controlsList="nodownload" preload="auto"
+                    onEnded={()=>{ if(secIdx < sections.length-1) setTimeout(()=>setSecIdx(i=>i+1), 800); }}/>
                 </div>
                 <div style={{marginTop:8,padding:"6px 10px",background:"rgba(13,148,136,.12)",border:"1px solid rgba(13,148,136,.25)",borderRadius:7}}>
                   <p style={{color:"rgba(100,255,220,.8)",fontSize:11,lineHeight:1.5}}>▶ Press play to start. Audio changes with each section.</p>
@@ -780,6 +793,18 @@ function ReadingTest({ onComplete, testData }) {
   const [highlights, setHl]       = useState([]);
   const [hlColor, setHlColor]     = useState("y");
   const passRef = useRef(null);
+
+  // Warn student before leaving/refreshing the page during the test
+  useEffect(()=>{
+    if(!ready || submitted) return;
+    const handler = e => {
+      e.preventDefault();
+      e.returnValue = "⚠️ Your test is in progress. If you leave or refresh, your test will be closed and progress lost!";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [ready, submitted]);
 
   if(!ready) return <PreTestScreen icon="📖" label="Reading Test" onStart={()=>setReady(true)}/>;
   // Build sections & passage map — supports new multi-passage format, old single-passage, or built-in
@@ -1253,6 +1278,18 @@ function WritingTest({ onComplete, testData }) {
       if(wTests.length>0) setDbCustomTasks(wTests[wTests.length-1]);
     }
   },[testData]);
+
+  // Warn student before leaving/refreshing the page during the test
+  useEffect(()=>{
+    if(!ready || submitted) return;
+    const handler = e => {
+      e.preventDefault();
+      e.returnValue = "⚠️ Your test is in progress. If you leave or refresh, your test will be closed and progress lost!";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [ready, submitted]);
 
   if(!ready) return <PreTestScreen icon="✍️" label="Writing Test" onStart={()=>setReady(true)}/>;
 
