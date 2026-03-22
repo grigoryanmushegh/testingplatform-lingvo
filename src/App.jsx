@@ -2644,8 +2644,13 @@ function AdminDashboard({ onExit }) {
     allTests.forEach(t => {
       let qs=[];
       if(t.sections?.length>0){
+        // Listening multi-section format
         let off=0;
         t.sections.forEach(s=>{(s.questions||[]).forEach((q,j)=>{qs.push({...q,id:off+j+1});});off+=s.questions?.length||0;});
+      } else if(t.passages?.length>0){
+        // Reading multi-passage format
+        let off=0;
+        t.passages.forEach(p=>{(p.questions||[]).forEach((q,j)=>{qs.push({...q,id:off+j+1});});off+=p.questions?.length||0;});
       } else if(t.questions?.length>0){
         qs=t.questions.map((q,i)=>({...q,id:i+1}));
       }
