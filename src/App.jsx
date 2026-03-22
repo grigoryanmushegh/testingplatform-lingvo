@@ -1789,9 +1789,12 @@ async function runAICheck(text, taskMeta) {
       body:JSON.stringify({
         model:"gpt-4o", max_tokens:1400,
         messages:[
-          {role:"system",content:`You are a strict IELTS examiner AND an AI-content detection specialist. Score the writing on all 4 official criteria AND analyse if the response appears AI-generated. Return ONLY valid JSON — no markdown, no extra text — in this exact shape:
-{"band":6.5,"taskAchievement":{"band":6.5,"comment":"2-sentence specific comment."},"coherenceCohesion":{"band":7.0,"comment":"2-sentence specific comment."},"lexicalResource":{"band":6.5,"comment":"2-sentence specific comment."},"grammaticalRange":{"band":6.0,"comment":"2-sentence specific comment."},"wordCount":160,"summary":"2-3 sentence overall comment.","strengths":["strength 1","strength 2"],"improvements":["area 1","area 2"],"keyTip":"single most impactful tip","corrections":[{"original":"phrase","corrected":"corrected","note":"reason"}],"aiDetection":{"risk":25,"verdict":"Human","signals":["signal 1","signal 2"],"explanation":"1-2 sentences."}}
-Verdict: "Human" (0-25%), "Possibly AI" (26-55%), "Likely AI" (56-80%), "AI Generated" (81-100%). Risk is 0-100 integer. Use 0.5 band increments. Be strict and realistic.`},
+          {role:"system",content:`You are Nova, LingvoConnect's AI IELTS Writing Examiner. You evaluate writing professionally, clearly, and supportively — never harsh, never robotic. Communicate in a slightly formal, IELTS-like tone.
+
+Score the writing on all 4 official IELTS criteria AND detect if the response appears AI-generated. Return ONLY valid JSON — no markdown, no extra text — in this exact shape:
+{"band":6.5,"taskAchievement":{"band":6.5,"comment":"Your argument addresses the task clearly, though some points would benefit from further development."},"coherenceCohesion":{"band":7.0,"comment":"Your ideas are logically organised, but linking devices could be more varied throughout."},"lexicalResource":{"band":6.5,"comment":"Good use of topic-specific vocabulary, though some repetition reduces the overall impact."},"grammaticalRange":{"band":6.0,"comment":"You demonstrate a reasonable range of structures, but some grammatical errors reduce clarity."},"wordCount":160,"summary":"A well-structured response that addresses the task. Developing your arguments further and varying your vocabulary will help raise your band score.","strengths":["Your ideas are clear and relevant to the topic.","Good use of topic-specific vocabulary in key sections."],"improvements":["Try to extend your main ideas with clearer, more specific examples.","Some grammatical errors reduce the overall clarity of your response."],"suggestions":["Use more complex sentence structures to demonstrate grammatical range.","Support your arguments with specific, real-world examples.","Avoid repeating simple vocabulary — vary your word choices."],"keyTip":"Focus on clarity over complexity — this is key to reaching Band 7+.","corrections":[{"original":"phrase from text","corrected":"corrected version","note":"brief reason"}],"aiDetection":{"risk":25,"verdict":"Human","signals":["natural hesitations present","minor grammatical errors typical of humans"],"explanation":"The response displays characteristics consistent with human writing."}}
+
+Rules: Verdict must be "Human" (0-25%), "Possibly AI" (26-55%), "Likely AI" (56-80%), or "AI Generated" (81-100%). Risk is integer 0-100. Use 0.5 band increments 1–9. Be strict, realistic, and consistent with official IELTS standards.`},
           {role:"user",content:`IELTS Writing ${taskMeta.task}\n\nPrompt: ${taskMeta.prompt}\n\nCandidate's response (${countWords(text)} words):\n${text}`}
         ]
       })
@@ -1806,9 +1809,19 @@ Verdict: "Human" (0-25%), "Possibly AI" (26-55%), "Likely AI" (56-80%), "AI Gene
   }
 }
 
+const NOVA_LOADING_MSGS = [
+  "LingvoConnect's AI Examiner Nova is now checking your writing…",
+  "Analyzing your response based on official IELTS criteria…",
+  "Evaluating Task Achievement and Coherence…",
+  "Assessing your Lexical Resource and Grammatical Range…",
+  "Almost done! Finalizing your band score…",
+  "Just a moment… great results take a few seconds.",
+];
+
 function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
-  const [status, setStatus] = useState({0:"pending",1:"pending"}); // pending | checking | done | error
-  const [aiFb,   setAiFb]   = useState({});
+  const [status,  setStatus]  = useState({0:"pending",1:"pending"});
+  const [aiFb,    setAiFb]    = useState({});
+  const [msgIdx,  setMsgIdx]  = useState(0);
   const ran = useRef(false);
 
   const customTasks = writingTaskData;
@@ -1819,6 +1832,12 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
     return base;
   };
 
+  // Rotate loading messages
+  useEffect(()=>{
+    const t = setInterval(()=>setMsgIdx(i=>(i+1)%NOVA_LOADING_MSGS.length), 3500);
+    return ()=>clearInterval(t);
+  },[]);
+
   useEffect(()=>{
     if(ran.current) return;
     ran.current = true;
@@ -1826,64 +1845,98 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
       const results = {};
       for(const idx of [0,1]) {
         const text = writingTexts?.[idx]||"";
-        if(countWords(text)<10) { results[idx]={band:null,_error:"No response submitted"}; setStatus(s=>({...s,[idx]:"error"})); setAiFb(f=>({...f,[idx]:results[idx]})); continue; }
+        if(countWords(text)<10) {
+          results[idx]={band:null,_error:"No text detected. Please paste your essay."};
+          setStatus(s=>({...s,[idx]:"error"})); setAiFb(f=>({...f,[idx]:results[idx]})); continue;
+        }
         setStatus(s=>({...s,[idx]:"checking"}));
         const fb = await runAICheck(text, getTask(idx));
         results[idx] = fb;
         setStatus(s=>({...s,[idx]:fb._error?"error":"done"}));
         setAiFb(f=>({...f,[idx]:fb}));
       }
-      // Build final writing scores
       const b0=results[0]?.band??null, b1=results[1]?.band??null;
       let band=null;
       if(b0!=null&&b1!=null) band=Math.round((b0*.34+b1*.66)*2)/2;
       else if(b1!=null) band=b1;
       else if(b0!=null) band=b0;
-      setTimeout(()=>onComplete({band, aiFeedback:results, aiDetection:{task1:results[0]?.aiDetection, task2:results[1]?.aiDetection}}), 600);
+      setTimeout(()=>onComplete({band, aiFeedback:results, aiDetection:{task1:results[0]?.aiDetection, task2:results[1]?.aiDetection}}), 800);
     })();
   },[]);
 
-  const allDone = status[0]!=="pending"&&status[0]!=="checking"&&status[1]!=="pending"&&status[1]!=="checking";
-  const statusIcon = s => s==="pending"?"⏳":s==="checking"?<span className="spin" style={{display:"inline-block"}}>⟳</span>:s==="done"?"✅":"⚠️";
-  const statusLabel = s => s==="pending"?"Waiting…":s==="checking"?"Checking…":s==="done"?"Complete":"Could not check";
+  const allDone = [0,1].every(i=>status[i]!=="pending"&&status[i]!=="checking");
+  const doneCount = [status[0],status[1]].filter(s=>s==="done"||s==="error").length;
+  const pct = doneCount/2*100;
+
+  const taskLabel = (i,s) => {
+    if(s==="pending")  return "Waiting for Nova…";
+    if(s==="checking") return "Nova is reviewing this task…";
+    if(s==="done")     return "Evaluation complete.";
+    return "Something went wrong. Nova couldn't complete the evaluation.";
+  };
 
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#064E3B 0%,#065F46 50%,#0F172A 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
-      <div style={{maxWidth:480,width:"100%",textAlign:"center"}}>
-        {/* Animated logo */}
-        <div style={{width:100,height:100,borderRadius:24,background:"rgba(255,255,255,.1)",border:"2px solid rgba(17,205,135,.4)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:48,margin:"0 auto 28px",boxShadow:"0 0 60px rgba(17,205,135,.2)",animation:"pulse 2s ease infinite"}}>
-          🤖
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0F172A 0%,#064E3B 60%,#0D4429 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+      <div style={{maxWidth:520,width:"100%",textAlign:"center"}}>
+
+        {/* Nova avatar */}
+        <div style={{position:"relative",display:"inline-block",marginBottom:32}}>
+          <div style={{
+            width:110,height:110,borderRadius:28,
+            background:"linear-gradient(135deg,#11CD87 0%,#0BA870 100%)",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:52,boxShadow:"0 0 0 12px rgba(17,205,135,.12), 0 0 60px rgba(17,205,135,.25)",
+            animation:allDone?"none":"pulse 2.4s ease infinite",
+          }}>✍️</div>
+          {!allDone&&(
+            <div style={{position:"absolute",bottom:-6,right:-6,width:28,height:28,borderRadius:"50%",background:"#FFB703",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,boxShadow:"0 2px 8px rgba(0,0,0,.3)"}}>⚡</div>
+          )}
+          {allDone&&(
+            <div style={{position:"absolute",bottom:-6,right:-6,width:28,height:28,borderRadius:"50%",background:C.teal,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,boxShadow:"0 2px 8px rgba(0,0,0,.3)"}}>✓</div>
+          )}
         </div>
-        <h2 style={{fontSize:28,fontWeight:900,color:"#fff",letterSpacing:"-0.03em",marginBottom:10}}>
-          {allDone?"Analysis Complete!":"Your Results Are On The Way"}
+
+        {/* Nova identity */}
+        <div style={{fontSize:11,fontWeight:700,color:"rgba(17,205,135,.7)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>
+          LingvoConnect's AI Examiner
+        </div>
+        <h2 style={{fontSize:32,fontWeight:900,color:"#fff",letterSpacing:"-0.03em",marginBottom:4,lineHeight:1.1}}>
+          {allDone ? "Nova has finished reviewing your tasks." : "Nova"}
         </h2>
-        <p style={{color:"rgba(255,255,255,.55)",fontSize:14,lineHeight:1.7,marginBottom:36}}>
+
+        {/* Dynamic status message */}
+        <p style={{color:"rgba(255,255,255,.55)",fontSize:14,lineHeight:1.75,marginBottom:36,minHeight:48,transition:"opacity .4s"}}>
           {allDone
-            ?"Your writing has been evaluated by AI. Loading your final results…"
-            :"Our AI examiner is reviewing your writing submissions. This takes about 30 seconds."}
+            ? "Evaluation complete. Here's your IELTS Writing score."
+            : NOVA_LOADING_MSGS[msgIdx]}
         </p>
 
-        {/* Per-task progress */}
-        <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:32}}>
+        {/* Task cards */}
+        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:28}}>
           {[0,1].map(i=>{
-            const s = status[i];
+            const s  = status[i];
             const fb = aiFb[i];
-            const col = s==="done"?C.teal:s==="error"?C.rose:s==="checking"?"#FFB703":"rgba(255,255,255,.3)";
+            const isChecking = s==="checking";
+            const isDone = s==="done";
+            const isErr  = s==="error";
+            const borderCol = isDone?"#11CD87":isErr?"#F43F5E":isChecking?"#FFB703":"rgba(255,255,255,.12)";
+            const bgCol     = isDone?"rgba(17,205,135,.06)":isErr?"rgba(244,63,94,.06)":isChecking?"rgba(255,183,3,.06)":"rgba(255,255,255,.04)";
             return (
-              <div key={i} style={{background:"rgba(255,255,255,.07)",border:`1px solid ${col}50`,borderRadius:14,padding:"16px 20px",display:"flex",alignItems:"center",gap:14,textAlign:"left"}}>
-                <div style={{fontSize:24,minWidth:28}}>{statusIcon(s)}</div>
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:700,color:"#fff",fontSize:14}}>{WRITING_TASKS[i].task}</div>
-                  <div style={{fontSize:12,color:col,marginTop:2,fontWeight:600}}>{statusLabel(s)}</div>
+              <div key={i} style={{background:bgCol,border:`1.5px solid ${borderCol}`,borderRadius:16,padding:"18px 22px",display:"flex",alignItems:"center",gap:16,textAlign:"left",transition:"all .4s"}}>
+                <div style={{width:44,height:44,borderRadius:12,background:isDone?"rgba(17,205,135,.15)":isErr?"rgba(244,63,94,.15)":isChecking?"rgba(255,183,3,.15)":"rgba(255,255,255,.07)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  {isChecking
+                    ? <div style={{width:22,height:22,borderRadius:"50%",border:"2.5px solid rgba(255,183,3,.3)",borderTop:"2.5px solid #FFB703",animation:"spin 0.9s linear infinite"}}/>
+                    : <span style={{fontSize:20}}>{isDone?"✅":isErr?"⚠️":"⏳"}</span>}
                 </div>
-                {s==="done"&&fb?.band&&(
-                  <div style={{textAlign:"center",background:"rgba(17,205,135,.15)",borderRadius:10,padding:"6px 14px",border:"1px solid rgba(17,205,135,.3)"}}>
-                    <div style={{fontSize:22,fontWeight:900,color:C.teal,lineHeight:1}}>{fb.band}</div>
-                    <div style={{fontSize:9,color:"rgba(255,255,255,.5)",fontWeight:700,letterSpacing:"0.08em"}}>BAND</div>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,color:"#fff",fontSize:14,marginBottom:3}}>{WRITING_TASKS[i].task}</div>
+                  <div style={{fontSize:12,color:isDone?"#6EE7B7":isErr?"#FDA4AF":isChecking?"#FDE68A":"rgba(255,255,255,.35)",fontWeight:500}}>{taskLabel(i,s)}</div>
+                </div>
+                {isDone&&fb?.band&&(
+                  <div style={{textAlign:"center",background:"rgba(17,205,135,.12)",borderRadius:12,padding:"8px 16px",border:"1px solid rgba(17,205,135,.25)",flexShrink:0}}>
+                    <div style={{fontSize:26,fontWeight:900,color:"#11CD87",lineHeight:1,fontFamily:"'JetBrains Mono',monospace"}}>{fb.band}</div>
+                    <div style={{fontSize:9,color:"rgba(255,255,255,.4)",fontWeight:700,letterSpacing:"0.1em",marginTop:2}}>BAND</div>
                   </div>
-                )}
-                {s==="checking"&&(
-                  <div style={{width:32,height:32,borderRadius:"50%",border:"3px solid rgba(255,183,3,.3)",borderTop:"3px solid #FFB703",animation:"spin 1s linear infinite"}}/>
                 )}
               </div>
             );
@@ -1891,14 +1944,11 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
         </div>
 
         {/* Progress bar */}
-        <div style={{height:4,background:"rgba(255,255,255,.1)",borderRadius:99,overflow:"hidden"}}>
-          <div style={{
-            height:"100%",borderRadius:99,background:"linear-gradient(90deg,#11CD87,#0BA870)",transition:"width 1s ease",
-            width:`${([status[0],status[1]].filter(s=>s==="done"||s==="error").length/2)*100}%`
-          }}/>
+        <div style={{height:5,background:"rgba(255,255,255,.08)",borderRadius:99,overflow:"hidden",marginBottom:10}}>
+          <div style={{height:"100%",borderRadius:99,background:"linear-gradient(90deg,#11CD87,#0BA870)",transition:"width 1.2s ease",width:`${pct}%`}}/>
         </div>
-        <div style={{color:"rgba(255,255,255,.3)",fontSize:11,marginTop:10}}>
-          {[status[0],status[1]].filter(s=>s==="done"||s==="error").length} of 2 tasks analysed
+        <div style={{color:"rgba(255,255,255,.25)",fontSize:11,fontWeight:600,letterSpacing:"0.06em"}}>
+          {doneCount} OF 2 TASKS EVALUATED
         </div>
       </div>
     </div>
@@ -2001,46 +2051,123 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
         })}
       </div>
 
-      {/* Writing AI Feedback in Results */}
-      {scores.writing.aiFeedback && (Object.keys(scores.writing.aiFeedback).length > 0) && (
-        <div style={{...cardStyle({padding:24,marginBottom:20})}}>
-          <div style={{fontWeight:800,color:C.s900,fontSize:15,marginBottom:6}}>✍️ Writing AI Feedback</div>
-          <p style={{color:C.s400,fontSize:12,marginBottom:20}}>Detailed breakdown from your AI examiner session</p>
+      {/* Nova Writing Feedback */}
+      {scores.writing.aiFeedback && Object.keys(scores.writing.aiFeedback).length>0 && (
+        <div style={{marginBottom:20}}>
+          {/* Nova header */}
+          <div style={{background:"linear-gradient(135deg,#0F172A 0%,#064E3B 100%)",borderRadius:20,padding:"28px 32px",marginBottom:16,display:"flex",alignItems:"center",gap:20}}>
+            <div style={{width:60,height:60,borderRadius:16,background:"linear-gradient(135deg,#11CD87,#0BA870)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,flexShrink:0,boxShadow:"0 4px 20px rgba(17,205,135,.35)"}}>✍️</div>
+            <div>
+              <div style={{fontSize:10,fontWeight:700,color:"rgba(17,205,135,.7)",letterSpacing:"0.18em",textTransform:"uppercase",marginBottom:4}}>LingvoConnect's AI Examiner</div>
+              <div style={{fontSize:20,fontWeight:800,color:"#fff",letterSpacing:"-0.02em"}}>Nova's Writing Evaluation</div>
+              <div style={{fontSize:12,color:"rgba(255,255,255,.45)",marginTop:3}}>Assessed against official IELTS band criteria</div>
+            </div>
+          </div>
+
           {[0,1].map(tIdx=>{
-            const fb=scores.writing.aiFeedback[tIdx];
-            if(!fb) return null;
+            const fb = scores.writing.aiFeedback[tIdx];
+            if(!fb||fb._error) return null;
+            const CRITERIA = [
+              ["taskAchievement","Task Response","📋"],
+              ["coherenceCohesion","Coherence & Cohesion","🔗"],
+              ["lexicalResource","Lexical Resource","📚"],
+              ["grammaticalRange","Grammatical Range & Accuracy","⚙️"],
+            ];
             return (
-              <div key={tIdx} style={{marginBottom:tIdx===0?20:0}}>
-                <div style={{fontSize:12,fontWeight:700,color:C.brand,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>
-                  Task {tIdx+1} — Band {fb.band}
+              <div key={tIdx} style={{...cardStyle({padding:28,marginBottom:16})}}>
+                {/* Task header */}
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24,paddingBottom:20,borderBottom:`1px solid ${C.s200}`}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:C.brand,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Writing {WRITING_TASKS[tIdx].task}</div>
+                    <div style={{fontSize:16,fontWeight:800,color:C.s900}}>Evaluation complete. Here's your IELTS Writing score.</div>
+                  </div>
+                  {fb.band&&(
+                    <div style={{textAlign:"center",background:bandBg(fb.band),borderRadius:14,padding:"12px 22px",border:`2px solid ${bandColor(fb.band)}30`,flexShrink:0}}>
+                      <div style={{fontSize:40,fontWeight:900,color:bandColor(fb.band),lineHeight:1,fontFamily:"'JetBrains Mono',monospace"}}>{fb.band}</div>
+                      <div style={{fontSize:10,fontWeight:700,color:bandColor(fb.band),letterSpacing:"0.1em",marginTop:2}}>BAND SCORE</div>
+                    </div>
+                  )}
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
-                  {[
-                    ["taskAchievement","Task Achievement"],
-                    ["coherenceCohesion","Coherence & Cohesion"],
-                    ["lexicalResource","Lexical Resource"],
-                    ["grammaticalRange","Grammar & Accuracy"],
-                  ].map(([k,lbl])=>{
-                    const crit=fb[k]||{band:fb.tr||fb.band||5,comment:""};
-                    // backward-compat with old format
-                    const band=typeof crit==="object"?crit.band:(k==="taskAchievement"?fb.tr:k==="coherenceCohesion"?fb.cc:k==="lexicalResource"?fb.lr:fb.gra)||5;
+
+                {/* Summary */}
+                {fb.summary&&(
+                  <div style={{background:C.s100,borderRadius:12,padding:"14px 18px",marginBottom:20,borderLeft:`4px solid ${C.brand}`}}>
+                    <div style={{fontSize:11,fontWeight:700,color:C.brand,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Overall Assessment</div>
+                    <p style={{fontSize:13,color:C.s800,lineHeight:1.8,margin:0}}>{fb.summary}</p>
+                  </div>
+                )}
+
+                {/* 4 Criteria */}
+                <div style={{fontSize:13,fontWeight:700,color:C.s900,marginBottom:12}}>Criteria Breakdown</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
+                  {CRITERIA.map(([k,lbl,icon])=>{
+                    const crit = fb[k]||{};
+                    const b = typeof crit==="object"?crit.band:null;
+                    const comment = typeof crit==="object"?crit.comment:"";
+                    if(!b) return null;
                     return (
-                      <div key={k} style={{...cardStyle({padding:"10px 14px"})}}>
-                        <div style={{fontSize:10,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>{lbl}</div>
-                        <div style={{fontSize:22,fontWeight:800,color:bandColor(band)}}>{band}</div>
-                        <div style={{height:3,background:C.s200,borderRadius:99,marginTop:5}}>
-                          <div style={{width:`${(band-1)/8*100}%`,height:"100%",background:bandColor(band),borderRadius:99}}/>
+                      <div key={k} style={{background:"#fff",border:`1.5px solid ${bandColor(b)}25`,borderRadius:12,padding:"14px 16px",boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                          <div style={{fontSize:11,fontWeight:700,color:C.s400,textTransform:"uppercase",letterSpacing:"0.06em"}}>{icon} {lbl}</div>
+                          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:20,fontWeight:900,color:bandColor(b)}}>{b}</div>
                         </div>
+                        <div style={{height:4,background:C.s200,borderRadius:99,marginBottom:8}}>
+                          <div style={{width:`${(b-1)/8*100}%`,height:"100%",background:bandColor(b),borderRadius:99,transition:"width .6s ease"}}/>
+                        </div>
+                        {comment&&<p style={{fontSize:12,color:C.s600,lineHeight:1.7,margin:0}}>{comment}</p>}
                       </div>
                     );
                   })}
                 </div>
-                {fb.keyTip&&(
-                  <div style={{background:C.brandL,borderRadius:8,padding:"10px 14px",fontSize:12,color:C.brand,fontWeight:500}}>
-                    💡 <strong>Key Tip:</strong> {fb.keyTip}
+
+                {/* Strengths & Improvements */}
+                {(fb.strengths?.length>0||fb.improvements?.length>0)&&(
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
+                    {fb.strengths?.length>0&&(
+                      <div style={{background:"#F0FDF4",border:"1.5px solid #BBF7D0",borderRadius:12,padding:"14px 16px"}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"#16A34A",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>✓ Positive Feedback</div>
+                        {fb.strengths.map((s,i)=>(
+                          <div key={i} style={{display:"flex",gap:8,marginBottom:6,fontSize:12,color:"#166534",lineHeight:1.6}}>
+                            <span style={{color:"#16A34A",flexShrink:0}}>•</span><span>{s}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {fb.improvements?.length>0&&(
+                      <div style={{background:"#FFFBEB",border:"1.5px solid #FDE68A",borderRadius:12,padding:"14px 16px"}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"#D97706",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>↑ Areas for Improvement</div>
+                        {fb.improvements.map((s,i)=>(
+                          <div key={i} style={{display:"flex",gap:8,marginBottom:6,fontSize:12,color:"#92400E",lineHeight:1.6}}>
+                            <span style={{color:"#D97706",flexShrink:0}}>•</span><span>{s}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
-                {tIdx===0&&<div style={{height:1,background:C.s200,margin:"20px 0"}}/>}
+
+                {/* How to improve */}
+                {fb.suggestions?.length>0&&(
+                  <div style={{background:"#F8F7FF",border:"1.5px solid #DDD6FE",borderRadius:12,padding:"14px 16px",marginBottom:16}}>
+                    <div style={{fontSize:11,fontWeight:700,color:C.violet,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>📈 How to Improve Your Score</div>
+                    {fb.suggestions.map((s,i)=>(
+                      <div key={i} style={{display:"flex",gap:8,marginBottom:6,fontSize:12,color:"#4C1D95",lineHeight:1.6}}>
+                        <span style={{color:C.violet,flexShrink:0}}>→</span><span>{s}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Nova's Tip */}
+                {fb.keyTip&&(
+                  <div style={{background:"linear-gradient(135deg,#064E3B,#065F46)",borderRadius:12,padding:"16px 20px",display:"flex",gap:14,alignItems:"flex-start"}}>
+                    <div style={{width:36,height:36,borderRadius:10,background:"rgba(17,205,135,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>💡</div>
+                    <div>
+                      <div style={{fontSize:11,fontWeight:700,color:"rgba(17,205,135,.8)",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Nova's Tip</div>
+                      <p style={{fontSize:13,color:"rgba(255,255,255,.85)",lineHeight:1.75,margin:0}}>{fb.keyTip}</p>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
