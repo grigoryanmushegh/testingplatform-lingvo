@@ -2853,7 +2853,7 @@ function AdminDashboard({ onExit }) {
               })()}
             </div>
           )}
-          {tab==="participants"&&selected&&<ParticipantDetail profile={selected} onBack={()=>setSelected(null)}/>}
+          {tab==="participants"&&selected&&<ParticipantDetail profile={selected} onBack={()=>setSelected(null)} onUpdateProfile={setSelected}/>}
 
           {tab==="bookings"&&(
             <div>
@@ -3011,7 +3011,7 @@ function ParticipantTable({ profiles, onSelect }) {
   );
 }
 
-function ParticipantDetail({ profile, onBack }) {
+function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
   const [wTab, setWTab]       = useState(0);
   const [mainTab, setMainTab] = useState("overview");
   const [assignSuiteId, setAssignSuiteId] = useState("");
@@ -3364,20 +3364,24 @@ function ParticipantDetail({ profile, onBack }) {
                                 const lBand = a.listeningBand??0;
                                 const rBand = a.readingBand??0;
                                 const wBand = a.writingBand??null;
-                                const bands = wBand!=null?[lBand,rBand,wBand,val]:[lBand,rBand,val];
-                                const newOverall = overallBand(bands);
-                                // Update participant in local db
-                                const updated = (_db.participants||[]).map(p=>
-                                  p.id===a.id ? {...p,speakingBand:val,overall:newOverall} : p
+                                const newOverall = overallBand(wBand!=null?[lBand,rBand,wBand,val]:[lBand,rBand,val]);
+                                // Update _db in memory
+                                const updatedPts = (_db.participants||[]).map(p=>
+                                  (p.id&&p.id===a.id)||(p.timestamp&&p.timestamp===a.timestamp)
+                                    ? {...p,speakingBand:val,overall:newOverall} : p
                                 );
-                                // Also update scoreOverrides so it persists through refresh
                                 const overrides = {...(_db.scoreOverrides||{})};
-                                overrides[a.id] = {...(overrides[a.id]||{}), speakingBand:val, overall:newOverall};
-                                _db={..._db,participants:updated,scoreOverrides:overrides};
+                                const key = a.id||a.timestamp;
+                                overrides[key]={...( overrides[key]||{}),speakingBand:val,overall:newOverall};
+                                _db={..._db,participants:updatedPts,scoreOverrides:overrides};
                                 try{localStorage.setItem(DB_KEY,JSON.stringify(_db));}catch{}
                                 await _flushConfig(_db);
-                                setDb({..._db});
-                                setSpeakingInputs(s=>({...s,[a.id]:""}));
+                                // Update profile so UI reflects new score immediately
+                                const updatedAttempts=(profile.attempts||[]).map(att=>
+                                  att===a||att.timestamp===a.timestamp?{...att,speakingBand:val,overall:newOverall}:att
+                                );
+                                onUpdateProfile?.({...profile,attempts:updatedAttempts});
+                                setSpeakingInputs(s=>({...s,[key]:""}));
                               };
                               return (
                                 <div>
