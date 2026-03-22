@@ -64,36 +64,68 @@ const DB_KEY   = "lv_ielts_v2";
 const _emptyDB = () => ({participants:[],bookings:[],tests:[],testSuites:[],assignments:[],speakingSlots:[]});
 let   _db      = _emptyDB();
 let   _flushTmr = null;
-let   _sbOk    = false; // tracks whether Supabase is reachable
 
-const _flushNow = async db => {
+// ── Config store (admin data: tests, suites, assignments, slots) ──────────────
+const _flushConfig = async db => {
   if(!supabase) return false;
   try {
-    const {error} = await supabase.from("ielts_store").upsert({id:"main",data:db,updated_at:new Date().toISOString()});
-    if(error) { console.warn("[DB] Supabase write error:", error.message); return false; }
-    _sbOk = true;
+    const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[]};
+    const {error} = await supabase.from("ielts_store").upsert({id:"main",data:cfg,updated_at:new Date().toISOString()});
+    if(error){ console.warn("[DB] config write error:",error.message); return false; }
     return true;
-  } catch(e) { console.warn("[DB] Supabase write failed:", e); return false; }
+  } catch(e){ console.warn("[DB] config write failed:",e); return false; }
 };
-// Immediate write — no debounce — used for critical saves (registration, results)
-const _flushImmediate = db => _flushNow(db);
-const _flush = db => { clearTimeout(_flushTmr); _flushTmr = setTimeout(()=>_flushNow(db), 300); };
+const _flush    = db => { clearTimeout(_flushTmr); _flushTmr = setTimeout(()=>_flushConfig(db),300); };
+const _flushNow = db => _flushConfig(db);
 
-const loadDB  = ()         => _db;
-const saveDB  = db         => { _db=db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{} _flush(db); };
-// Critical save — writes to Supabase immediately, no debounce
-const saveDBNow = async db => { _db=db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{} await _flushImmediate(db); };
-const dbPush  = (col,item) => { _db[col]=[item,...(_db[col]||[])]; saveDB(_db); };
-const dbPushNow = async (col,item) => { _db[col]=[item,...(_db[col]||[])]; await saveDBNow(_db); };
-const dbSave  = (col,items)=> { _db[col]=items; saveDB(_db); };
+// ── Participants table — one row per student, no concurrent conflicts ──────────
+const _insertParticipant = async item => {
+  if(!supabase) return false;
+  try {
+    const email = ((item.candidate?.email||item.email)||"").toLowerCase().trim();
+    const type  = item.listeningBand!=null ? "attempt" : "registration";
+    const {error} = await supabase.from("participants").insert({id:item.id, email, type, data:item});
+    if(error){ console.warn("[DB] participant insert error:",error.message); return false; }
+    return true;
+  } catch(e){ console.warn("[DB] participant insert failed:",e); return false; }
+};
+const _loadParticipants = async () => {
+  if(!supabase) return null;
+  try {
+    const {data,error} = await supabase.from("participants").select("data").order("created_at",{ascending:false});
+    if(error||!data) return null;
+    return data.map(r=>r.data);
+  } catch{ return null; }
+};
+
+const loadDB  = () => _db;
+const saveDB  = db => { _db=db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{} _flush(db); };
+const saveDBNow = async db => { _db=db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{} await _flushNow(db); };
+
+// dbPush for participants → individual row insert (concurrent-safe)
+// dbPush for anything else → full config upsert
+const dbPush    = (col,item) => { _db[col]=[item,...(_db[col]||[])]; saveDB(_db); };
+const dbPushNow = async (col,item) => {
+  _db[col]=[item,...(_db[col]||[])];
+  try{localStorage.setItem(DB_KEY,JSON.stringify(_db));}catch{}
+  if(col==="participants") { await _insertParticipant(item); }
+  else { await _flushNow(_db); }
+};
+const dbSave    = (col,items) => { _db[col]=items; saveDB(_db); };
 const dbSaveNow = async (col,items) => { _db[col]=items; await saveDBNow(_db); };
 
-// Force re-fetch from Supabase (used by admin Refresh button)
+// Force re-fetch from both Supabase sources
 export async function reloadDB() {
   if(supabase){
     try{
-      const {data,error}=await supabase.from("ielts_store").select("data").eq("id","main").single();
-      if(data?.data){ _db=data.data; localStorage.setItem(DB_KEY,JSON.stringify(_db)); return; }
+      // Load config (admin data)
+      const {data:cfg} = await supabase.from("ielts_store").select("data").eq("id","main").single();
+      const base = cfg?.data || {};
+      // Load participants (student data)
+      const pts = await _loadParticipants();
+      _db = {..._emptyDB(), ...base, participants: pts||base.participants||[]};
+      localStorage.setItem(DB_KEY,JSON.stringify(_db));
+      return;
     }catch{}
   }
   try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
@@ -102,11 +134,17 @@ export async function reloadDB() {
 export async function initDB() {
   if(supabase){
     try{
-      const {data}=await supabase.from("ielts_store").select("data").eq("id","main").single();
-      if(data?.data){ _db=data.data; localStorage.setItem(DB_KEY,JSON.stringify(_db)); return; }
-      // First run — seed Supabase from localStorage if anything exists
+      const {data:cfg} = await supabase.from("ielts_store").select("data").eq("id","main").single();
+      const base = cfg?.data || {};
+      const pts  = await _loadParticipants();
+      if(cfg?.data || pts){
+        _db = {..._emptyDB(), ...base, participants: pts||base.participants||[]};
+        localStorage.setItem(DB_KEY,JSON.stringify(_db));
+        return;
+      }
+      // First run — seed from localStorage
       try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
-      await _flushNow(_db);
+      await _flushConfig(_db);
     }catch{
       try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
     }
