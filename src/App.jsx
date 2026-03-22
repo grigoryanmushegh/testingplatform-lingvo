@@ -1882,12 +1882,12 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
         {/* Nova avatar */}
         <div style={{position:"relative",display:"inline-block",marginBottom:32}}>
           <div style={{
-            width:110,height:110,borderRadius:28,
-            background:"linear-gradient(135deg,#11CD87 0%,#0BA870 100%)",
-            display:"flex",alignItems:"center",justifyContent:"center",
-            fontSize:52,boxShadow:"0 0 0 12px rgba(17,205,135,.12), 0 0 60px rgba(17,205,135,.25)",
+            width:110,height:110,borderRadius:28,overflow:"hidden",
+            boxShadow:"0 0 0 12px rgba(17,205,135,.12), 0 0 60px rgba(17,205,135,.25)",
             animation:allDone?"none":"pulse 2.4s ease infinite",
-          }}>✍️</div>
+          }}>
+            <img src="/nova.png" alt="Nova" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+          </div>
           {!allDone&&(
             <div style={{position:"absolute",bottom:-6,right:-6,width:28,height:28,borderRadius:"50%",background:"#FFB703",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,boxShadow:"0 2px 8px rgba(0,0,0,.3)"}}>⚡</div>
           )}
@@ -2056,7 +2056,9 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
         <div style={{marginBottom:20}}>
           {/* Nova header */}
           <div style={{background:"linear-gradient(135deg,#0F172A 0%,#064E3B 100%)",borderRadius:20,padding:"28px 32px",marginBottom:16,display:"flex",alignItems:"center",gap:20}}>
-            <div style={{width:60,height:60,borderRadius:16,background:"linear-gradient(135deg,#11CD87,#0BA870)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,flexShrink:0,boxShadow:"0 4px 20px rgba(17,205,135,.35)"}}>✍️</div>
+            <div style={{width:60,height:60,borderRadius:16,overflow:"hidden",flexShrink:0,boxShadow:"0 4px 20px rgba(17,205,135,.35)"}}>
+              <img src="/nova.png" alt="Nova" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+            </div>
             <div>
               <div style={{fontSize:10,fontWeight:700,color:"rgba(17,205,135,.7)",letterSpacing:"0.18em",textTransform:"uppercase",marginBottom:4}}>LingvoConnect's AI Examiner</div>
               <div style={{fontSize:20,fontWeight:800,color:"#fff",letterSpacing:"-0.02em"}}>Nova's Writing Evaluation</div>
@@ -2160,7 +2162,7 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
 
                 {/* Nova's Tip */}
                 {fb.keyTip&&(
-                  <div style={{background:"linear-gradient(135deg,#064E3B,#065F46)",borderRadius:12,padding:"16px 20px",display:"flex",gap:14,alignItems:"flex-start"}}>
+                  <div style={{background:"linear-gradient(135deg,#064E3B,#065F46)",borderRadius:12,padding:"16px 20px",display:"flex",gap:14,alignItems:"flex-start",marginBottom:12}}>
                     <div style={{width:36,height:36,borderRadius:10,background:"rgba(17,205,135,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>💡</div>
                     <div>
                       <div style={{fontSize:11,fontWeight:700,color:"rgba(17,205,135,.8)",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Nova's Tip</div>
@@ -2168,6 +2170,46 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
                     </div>
                   </div>
                 )}
+
+                {/* AI / Human text detection */}
+                {fb.aiDetection&&(()=>{
+                  const d = fb.aiDetection;
+                  const humanPct = 100 - d.risk;
+                  const riskColor = d.risk<=25?"#16A34A":d.risk<=55?"#D97706":d.risk<=80?"#EA580C":"#DC2626";
+                  const riskBg   = d.risk<=25?"#F0FDF4":d.risk<=55?"#FFFBEB":d.risk<=80?"#FFF7ED":"#FEF2F2";
+                  const verdict  = d.verdict||"Human";
+                  return (
+                    <div style={{borderRadius:12,border:`2px solid ${riskColor}30`,background:riskBg,padding:"16px 20px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                        <div>
+                          <div style={{fontSize:11,fontWeight:800,color:riskColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:2}}>🤖 Text Authenticity Check</div>
+                          <div style={{fontSize:11,color:"#64748B"}}>Analysed by Nova · GPT-4o</div>
+                        </div>
+                        <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                          <div style={{textAlign:"center",background:"#fff",borderRadius:10,padding:"8px 14px",border:`1.5px solid #16A34A`}}>
+                            <div style={{fontSize:22,fontWeight:900,color:"#16A34A",lineHeight:1,fontFamily:"'JetBrains Mono',monospace"}}>{humanPct}%</div>
+                            <div style={{fontSize:9,fontWeight:700,color:"#16A34A",marginTop:2}}>HUMAN</div>
+                          </div>
+                          <div style={{textAlign:"center",background:"#fff",borderRadius:10,padding:"8px 14px",border:`1.5px solid ${riskColor}`}}>
+                            <div style={{fontSize:22,fontWeight:900,color:riskColor,lineHeight:1,fontFamily:"'JetBrains Mono',monospace"}}>{d.risk}%</div>
+                            <div style={{fontSize:9,fontWeight:700,color:riskColor,marginTop:2}}>AI RISK</div>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Dual bar */}
+                      <div style={{height:8,background:"#e5e7eb",borderRadius:99,marginBottom:10,overflow:"hidden",display:"flex"}}>
+                        <div style={{width:`${humanPct}%`,height:"100%",background:"#16A34A",borderRadius:"99px 0 0 99px",transition:"width .8s ease"}}/>
+                        <div style={{width:`${d.risk}%`,height:"100%",background:riskColor,borderRadius:"0 99px 99px 0",transition:"width .8s ease"}}/>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:600,marginBottom:d.explanation?10:0}}>
+                        <span style={{color:"#16A34A"}}>✓ Human: {humanPct}%</span>
+                        <span style={{color:riskColor,fontWeight:700}}>Verdict: {verdict}</span>
+                        <span style={{color:riskColor}}>AI Risk: {d.risk}%</span>
+                      </div>
+                      {d.explanation&&<p style={{fontSize:12,color:"#374151",lineHeight:1.65,margin:0,marginTop:8,paddingTop:10,borderTop:"1px solid rgba(0,0,0,.07)"}}>{d.explanation}</p>}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
