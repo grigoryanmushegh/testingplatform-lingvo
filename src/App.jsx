@@ -3974,6 +3974,8 @@ export default function App() {
   const [exitConfirm, setExitConfirm] = useState(false); // exit exam confirmation dialog
 
   useEffect(()=>{ initDB().then(()=>setDbReady(true)); },[]);
+  // Exit fullscreen when results screen is shown — must be before any conditional returns
+  useEffect(()=>{ if(step===6) exitFullscreen(); },[step]);
 
   if(!dbReady) return (
     <div style={{minHeight:"100vh",background:"#0F172A",display:"flex",flexDirection:"column",
@@ -4018,9 +4020,6 @@ export default function App() {
     setScores({});
     setBooking(null);
   };
-
-  // Results page: exit fullscreen when shown
-  useEffect(()=>{ if(step===6) exitFullscreen(); },[step]);
 
   if(view==="admin") return <AdminDashboard onExit={()=>setView("home")}/>;
 
