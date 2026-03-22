@@ -367,11 +367,21 @@ function StepNav({ step, steps }) {
   );
 }
 
+// Helper: request / exit fullscreen
+const enterFullscreen = () => {
+  const el = document.documentElement;
+  (el.requestFullscreen||el.webkitRequestFullscreen||el.mozRequestFullScreen||el.msRequestFullscreen)?.call(el).catch(()=>{});
+};
+const exitFullscreen = () => {
+  (document.exitFullscreen||document.webkitExitFullscreen||document.mozCancelFullScreen||document.msExitFullscreen)?.call(document).catch(()=>{});
+};
+
 // Pre-test countdown screen — shown 60 s before each section starts
 function PreTestScreen({ icon, label, color="#11CD87", onStart }) {
   const [left, setLeft] = useState(60);
+  const doStart = () => { enterFullscreen(); onStart(); };
   useEffect(()=>{
-    if(left<=0){onStart();return;}
+    if(left<=0){doStart();return;}
     const t=setTimeout(()=>setLeft(l=>l-1),1000);
     return()=>clearTimeout(t);
   },[left]);
@@ -401,7 +411,7 @@ function PreTestScreen({ icon, label, color="#11CD87", onStart }) {
           <div style={{fontSize:11,color:"rgba(255,255,255,.4)",marginTop:4}}>seconds</div>
         </div>
       </div>
-      <button onClick={onStart} style={{background:color,color:"#064E3B",border:"none",borderRadius:12,
+      <button onClick={doStart} style={{background:color,color:"#064E3B",border:"none",borderRadius:12,
         padding:"12px 32px",fontSize:14,fontWeight:800,cursor:"pointer",letterSpacing:"0.03em"}}>
         Start Now →
       </button>
@@ -516,18 +526,30 @@ function ListeningTest({ onComplete, testData }) {
   const [answers, setAnswers]       = useState({});
   const [submitted, setSubmitted]   = useState(false);
   const [secIdx, setSecIdx]         = useState(0);
+  const audioRef                    = useRef(null);
+  const lastTimeRef                 = useRef(0);
+  const testActiveRef               = useRef(false);
 
-  // Warn student before leaving/refreshing the page during the test
+  // Keep ref in sync so beforeunload always reads current state
+  useEffect(()=>{ testActiveRef.current = ready && !submitted; }, [ready, submitted]);
+
+  // Attach beforeunload ONCE — uses ref to check if test is active
   useEffect(()=>{
-    if(!ready || submitted) return;
     const handler = e => {
+      if(!testActiveRef.current) return;
       e.preventDefault();
-      e.returnValue = "⚠️ Your test is in progress. If you leave or refresh, your test will be closed and progress lost!";
-      return e.returnValue;
+      e.returnValue = "";
+      return "";
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [ready, submitted]);
+  }, []);
+
+  // Exit fullscreen when test is done
+  useEffect(()=>{ if(submitted) exitFullscreen(); }, [submitted]);
+
+  // Reset audio seek tracker when section changes
+  useEffect(()=>{ lastTimeRef.current = 0; }, [secIdx]);
 
   if(!ready) return <PreTestScreen icon="🎧" label="Listening Test" onStart={()=>setReady(true)}/>;
   // Build sections — supports new multi-section format, old flat questions array, or built-in
@@ -619,8 +641,11 @@ function ListeningTest({ onComplete, testData }) {
                     <span style={{fontSize:16}}>🎵</span>
                     <span style={{color:"rgba(255,255,255,.7)",fontSize:12,fontWeight:600}}>{sec.label}</span>
                   </div>
-                  <audio controls autoPlay src={sec.audioUrl} style={{width:"100%",height:36}}
-                    controlsList="nodownload" preload="auto"
+                  <audio ref={audioRef} controls autoPlay src={sec.audioUrl} style={{width:"100%",height:36}}
+                    controlsList="nodownload noplaybackrate" preload="auto"
+                    onTimeUpdate={e=>{ lastTimeRef.current = e.target.currentTime; }}
+                    onSeeking={e=>{ e.target.currentTime = lastTimeRef.current; }}
+                    onPause={e=>{ if(!submitted && phase==="main") e.target.play().catch(()=>{}); }}
                     onEnded={()=>{ if(secIdx < sections.length-1) setTimeout(()=>setSecIdx(i=>i+1), 800); }}/>
                 </div>
                 <div style={{marginTop:8,padding:"6px 10px",background:"rgba(13,148,136,.12)",border:"1px solid rgba(13,148,136,.25)",borderRadius:7}}>
@@ -737,6 +762,15 @@ function ListeningQ({ q, answer, submitted, correct, onChange }) {
   return (
     <>
     {q.instructions&&<TaskInstructionBlock instructions={q.instructions}/>}
+    {q.diagramImage&&(
+      <div style={{marginBottom:8,borderRadius:10,overflow:"hidden",border:`2px solid ${C.brand}`,background:C.s100,cursor:"pointer"}}
+        onClick={()=>{ const w=window.open(); w.document.write(`<img src="${q.diagramImage}" style="max-width:100%;height:auto;display:block;margin:auto;">`); }}>
+        <img src={q.diagramImage} alt="Diagram / Map" style={{width:"100%",maxHeight:340,objectFit:"contain",display:"block",background:"#fff"}}/>
+        <div style={{background:"linear-gradient(transparent,rgba(15,23,42,.6))",padding:"10px",textAlign:"center"}}>
+          <span style={{color:"#fff",fontSize:11,fontWeight:700}}>🔍 Click to open full size</span>
+        </div>
+      </div>
+    )}
     <div style={{...cardStyle({borderLeft:`4px solid ${borderCol}`,marginBottom:10,padding:16})}}>
       <div style={{display:"flex",gap:10,marginBottom:10}}>
         <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:6,padding:"2px 7px",flexShrink:0,marginTop:2}}>{q.id}</span>
@@ -794,17 +828,14 @@ function ReadingTest({ onComplete, testData }) {
   const [hlColor, setHlColor]     = useState("y");
   const passRef = useRef(null);
 
-  // Warn student before leaving/refreshing the page during the test
+  const testActiveRef2 = useRef(false);
+  useEffect(()=>{ testActiveRef2.current = ready && !submitted; }, [ready, submitted]);
   useEffect(()=>{
-    if(!ready || submitted) return;
-    const handler = e => {
-      e.preventDefault();
-      e.returnValue = "⚠️ Your test is in progress. If you leave or refresh, your test will be closed and progress lost!";
-      return e.returnValue;
-    };
+    const handler = e => { if(!testActiveRef2.current) return; e.preventDefault(); e.returnValue = ""; return ""; };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [ready, submitted]);
+  }, []);
+  useEffect(()=>{ if(submitted) exitFullscreen(); }, [submitted]);
 
   if(!ready) return <PreTestScreen icon="📖" label="Reading Test" onStart={()=>setReady(true)}/>;
   // Build sections & passage map — supports new multi-passage format, old single-passage, or built-in
@@ -1280,17 +1311,14 @@ function WritingTest({ onComplete, testData }) {
     }
   },[testData]);
 
-  // Warn student before leaving/refreshing the page during the test
+  const testActiveRef3 = useRef(false);
+  useEffect(()=>{ testActiveRef3.current = ready && !submitted; }, [ready, submitted]);
   useEffect(()=>{
-    if(!ready || submitted) return;
-    const handler = e => {
-      e.preventDefault();
-      e.returnValue = "⚠️ Your test is in progress. If you leave or refresh, your test will be closed and progress lost!";
-      return e.returnValue;
-    };
+    const handler = e => { if(!testActiveRef3.current) return; e.preventDefault(); e.returnValue = ""; return ""; };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [ready, submitted]);
+  }, []);
+  useEffect(()=>{ if(submitted) exitFullscreen(); }, [submitted]);
 
   if(!ready) return <PreTestScreen icon="✍️" label="Writing Test" onStart={()=>setReady(true)}/>;
 
@@ -3283,6 +3311,34 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1}) {
                   style={inputStyle}/>
               </div>
             </div>
+
+            {/* Map / Diagram image upload — for diagram_label questions */}
+            {q.type==="diagram_label"&&(
+              <div style={{marginTop:10}}>
+                <label style={labelStyle}>Map / Plan / Diagram Image <span style={{color:C.s400,fontWeight:400}}>(shown above this question in the test)</span></label>
+                {q.diagramImage?(
+                  <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:`2px solid ${C.brand}`,background:C.s100,marginTop:4}}>
+                    <img src={q.diagramImage} alt="Diagram" style={{width:"100%",maxHeight:300,objectFit:"contain",display:"block",background:"#fff"}}/>
+                    <button onClick={()=>qbUpdateQ(setQuestions,q.id,"diagramImage",null)}
+                      style={{position:"absolute",top:8,right:8,background:"rgba(225,29,72,.85)",color:"#fff",border:"none",borderRadius:7,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                      ✕ Remove
+                    </button>
+                  </div>
+                ):(
+                  <label style={{display:"block",marginTop:4,border:`2px dashed ${C.brand}40`,borderRadius:10,padding:"20px",textAlign:"center",cursor:"pointer",background:C.brandL}}>
+                    <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
+                      const file=e.target.files?.[0]; if(!file) return;
+                      const reader=new FileReader();
+                      reader.onload=ev=>qbUpdateQ(setQuestions,q.id,"diagramImage",ev.target.result);
+                      reader.readAsDataURL(file);
+                    }}/>
+                    <div style={{fontSize:24,marginBottom:8}}>🗺️</div>
+                    <div style={{fontSize:13,fontWeight:600,color:C.brand}}>Click to upload map / plan / diagram</div>
+                    <div style={{fontSize:11,color:C.s400,marginTop:4}}>PNG, JPG, GIF — shown to students during the test</div>
+                  </label>
+                )}
+              </div>
+            )}
           </div>
         );
       })}
