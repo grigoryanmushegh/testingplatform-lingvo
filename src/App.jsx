@@ -2629,6 +2629,7 @@ function AdminDashboard({ onExit }) {
   const [refreshing, setRefreshing] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
   const [recalcMsg, setRecalcMsg] = useState("");
+  const [candidateSearch, setCandidateSearch] = useState("");
   const refresh = async () => {
     setRefreshing(true);
     await reloadDB();
@@ -2842,12 +2843,24 @@ function AdminDashboard({ onExit }) {
                   .sort((a,b)=>(b.attempts[0]?.timestamp||0)-(a.attempts[0]?.timestamp||0));
                 return (
                   <div>
-                    <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:20}}>
-                      All Candidates ({profiles.length})
-                      <span style={{fontSize:13,color:C.s400,fontWeight:400,marginLeft:10}}>{pts.length} total test{pts.length!==1?"s":""}</span>
-                    </h2>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
+                      <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",margin:0}}>
+                        All Candidates ({profiles.length})
+                        <span style={{fontSize:13,color:C.s400,fontWeight:400,marginLeft:10}}>{pts.length} total test{pts.length!==1?"s":""}</span>
+                      </h2>
+                      <input
+                        placeholder="🔍  Search by name or email…"
+                        value={candidateSearch}
+                        onChange={e=>setCandidateSearch(e.target.value)}
+                        style={{...inputStyle,width:260,fontSize:13}}
+                      />
+                    </div>
                     {profiles.length===0?<EmptyState icon="👥" text="No candidates yet."/>:
-                      <ParticipantTable profiles={profiles} onSelect={setSelected}/>}
+                      <ParticipantTable profiles={profiles.filter(p=>{
+                        const q=candidateSearch.trim().toLowerCase();
+                        if(!q) return true;
+                        return (p.candidate?.name||"").toLowerCase().includes(q)||(p.email||"").toLowerCase().includes(q);
+                      })} onSelect={setSelected}/>}
                   </div>
                 );
               })()}
@@ -2975,7 +2988,7 @@ function ParticipantTable({ profiles, onSelect }) {
       <table style={{width:"100%",borderCollapse:"collapse"}}>
         <thead>
           <tr style={{background:C.s900}}>
-            {["Candidate","Tests","Latest Date","Listening","Reading","Writing","Overall",""].map(h=>(
+            {["Candidate","Tests","Latest Date","Listening","Reading","Writing","Speaking","Overall",""].map(h=>(
               <th key={h} style={{padding:"10px 14px",textAlign:"left",color:"rgba(255,255,255,.6)",fontSize:11,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase"}}>{h}</th>
             ))}
           </tr>
@@ -2998,6 +3011,7 @@ function ParticipantTable({ profiles, onSelect }) {
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.listeningBand}/></td>
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.readingBand}/></td>
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.writingBand} pending={latest.writingBand==null&&latest.writingTexts!=null}/></td>
+                <td style={{padding:"11px 14px"}}><BandBadge val={latest.speakingBand}/></td>
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.overall} large/></td>
                 <td style={{padding:"11px 14px"}}>
                   <button onClick={()=>onSelect(profile)} style={{...btnStyle("secondary"),padding:"5px 12px",fontSize:12}}>Open Profile →</button>
