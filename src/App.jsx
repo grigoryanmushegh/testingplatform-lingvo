@@ -2739,17 +2739,24 @@ function AdminDashboard({ onExit }) {
       };
     });
     db.participants = updated;
-    await saveDBNow(db);
-    // Also push each updated attempt to Supabase participants table
-    for(const p of updated) {
-      if(p.listeningScore||p.readingScore) {
+    // Save to localStorage immediately
+    _db = db;
+    try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch{}
+    // Upsert each updated participant to Supabase (upsert = insert or update on conflict)
+    if(supabase) {
+      for(const p of updated) {
+        if(!p.listeningScore && !p.readingScore) continue;
         try {
-          if(supabase) {
-            await supabase.from("participants").update({data:p}).eq("id",p.id);
-          }
-        } catch{}
+          const email = ((p.candidate?.email||p.email)||"").toLowerCase().trim();
+          await supabase.from("participants").upsert(
+            {id:p.id, email, type:"attempt", data:p},
+            {onConflict:"id"}
+          );
+        } catch(e){ console.warn("[recalc] upsert failed for",p.id, e); }
       }
     }
+    // Also update the ielts_store config (some setups store participants there too)
+    await _flushConfig(db);
     await refresh();
     setRecalculating(false);
     setRecalcMsg(`✓ Recalculated ${count} test records`);
