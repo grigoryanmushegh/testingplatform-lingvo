@@ -2341,7 +2341,7 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
 }
 
 // ── RESULTS ───────────────────────────────────────────────────────────────────
-function Results({ scores, candidateInfo, booking, suiteName }) {
+function Results({ scores, candidateInfo, booking, suiteName, suiteId }) {
   // Null-safe score access in case of partial data
   const L = scores.listening||{correct:0,total:40,answers:{},allQuestions:[]};
   const R = scores.reading  ||{correct:0,total:40,answers:{},allQuestions:[]};
@@ -2359,6 +2359,7 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
       id:genId("IELTS"), candidate:info,
       date:new Date().toLocaleDateString("en-GB"),
       timestamp:Date.now(),
+      suiteId: suiteId||null,
       listeningScore:`${L.correct}/${L.total}`,
       readingScore:`${R.correct}/${R.total}`,
       listeningBand:lBand, readingBand:rBand, writingBand:wBand, overall,
@@ -2690,7 +2691,19 @@ function AdminDashboard({ onExit }) {
     let count = 0;
     const updated = (db.participants||[]).map(p => {
       if(!p.listeningScore && !p.readingScore) return p;
-      const suite = suiteMap[p.suiteId]||{};
+      // Use stored suiteId, or fall back: find the suite whose tests best match this participant's data
+      let suite = suiteMap[p.suiteId]||null;
+      if(!suite) {
+        // Fallback: try every suite and pick the one whose tests have the most questions matching stored answers
+        let bestScore=0, bestSuite=null;
+        allSuites.forEach(s=>{
+          let sc=0;
+          if(s.listeningId&&testQMap[s.listeningId]&&p.listeningAnswers) sc+=testQMap[s.listeningId].length;
+          if(s.readingId&&testQMap[s.readingId]&&p.readingAnswers) sc+=testQMap[s.readingId].length;
+          if(sc>bestScore){ bestScore=sc; bestSuite={listeningId:s.listeningId,readingId:s.readingId}; }
+        });
+        suite = bestSuite||{};
+      }
       const [,lt] = (p.listeningScore||"0/40").split("/").map(Number);
       const [,rt] = (p.readingScore||"0/40").split("/").map(Number);
 
@@ -4990,6 +5003,7 @@ export default function App() {
               candidateInfo={candidate||{name:"Candidate",email:""}}
               booking={booking}
               suiteName={activeSuite?.name}
+              suiteId={activeSuite?.id}
             />
           )}
         </>
