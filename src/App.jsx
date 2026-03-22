@@ -1408,20 +1408,17 @@ function ReadingQ({ q, answer, submitted, correct, onChange }) {
   );
 }
 
-// ── WRITING TEST + AI ─────────────────────────────────────────────────────────
+// ── WRITING TEST (no AI — AI runs after speaking) ─────────────────────────────
 function WritingTest({ onComplete, testData, onExit }) {
   const [ready, setReady]         = useState(false);
   const [tIdx, setTIdx]           = useState(0);
   const [imgZoom, setImgZoom]     = useState(false);
   const [texts, setTexts]         = useState({0:"",1:""});
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiFb, setAiFb]           = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [dbCustomTasks, setDbCustomTasks] = useState(null);
 
   useEffect(()=>{
     if(!testData) {
-      // No suite writing data — fall back to latest saved writing test in DB
       const db = loadDB();
       const wTests = (db.tests||[]).filter(t=>t.type==="Writing");
       if(wTests.length>0) setDbCustomTasks(wTests[wTests.length-1]);
@@ -1445,281 +1442,145 @@ function WritingTest({ onComplete, testData, onExit }) {
     : tIdx===1 && customTasks?.task2Prompt
     ? {...builtinTask, prompt: customTasks.task2Prompt, image: null}
     : {...builtinTask, image: null};
-  const wc   = countWords(texts[tIdx]||"");
-  const meetsMin = wc >= task.minWords;
-  // Both tasks need at least 30 REAL words (letters) before submit is available
-  const bothReady = countWords(texts[0])>=30 && countWords(texts[1])>=30;
-  // AI check requires at least 50 real words
-  const canAICheck = wc >= 50 && !aiLoading && !submitted;
 
-  const checkAI = async (idx) => {
-    const text = texts[idx];
-    if(countWords(text)<50) return;
-    setAiLoading(true);
-    const OPENAI_KEY = import.meta.env.VITE_OPENAI_API_KEY || "";
-    const errFb = (msg) => ({
-      band:null,
-      taskAchievement:{band:null,comment:""},
-      coherenceCohesion:{band:null,comment:""},
-      lexicalResource:{band:null,comment:""},
-      grammaticalRange:{band:null,comment:""},
-      summary: msg,
-      strengths:[],improvements:[],keyTip:"",corrections:[],
-      _error: msg
-    });
-    // Guard: no key configured
-    if(!OPENAI_KEY) {
-      setAiFb(f=>({...f,[idx]:errFb("OpenAI API key is not configured. Please add VITE_OPENAI_API_KEY to your Vercel environment variables and redeploy.")}));
-      setAiLoading(false); return;
-    }
-    try {
-      const res = await fetch("https://api.openai.com/v1/chat/completions",{
-        method:"POST",
-        headers:{"Content-Type":"application/json","Authorization":`Bearer ${OPENAI_KEY}`},
-        body:JSON.stringify({
-          model:"gpt-4o", max_tokens:1200,
-          messages:[
-            {role:"system",content:`You are a strict IELTS examiner AND an AI-content detection specialist. Score the writing on all 4 official criteria AND analyse if the response appears AI-generated. Return ONLY valid JSON — no markdown, no extra text — in this exact shape:
-{"band":6.5,"taskAchievement":{"band":6.5,"comment":"2-sentence specific comment on task achievement."},"coherenceCohesion":{"band":7.0,"comment":"2-sentence specific comment on structure and cohesion."},"lexicalResource":{"band":6.5,"comment":"2-sentence specific comment on vocabulary range."},"grammaticalRange":{"band":6.0,"comment":"2-sentence specific comment on grammar accuracy."},"wordCount":160,"summary":"2-3 sentence overall comment.","strengths":["specific strength 1","specific strength 2"],"improvements":["specific area 1","specific area 2"],"keyTip":"single most impactful tip to raise the band score","corrections":[{"original":"phrase from text","corrected":"corrected version","note":"brief reason"}],"aiDetection":{"risk":25,"verdict":"Human","signals":["natural hesitations present","minor grammatical errors typical of humans","personal voice evident"],"explanation":"1-2 sentence explanation of your AI detection assessment."}}
-Verdict must be one of: "Human" (0-25%), "Possibly AI" (26-55%), "Likely AI" (56-80%), "AI Generated" (81-100%). Risk is 0-100 integer. Use 0.5 increments 1–9 for bands. Be strict and realistic.`},
-            {role:"user",content:`IELTS Writing ${task.task}\n\nPrompt: ${task.prompt}\n\nCandidate's response (${countWords(text)} words):\n${text}`}
-          ]
-        })
-      });
-      const data = await res.json();
-      // Surface API-level errors (401 wrong key, 429 quota, 500 server, etc.)
-      if(!res.ok || data.error) {
-        const apiMsg = data.error?.message || `API error ${res.status}`;
-        console.error("[OpenAI]", apiMsg);
-        setAiFb(f=>({...f,[idx]:errFb(`OpenAI error: ${apiMsg}`)}));
-        setAiLoading(false); return;
-      }
-      const raw = (data.choices?.[0]?.message?.content||"").replace(/```json|```/g,"").trim();
-      if(!raw) { setAiFb(f=>({...f,[idx]:errFb("OpenAI returned an empty response. Please try again.")})); setAiLoading(false); return; }
-      setAiFb(f=>({...f,[idx]:JSON.parse(raw)}));
-    } catch(e) {
-      console.error("[OpenAI fetch error]", e);
-      setAiFb(f=>({...f,[idx]:errFb(`Connection error: ${e?.message||"Could not reach OpenAI. Check your internet connection."}`)}));
-    }
-    setAiLoading(false);
-  };
+  const wc       = countWords(texts[tIdx]||"");
+  const meetsMin = wc >= task.minWords;
+  const bothDone = countWords(texts[0])>=30 && countWords(texts[1])>=30;
 
   const handleSubmit = () => {
     setSubmitted(true);
-    const b0=aiFb[0]?.band||5.5, b1=aiFb[1]?.band||5.5;
-    setTimeout(()=>onComplete({band:Math.round((b0*.34+b1*.66)*2)/2, texts, aiFeedback:aiFb, aiDetection:{task1:aiFb[0]?.aiDetection, task2:aiFb[1]?.aiDetection}}),300);
+    setTimeout(()=>onComplete({texts, taskData: customTasks}), 300);
   };
-
-  const fb = aiFb[tIdx];
 
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
       <SectionHeader icon="✍️" label="Writing Test" title="IELTS Academic Writing"
         right={
           <div style={{display:"flex",gap:10,alignItems:"center"}}>
-            <div style={{display:"flex",gap:6}}>
-              {WRITING_TASKS.map((t,i)=>(
-                <button key={i} onClick={()=>setTIdx(i)} style={{
-                  padding:"7px 15px",borderRadius:8,fontSize:12,fontWeight:700,border:"none",cursor:"pointer",transition:"all .15s",
-                  background:tIdx===i?"rgba(255,255,255,.2)":"rgba(255,255,255,.07)",
-                  color:tIdx===i?"#fff":"rgba(255,255,255,.45)",
-                }}>
-                  {t.task} {aiFb[i]&&<span style={{color:"#fde68a"}}>✓{aiFb[i].band}</span>}
-                </button>
-              ))}
+            {/* Task switcher */}
+            <div style={{display:"flex",gap:4}}>
+              {WRITING_TASKS.map((t,i)=>{
+                const done = countWords(texts[i]||"")>=30;
+                return (
+                  <button key={i} onClick={()=>!submitted&&setTIdx(i)} style={{
+                    padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700,border:"none",cursor:submitted?"default":"pointer",transition:"all .15s",
+                    background:tIdx===i?"rgba(255,255,255,.22)":"rgba(255,255,255,.07)",
+                    color:tIdx===i?"#fff":"rgba(255,255,255,.4)",
+                  }}>
+                    {t.task} {done&&<span style={{color:"#6EE7B7"}}>✓</span>}
+                  </button>
+                );
+              })}
             </div>
             <Countdown seconds={60*60} onExpire={handleSubmit}/>
           </div>
         } onExit={onExit}/>
 
+      {/* Split: prompt left, writing right */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",flex:1,overflow:"hidden"}}>
-        {/* Editor side */}
+
+        {/* LEFT — Task prompt */}
         <div style={{overflow:"auto",padding:28,borderRight:`1px solid ${C.s200}`,background:"#fff",display:"flex",flexDirection:"column",gap:16}}>
           <div style={{...cardStyle({borderLeft:`4px solid ${C.brand}`,padding:20})}}>
-            <div style={{...tagStyle(),marginBottom:8}}>{task.task} Prompt</div>
-            <p style={{color:C.s800,fontSize:14,lineHeight:1.85,whiteSpace:"pre-wrap"}}>{task.prompt}</p>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+              <div style={{...tagStyle(C.brand)}}>{task.task}</div>
+              <div style={{fontSize:11,color:C.s400,fontWeight:600}}>Min {task.minWords} words</div>
+            </div>
+            <p style={{color:C.s800,fontSize:14,lineHeight:1.9,whiteSpace:"pre-wrap",margin:0}}>{task.prompt}</p>
             {task.image&&(
               <>
-                {/* Lightbox overlay */}
                 {imgZoom&&(
                   <div onClick={()=>setImgZoom(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.85)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:24,cursor:"zoom-out"}}>
                     <div style={{position:"relative",maxWidth:"90vw",maxHeight:"90vh",borderRadius:16,overflow:"hidden",boxShadow:"0 32px 80px rgba(0,0,0,.6)"}}>
-                      <img src={task.image} alt="Task chart" style={{display:"block",maxWidth:"90vw",maxHeight:"88vh",objectFit:"contain",background:"#fff"}}/>
+                      <img src={task.image} alt="Task" style={{display:"block",maxWidth:"90vw",maxHeight:"88vh",objectFit:"contain",background:"#fff"}}/>
                       <div style={{position:"absolute",top:12,right:12,background:"rgba(0,0,0,.55)",borderRadius:8,padding:"4px 10px",color:"#fff",fontSize:12,fontWeight:600}}>✕ Click anywhere to close</div>
                     </div>
                   </div>
                 )}
-                {/* Thumbnail — click to zoom */}
                 <div onClick={()=>setImgZoom(true)} style={{marginTop:14,borderRadius:10,overflow:"hidden",border:`2px solid ${C.brand}`,background:C.s100,cursor:"zoom-in",position:"relative",boxShadow:"0 4px 12px rgba(17,205,135,.15)"}}>
-                  <img src={task.image} alt="Task chart" style={{width:"100%",maxHeight:320,objectFit:"contain",display:"block",background:"#fff",transition:"transform .2s"}}/>
-                  <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(15,23,42,.7))",padding:"20px 14px 10px",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                    <span style={{fontSize:14}}>🔍</span>
-                    <span style={{color:"#fff",fontSize:12,fontWeight:700}}>Click to enlarge</span>
+                  <img src={task.image} alt="Task" style={{width:"100%",maxHeight:320,objectFit:"contain",display:"block",background:"#fff"}}/>
+                  <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(15,23,42,.7))",padding:"16px 14px 10px",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                    <span style={{fontSize:13}}>🔍</span><span style={{color:"#fff",fontSize:12,fontWeight:700}}>Click to enlarge</span>
                   </div>
                 </div>
               </>
             )}
           </div>
 
-          <textarea
-            value={texts[tIdx]}
-            onChange={e=>setTexts(t=>({...t,[tIdx]:e.target.value}))}
-            disabled={submitted}
-            placeholder="Write your response here…"
-            style={{...inputStyle,minHeight:260,resize:"vertical",lineHeight:1.85,fontSize:14,borderRadius:12,borderColor:meetsMin?C.teal:C.s200}}
-          />
-
-          {/* Word count progress bar */}
-          <div>
-            <div style={{height:4,background:C.s200,borderRadius:99,marginBottom:6,overflow:"hidden"}}>
-              <div style={{width:`${Math.min(wc/task.minWords*100,100)}%`,height:"100%",background:meetsMin?C.teal:C.brand,borderRadius:99,transition:"width .3s"}}/>
-            </div>
+          {/* Navigation hint */}
+          <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
+            {[0,1].map(i=>{
+              const wci = countWords(texts[i]||"");
+              const mini = WRITING_TASKS[i].minWords;
+              const met  = wci>=mini;
+              return (
+                <div key={i} onClick={()=>!submitted&&setTIdx(i)} style={{
+                  flex:1,padding:"10px 14px",borderRadius:10,border:`2px solid ${tIdx===i?(met?C.teal:C.brand):C.s200}`,
+                  background:tIdx===i?(met?C.tealL:C.brandL):"#fff",cursor:submitted?"default":"pointer",transition:"all .15s"
+                }}>
+                  <div style={{fontSize:11,fontWeight:700,color:tIdx===i?(met?C.teal:C.brand):C.s400,textTransform:"uppercase",letterSpacing:"0.07em"}}>{WRITING_TASKS[i].task}</div>
+                  <div style={{fontSize:12,fontWeight:700,color:met?C.teal:C.s600,marginTop:2}}>{wci} / {mini} words {met?"✓":""}</div>
+                  <div style={{height:3,background:C.s200,borderRadius:99,marginTop:6}}>
+                    <div style={{width:`${Math.min(wci/mini*100,100)}%`,height:"100%",background:met?C.teal:C.brand,borderRadius:99,transition:"width .3s"}}/>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontSize:13,fontWeight:700,color:meetsMin?C.teal:C.s400}}>
-              {wc} words {meetsMin?`✓ (min ${task.minWords} met)`:`/ ${task.minWords} required`}
-            </span>
-            <button onClick={()=>checkAI(tIdx)} disabled={!canAICheck}
-              style={{...btnStyle("violet",!canAICheck),padding:"9px 20px",fontSize:13,display:"flex",alignItems:"center",gap:8}}>
-              {aiLoading?<><span className="spin" style={{display:"inline-block",fontSize:14}}>⟳</span> Analysing…</>:"🤖 AI Band Check"}
-            </button>
-          </div>
-
-          <button onClick={handleSubmit} disabled={!bothReady||submitted}
-            style={{...btnStyle("primary",!bothReady||submitted),padding:"13px",fontSize:14,borderRadius:12}}>
-            {submitted?"✓ Writing Submitted":"Submit Both Tasks →"}
-          </button>
-          {!bothReady&&<p style={{color:C.s400,fontSize:12,textAlign:"center"}}>Write meaningful text (30+ words) in both tasks to submit</p>}
         </div>
 
-        {/* AI Feedback side */}
-        <div style={{overflow:"auto",padding:28,background:C.bg}}>
-          {fb?( fb._error ? (
-            <div className="fu" style={{background:"#FFF1F2",border:"1px solid #FECDD3",borderRadius:12,padding:24}}>
-              <div style={{fontSize:18,marginBottom:10}}>⚠️</div>
-              <div style={{fontWeight:700,color:C.rose,marginBottom:8,fontSize:14}}>AI Check Failed</div>
-              <div style={{fontSize:13,color:C.s800,lineHeight:1.6,marginBottom:16}}>{fb._error}</div>
-              <button onClick={()=>checkAI(tIdx)} style={{...btnStyle("primary"),padding:"9px 20px",fontSize:13}}>Try Again</button>
-            </div>
-          ) : (
-            <div className="fu">
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
-                <div>
-                  <div style={{...tagStyle(C.violet),marginBottom:6}}>AI Examiner Feedback</div>
-                  <div style={{fontSize:12,color:C.s400}}>Assessed against IELTS band criteria</div>
-                </div>
-                <div style={{textAlign:"center",background:bandBg(fb.band),borderRadius:12,padding:"12px 20px",border:`1px solid ${bandColor(fb.band)}30`}}>
-                  <div style={{fontSize:42,fontWeight:800,color:bandColor(fb.band),lineHeight:1,letterSpacing:"-0.03em"}}>{fb.band}</div>
-                  <div style={{fontSize:11,color:bandColor(fb.band),fontWeight:700}}>BAND</div>
-                </div>
-              </div>
+        {/* RIGHT — Writing area */}
+        <div style={{overflow:"auto",padding:28,background:C.bg,display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.s900}}>{task.task} — Your Response</div>
+            <span style={{fontSize:12,fontWeight:700,color:meetsMin?C.teal:C.s400}}>
+              {wc} words {meetsMin?`✓`:`/ ${task.minWords} required`}
+            </span>
+          </div>
 
-              {/* 4-Criteria breakdown with comments */}
-              <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
-                {[
-                  ["taskAchievement","Task Achievement / Response"],
-                  ["coherenceCohesion","Coherence & Cohesion"],
-                  ["lexicalResource","Lexical Resource"],
-                  ["grammaticalRange","Grammatical Range & Accuracy"],
-                ].map(([k,lbl])=>{
-                  const crit=fb[k]||{band:5,comment:""};
-                  return (
-                    <div key={k} style={{...cardStyle({padding:"12px 16px"})}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                        <div style={{fontSize:11,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>{lbl}</div>
-                        <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:18,fontWeight:800,color:bandColor(crit.band),letterSpacing:"-0.02em"}}>Band {crit.band}</div>
-                      </div>
-                      <div style={{height:4,background:C.s200,borderRadius:99,marginBottom:crit.comment?8:0}}>
-                        <div style={{width:`${(crit.band-1)/8*100}%`,height:"100%",background:bandColor(crit.band),borderRadius:99,transition:"width .6s ease"}}/>
-                      </div>
-                      {crit.comment&&<p style={{fontSize:12,color:C.s600,lineHeight:1.6,margin:0}}>{crit.comment}</p>}
-                    </div>
-                  );
-                })}
-              </div>
+          <textarea
+            value={texts[tIdx]}
+            onChange={e=>!submitted&&setTexts(t=>({...t,[tIdx]:e.target.value}))}
+            disabled={submitted}
+            placeholder={`Write your ${task.task} response here…`}
+            style={{...inputStyle,flex:1,minHeight:"calc(100vh - 440px)",resize:"none",lineHeight:1.9,fontSize:14,borderRadius:12,
+              borderColor:meetsMin?C.teal:C.s200,background:submitted?"#F9FAFB":"#fff"}}
+          />
 
-              <div style={{...cardStyle({padding:16,marginBottom:12})}}>
-                <div style={{fontSize:11,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Overall Summary</div>
-                <p style={{fontSize:13,lineHeight:1.75,color:C.s800,margin:0}}>{fb.summary}</p>
-              </div>
+          {/* Word count bar */}
+          <div style={{height:4,background:C.s200,borderRadius:99,overflow:"hidden"}}>
+            <div style={{width:`${Math.min(wc/task.minWords*100,100)}%`,height:"100%",background:meetsMin?C.teal:C.brand,borderRadius:99,transition:"width .3s"}}/>
+          </div>
 
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                {fb.strengths?.length>0&&(
-                  <div style={{...cardStyle({padding:14,borderLeft:`3px solid ${C.teal}`})}}>
-                    <div style={{...tagStyle(C.teal),marginBottom:8}}>✓ Strengths</div>
-                    {fb.strengths.map((s,i)=><div key={i} style={{color:C.s800,fontSize:12,marginBottom:4,lineHeight:1.5}}>{s}</div>)}
-                  </div>
-                )}
-                {fb.improvements?.length>0&&(
-                  <div style={{...cardStyle({padding:14,borderLeft:`3px solid ${C.amber}`})}}>
-                    <div style={{...tagStyle(C.amber),marginBottom:8}}>↑ To Improve</div>
-                    {fb.improvements.map((s,i)=><div key={i} style={{color:C.s800,fontSize:12,marginBottom:4,lineHeight:1.5}}>{s}</div>)}
-                  </div>
-                )}
-              </div>
-
-              {fb.keyTip&&(
-                <div style={{...cardStyle({padding:14,marginBottom:10,borderLeft:`3px solid ${C.violet}`})}}>
-                  <div style={{fontSize:11,color:C.violet,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>💡 Key Tip to Raise Your Score</div>
-                  <p style={{fontSize:13,color:C.s800,lineHeight:1.6,margin:0,fontWeight:500}}>{fb.keyTip}</p>
-                </div>
+          {/* Task nav + submit */}
+          {!submitted&&(
+            <div style={{display:"flex",gap:10}}>
+              {tIdx===0&&(
+                <button onClick={()=>setTIdx(1)}
+                  style={{...btnStyle("secondary"),padding:"12px 20px",fontSize:14,flex:1}}>
+                  Next: Task 2 →
+                </button>
               )}
-
-              {fb.corrections?.length>0&&(
-                <div style={{...cardStyle({padding:14,borderLeft:`3px solid ${C.rose}`,marginBottom:10})}}>
-                  <div style={{...tagStyle(C.rose),marginBottom:8}}>Language Corrections</div>
-                  {fb.corrections.slice(0,4).map((c,i)=>(
-                    <div key={i} style={{background:C.s100,borderRadius:8,padding:"8px 12px",marginBottom:6,fontSize:12}}>
-                      <span style={{color:C.rose,textDecoration:"line-through"}}>{c.original}</span>
-                      <span style={{color:C.teal,marginLeft:8,fontWeight:600}}>→ {c.corrected}</span>
-                      {c.note&&<div style={{color:C.s400,marginTop:3,fontSize:11}}>{c.note}</div>}
-                    </div>
-                  ))}
-                </div>
+              {tIdx===1&&(
+                <button onClick={()=>setTIdx(0)}
+                  style={{...btnStyle("secondary"),padding:"12px 20px",fontSize:13}}>
+                  ← Task 1
+                </button>
               )}
-
-              {/* AI Detection */}
-              {fb.aiDetection&&(()=>{
-                const d = fb.aiDetection;
-                const riskColor = d.risk<=25?"#16A34A":d.risk<=55?"#D97706":d.risk<=80?"#EA580C":"#DC2626";
-                const riskBg    = d.risk<=25?"#F0FDF4":d.risk<=55?"#FFFBEB":d.risk<=80?"#FFF7ED":"#FEF2F2";
-                const riskLabel = d.verdict||"Unknown";
-                return (
-                  <div style={{borderRadius:12,border:`2px solid ${riskColor}`,background:riskBg,padding:16}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                      <div>
-                        <div style={{fontSize:11,fontWeight:800,color:riskColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:2}}>🤖 AI Content Detection</div>
-                        <div style={{fontSize:11,color:"#64748B"}}>Analysed by GPT-4o</div>
-                      </div>
-                      <div style={{textAlign:"center",background:"#fff",borderRadius:10,padding:"8px 16px",border:`1.5px solid ${riskColor}`}}>
-                        <div style={{fontSize:26,fontWeight:900,color:riskColor,lineHeight:1,fontFamily:"'JetBrains Mono',monospace"}}>{d.risk}%</div>
-                        <div style={{fontSize:10,fontWeight:700,color:riskColor,marginTop:2}}>{riskLabel}</div>
-                      </div>
-                    </div>
-                    {/* Risk bar */}
-                    <div style={{height:8,background:"rgba(0,0,0,.08)",borderRadius:99,marginBottom:12,overflow:"hidden"}}>
-                      <div style={{width:`${d.risk}%`,height:"100%",background:`linear-gradient(90deg,#16A34A,${riskColor})`,borderRadius:99,transition:"width .8s ease"}}/>
-                    </div>
-                    {d.explanation&&<p style={{fontSize:12,color:"#374151",lineHeight:1.6,margin:"0 0 10px"}}>{d.explanation}</p>}
-                    {d.signals?.length>0&&(
-                      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                        {d.signals.map((s,i)=><span key={i} style={{fontSize:11,background:"rgba(0,0,0,.06)",color:"#374151",padding:"3px 8px",borderRadius:6}}>{s}</span>)}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
+              <button onClick={handleSubmit} disabled={!bothDone}
+                style={{...btnStyle("primary",!bothDone),padding:"12px 20px",fontSize:14,flex:1}}>
+                Submit Writing ✓
+              </button>
             </div>
-          )):(
-            <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",gap:16}}>
-              <div style={{width:80,height:80,borderRadius:20,background:"linear-gradient(135deg,#11CD87,#0BA870)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:34,boxShadow:"0 8px 24px rgba(17,205,135,.3)"}}>🤖</div>
-              <div>
-                <h3 style={{fontSize:18,fontWeight:800,color:C.s900,marginBottom:8,letterSpacing:"-0.02em"}}>AI Writing Examiner</h3>
-                <p style={{color:C.s400,fontSize:13,maxWidth:280,lineHeight:1.75,margin:"0 auto"}}>
-                  Write at least 50 words then click <strong style={{color:C.violet}}>AI Band Check</strong> for instant scoring across all 4 IELTS criteria.
-                </p>
-              </div>
+          )}
+          {!bothDone&&!submitted&&(
+            <p style={{color:C.s400,fontSize:12,textAlign:"center",margin:0}}>Write at least 30 words in both tasks to submit</p>
+          )}
+          {submitted&&(
+            <div style={{background:C.tealL,border:`1px solid ${C.teal}40`,borderRadius:12,padding:16,textAlign:"center"}}>
+              <div style={{fontSize:20,marginBottom:6}}>✅</div>
+              <div style={{fontSize:14,fontWeight:700,color:C.teal}}>Writing Submitted</div>
+              <div style={{fontSize:12,color:C.s600,marginTop:4}}>Your responses have been saved. Proceeding to Speaking booking…</div>
             </div>
           )}
         </div>
@@ -1928,12 +1789,145 @@ function SpeakingBooking({ candidateInfo, onComplete }) {
   );
 }
 
+// ── AI WRITING CHECK (runs automatically after speaking) ─────────────────────
+async function runAICheck(text, taskMeta) {
+  const OPENAI_KEY = import.meta.env.VITE_OPENAI_API_KEY || "";
+  const errFb = msg => ({
+    band:null, taskAchievement:{band:null,comment:""}, coherenceCohesion:{band:null,comment:""},
+    lexicalResource:{band:null,comment:""}, grammaticalRange:{band:null,comment:""},
+    summary:msg, strengths:[], improvements:[], keyTip:"", corrections:[], _error:msg
+  });
+  if(!OPENAI_KEY) return errFb("OpenAI API key not configured.");
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","Authorization":`Bearer ${OPENAI_KEY}`},
+      body:JSON.stringify({
+        model:"gpt-4o", max_tokens:1400,
+        messages:[
+          {role:"system",content:`You are a strict IELTS examiner AND an AI-content detection specialist. Score the writing on all 4 official criteria AND analyse if the response appears AI-generated. Return ONLY valid JSON — no markdown, no extra text — in this exact shape:
+{"band":6.5,"taskAchievement":{"band":6.5,"comment":"2-sentence specific comment."},"coherenceCohesion":{"band":7.0,"comment":"2-sentence specific comment."},"lexicalResource":{"band":6.5,"comment":"2-sentence specific comment."},"grammaticalRange":{"band":6.0,"comment":"2-sentence specific comment."},"wordCount":160,"summary":"2-3 sentence overall comment.","strengths":["strength 1","strength 2"],"improvements":["area 1","area 2"],"keyTip":"single most impactful tip","corrections":[{"original":"phrase","corrected":"corrected","note":"reason"}],"aiDetection":{"risk":25,"verdict":"Human","signals":["signal 1","signal 2"],"explanation":"1-2 sentences."}}
+Verdict: "Human" (0-25%), "Possibly AI" (26-55%), "Likely AI" (56-80%), "AI Generated" (81-100%). Risk is 0-100 integer. Use 0.5 band increments. Be strict and realistic.`},
+          {role:"user",content:`IELTS Writing ${taskMeta.task}\n\nPrompt: ${taskMeta.prompt}\n\nCandidate's response (${countWords(text)} words):\n${text}`}
+        ]
+      })
+    });
+    const data = await res.json();
+    if(!res.ok||data.error) return errFb(`OpenAI error: ${data.error?.message||`HTTP ${res.status}`}`);
+    const raw = (data.choices?.[0]?.message?.content||"").replace(/```json|```/g,"").trim();
+    if(!raw) return errFb("Empty response from OpenAI.");
+    return JSON.parse(raw);
+  } catch(e) {
+    return errFb(`Connection error: ${e?.message||"Could not reach OpenAI."}`);
+  }
+}
+
+function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
+  const [status, setStatus] = useState({0:"pending",1:"pending"}); // pending | checking | done | error
+  const [aiFb,   setAiFb]   = useState({});
+  const ran = useRef(false);
+
+  const customTasks = writingTaskData;
+  const getTask = idx => {
+    const base = WRITING_TASKS[idx];
+    if(idx===0 && customTasks?.task1Prompt) return {...base, prompt:customTasks.task1Prompt};
+    if(idx===1 && customTasks?.task2Prompt) return {...base, prompt:customTasks.task2Prompt};
+    return base;
+  };
+
+  useEffect(()=>{
+    if(ran.current) return;
+    ran.current = true;
+    (async ()=>{
+      const results = {};
+      for(const idx of [0,1]) {
+        const text = writingTexts?.[idx]||"";
+        if(countWords(text)<10) { results[idx]={band:null,_error:"No response submitted"}; setStatus(s=>({...s,[idx]:"error"})); setAiFb(f=>({...f,[idx]:results[idx]})); continue; }
+        setStatus(s=>({...s,[idx]:"checking"}));
+        const fb = await runAICheck(text, getTask(idx));
+        results[idx] = fb;
+        setStatus(s=>({...s,[idx]:fb._error?"error":"done"}));
+        setAiFb(f=>({...f,[idx]:fb}));
+      }
+      // Build final writing scores
+      const b0=results[0]?.band??null, b1=results[1]?.band??null;
+      let band=null;
+      if(b0!=null&&b1!=null) band=Math.round((b0*.34+b1*.66)*2)/2;
+      else if(b1!=null) band=b1;
+      else if(b0!=null) band=b0;
+      setTimeout(()=>onComplete({band, aiFeedback:results, aiDetection:{task1:results[0]?.aiDetection, task2:results[1]?.aiDetection}}), 600);
+    })();
+  },[]);
+
+  const allDone = status[0]!=="pending"&&status[0]!=="checking"&&status[1]!=="pending"&&status[1]!=="checking";
+  const statusIcon = s => s==="pending"?"⏳":s==="checking"?<span className="spin" style={{display:"inline-block"}}>⟳</span>:s==="done"?"✅":"⚠️";
+  const statusLabel = s => s==="pending"?"Waiting…":s==="checking"?"Checking…":s==="done"?"Complete":"Could not check";
+
+  return (
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#064E3B 0%,#065F46 50%,#0F172A 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+      <div style={{maxWidth:480,width:"100%",textAlign:"center"}}>
+        {/* Animated logo */}
+        <div style={{width:100,height:100,borderRadius:24,background:"rgba(255,255,255,.1)",border:"2px solid rgba(17,205,135,.4)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:48,margin:"0 auto 28px",boxShadow:"0 0 60px rgba(17,205,135,.2)",animation:"pulse 2s ease infinite"}}>
+          🤖
+        </div>
+        <h2 style={{fontSize:28,fontWeight:900,color:"#fff",letterSpacing:"-0.03em",marginBottom:10}}>
+          {allDone?"Analysis Complete!":"Your Results Are On The Way"}
+        </h2>
+        <p style={{color:"rgba(255,255,255,.55)",fontSize:14,lineHeight:1.7,marginBottom:36}}>
+          {allDone
+            ?"Your writing has been evaluated by AI. Loading your final results…"
+            :"Our AI examiner is reviewing your writing submissions. This takes about 30 seconds."}
+        </p>
+
+        {/* Per-task progress */}
+        <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:32}}>
+          {[0,1].map(i=>{
+            const s = status[i];
+            const fb = aiFb[i];
+            const col = s==="done"?C.teal:s==="error"?C.rose:s==="checking"?"#FFB703":"rgba(255,255,255,.3)";
+            return (
+              <div key={i} style={{background:"rgba(255,255,255,.07)",border:`1px solid ${col}50`,borderRadius:14,padding:"16px 20px",display:"flex",alignItems:"center",gap:14,textAlign:"left"}}>
+                <div style={{fontSize:24,minWidth:28}}>{statusIcon(s)}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,color:"#fff",fontSize:14}}>{WRITING_TASKS[i].task}</div>
+                  <div style={{fontSize:12,color:col,marginTop:2,fontWeight:600}}>{statusLabel(s)}</div>
+                </div>
+                {s==="done"&&fb?.band&&(
+                  <div style={{textAlign:"center",background:"rgba(17,205,135,.15)",borderRadius:10,padding:"6px 14px",border:"1px solid rgba(17,205,135,.3)"}}>
+                    <div style={{fontSize:22,fontWeight:900,color:C.teal,lineHeight:1}}>{fb.band}</div>
+                    <div style={{fontSize:9,color:"rgba(255,255,255,.5)",fontWeight:700,letterSpacing:"0.08em"}}>BAND</div>
+                  </div>
+                )}
+                {s==="checking"&&(
+                  <div style={{width:32,height:32,borderRadius:"50%",border:"3px solid rgba(255,183,3,.3)",borderTop:"3px solid #FFB703",animation:"spin 1s linear infinite"}}/>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Progress bar */}
+        <div style={{height:4,background:"rgba(255,255,255,.1)",borderRadius:99,overflow:"hidden"}}>
+          <div style={{
+            height:"100%",borderRadius:99,background:"linear-gradient(90deg,#11CD87,#0BA870)",transition:"width 1s ease",
+            width:`${([status[0],status[1]].filter(s=>s==="done"||s==="error").length/2)*100}%`
+          }}/>
+        </div>
+        <div style={{color:"rgba(255,255,255,.3)",fontSize:11,marginTop:10}}>
+          {[status[0],status[1]].filter(s=>s==="done"||s==="error").length} of 2 tasks analysed
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── RESULTS ───────────────────────────────────────────────────────────────────
 function Results({ scores, candidateInfo, booking, suiteName }) {
   const lBand = listeningBand(scores.listening.correct, scores.listening.total);
   const rBand = readingBand(scores.reading.correct,   scores.reading.total);
-  const wBand = scores.writing.band;
-  const overall = overallBand([lBand, rBand, wBand]);
+  const wBand = scores.writing.band ?? null;  // null if AI didn't check
+  const aiChecked = wBand != null;
+  const overall = aiChecked ? overallBand([lBand, rBand, wBand]) : overallBand([lBand, rBand]);
   const bc = bandColor(overall);
 
   useEffect(()=>{
@@ -1958,7 +1952,7 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
   const sections=[
     {name:"Listening",band:lBand,icon:"🎧",detail:`${scores.listening.correct}/${scores.listening.total} correct`},
     {name:"Reading",band:rBand,icon:"📖",detail:`${scores.reading.correct}/${scores.reading.total} correct`},
-    {name:"Writing",band:wBand,icon:"✍️",detail:"AI evaluated"},
+    {name:"Writing",band:wBand,icon:"✍️",detail:aiChecked?"AI evaluated":"Task not checked"},
     {name:"Speaking",band:null,icon:"🗣️",detail:booking?`${booking.dateFormatted||booking.date} · ${booking.slot}`:"Booking pending"},
   ];
 
@@ -1968,7 +1962,9 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
       <div style={{background:"linear-gradient(135deg,#064E3B 0%,#065F46 40%,#0BA870 100%)",borderRadius:20,padding:"52px 48px",textAlign:"center",marginBottom:28,position:"relative",overflow:"hidden"}}>
         <div style={{position:"absolute",top:-40,right:-40,width:180,height:180,borderRadius:"50%",background:bc,opacity:.1}}/>
         <div style={{position:"absolute",bottom:-60,left:-30,width:220,height:220,borderRadius:"50%",background:"rgba(255,255,255,.03)"}}/>
-        <div style={{color:"rgba(255,255,255,.5)",fontSize:11,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>Overall Band Score</div>
+        <div style={{color:"rgba(255,255,255,.5)",fontSize:11,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>
+          Overall Band Score{!aiChecked&&<span style={{color:"#FFB703",marginLeft:8,fontSize:10}}>⚠ Writing not included</span>}
+        </div>
         <div style={{fontSize:108,fontWeight:900,color:bc,lineHeight:1,letterSpacing:"-0.05em"}}>{overall.toFixed(1)}</div>
         <div style={{fontSize:20,color:"rgba(255,255,255,.85)",fontWeight:700,marginBottom:12,letterSpacing:"-0.02em"}}>{bandLabel(overall)}</div>
         <div style={{color:"rgba(255,255,255,.4)",fontSize:14}}>{candidateInfo.name} · {new Date().toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</div>
@@ -1988,7 +1984,7 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
             <div key={name} style={{...cardStyle({padding:20,textAlign:"center"})}}>
               <div style={{fontSize:26,marginBottom:10}}>{icon}</div>
               <div style={{fontSize:11,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>{name}</div>
-              {band?(
+              {band!=null?(
                 <>
                   <div style={{fontSize:44,fontWeight:900,color:col,lineHeight:1,letterSpacing:"-0.04em"}}>{band.toFixed(1)}</div>
                   <div style={{height:3,background:C.s200,borderRadius:99,margin:"10px 0 6px"}}>
@@ -1996,7 +1992,9 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
                   </div>
                 </>
               ):(
-                <div style={{fontSize:13,color:C.teal,fontWeight:700,margin:"12px 0 6px"}}>Scheduled</div>
+                <div style={{fontSize:12,color:name==="Writing"?C.amber:C.teal,fontWeight:700,margin:"12px 0 6px"}}>
+                  {name==="Writing"?"Not checked":"Scheduled"}
+                </div>
               )}
               <div style={{fontSize:11,color:C.s400}}>{detail}</div>
             </div>
@@ -2312,7 +2310,8 @@ function EmptyState({icon,text}){
   </div>;
 }
 
-function BandBadge({val,large}){
+function BandBadge({val,large,pending}){
+  if(pending)return<span style={{background:C.amberL,color:C.amber,fontWeight:700,fontSize:large?13:11,padding:"3px 9px",borderRadius:6,border:`1px solid ${C.amber}40`}}>Not checked</span>;
   if(!val&&val!==0)return<span style={{color:C.s400}}>—</span>;
   return<span style={{background:bandBg(val),color:bandColor(val),fontWeight:800,fontSize:large?16:13,padding:"3px 10px",borderRadius:6,fontFamily:"'JetBrains Mono',monospace"}}>{typeof val==="number"?val.toFixed(1):val}</span>;
 }
@@ -2345,7 +2344,7 @@ function ParticipantTable({ profiles, onSelect }) {
                 <td style={{padding:"11px 14px",fontSize:12,color:C.s400}}>{latest.date||"—"}</td>
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.listeningBand}/></td>
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.readingBand}/></td>
-                <td style={{padding:"11px 14px"}}><BandBadge val={latest.writingBand}/></td>
+                <td style={{padding:"11px 14px"}}><BandBadge val={latest.writingBand} pending={latest.writingBand==null&&latest.writingTexts!=null}/></td>
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.overall} large/></td>
                 <td style={{padding:"11px 14px"}}>
                   <button onClick={()=>onSelect(profile)} style={{...btnStyle("secondary"),padding:"5px 12px",fontSize:12}}>Open Profile →</button>
@@ -2502,7 +2501,7 @@ function ParticipantDetail({ profile, onBack }) {
                           </div>
                           <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Listening</div><BandBadge val={a.listeningBand}/></div>
                           <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Reading</div><BandBadge val={a.readingBand}/></div>
-                          <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Writing</div><BandBadge val={a.writingBand}/></div>
+                          <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Writing</div><BandBadge val={a.writingBand} pending={a.writingBand==null&&a.writingTexts!=null}/></div>
                           <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Overall</div><BandBadge val={a.overall} large/></div>
                           <div style={{fontSize:18,color:C.brand,transition:"transform .2s",transform:isOpen?"rotate(90deg)":""}}>›</div>
                         </div>
@@ -2615,7 +2614,7 @@ function ParticipantDetail({ profile, onBack }) {
                             {histTab==="writing"&&(
                               <div>
                                 <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
-                                  <BandBadge val={a.writingBand} large/>
+                                  <BandBadge val={a.writingBand} large pending={a.writingBand==null&&a.writingTexts!=null}/>
                                   <div style={{fontWeight:700,fontSize:13,color:C.s900}}>Writing Score</div>
                                 </div>
                                 {[0,1].map(ti=>{
@@ -3938,7 +3937,7 @@ function Home({ onStart, onAdmin }) {
 }
 
 // ── APP ROOT ──────────────────────────────────────────────────────────────────
-const STEPS = ["Registration","Lobby","Listening","Reading","Writing","Speaking","Results"];
+const STEPS = ["Registration","Lobby","Listening","Reading","Writing","Speaking","Preparing","Results"];
 
 // Peek at assignment status — only explicit admin assignments unlock the test
 // (no side effects, no mark-used)
@@ -4097,7 +4096,7 @@ export default function App() {
 
   useEffect(()=>{ initDB().then(()=>setDbReady(true)); },[]);
   // Exit fullscreen when results screen is shown — must be before any conditional returns
-  useEffect(()=>{ if(step===6) exitFullscreen(); },[step]);
+  useEffect(()=>{ if(step===7) exitFullscreen(); },[step]);
 
   if(!dbReady) return (
     <div style={{minHeight:"100vh",background:"#0F172A",display:"flex",flexDirection:"column",
@@ -4201,7 +4200,19 @@ export default function App() {
           {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   onExit={()=>setExitConfirm(true)} onComplete={r=>{setScores(s=>({...s,reading:r})); setBreakNext({label:"Writing Test",step:4});}}/>}
           {!breakNext&&step===4&&<WritingTest   testData={activeSuite?.writingData}   onExit={()=>setExitConfirm(true)} onComplete={w=>{setScores(s=>({...s,writing:w}));  setStep(5);}}/>}
           {!breakNext&&step===5&&<SpeakingBooking candidateInfo={candidate} onComplete={b=>{setBooking(b);setStep(6);}}/>}
-          {step===6&&scores.listening&&scores.reading&&scores.writing&&(
+          {/* Step 6: AI checks writing in background — "results on the way" screen */}
+          {step===6&&scores.writing&&(
+            <ResultsLoading
+              writingTexts={scores.writing.texts}
+              writingTaskData={scores.writing.taskData||activeSuite?.writingData}
+              onComplete={aiResult=>{
+                setScores(s=>({...s, writing:{...s.writing, band:aiResult.band, aiFeedback:aiResult.aiFeedback, aiDetection:aiResult.aiDetection}}));
+                setStep(7);
+              }}
+            />
+          )}
+          {/* Step 7: Final results */}
+          {step===7&&scores.listening&&scores.reading&&scores.writing&&(
             <Results scores={scores} candidateInfo={candidate} booking={booking} suiteName={activeSuite?.name}/>
           )}
         </>
