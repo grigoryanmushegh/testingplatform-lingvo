@@ -1335,10 +1335,10 @@ function WritingTest({ onComplete, testData }) {
         body:JSON.stringify({
           model:"gpt-4o", max_tokens:1200,
           messages:[
-            {role:"system",content:`You are a strict IELTS examiner. Score the writing on all 4 official criteria. Return ONLY valid JSON — no markdown, no extra text — in this exact shape:
-{"band":6.5,"taskAchievement":{"band":6.5,"comment":"2-sentence specific comment on task achievement."},"coherenceCohesion":{"band":7.0,"comment":"2-sentence specific comment on structure and cohesion."},"lexicalResource":{"band":6.5,"comment":"2-sentence specific comment on vocabulary range."},"grammaticalRange":{"band":6.0,"comment":"2-sentence specific comment on grammar accuracy."},"wordCount":160,"summary":"2-3 sentence overall comment.","strengths":["specific strength 1","specific strength 2"],"improvements":["specific area 1","specific area 2"],"keyTip":"single most impactful tip to raise the band score","corrections":[{"original":"phrase from text","corrected":"corrected version","note":"brief reason"}]}
-Use 0.5 increments 1–9. Be strict and realistic.`},
-            {role:"user",content:`IELTS Writing ${WRITING_TASKS[idx].task}\n\nPrompt: ${WRITING_TASKS[idx].prompt}\n\nCandidate's response (${countWords(text)} words):\n${text}`}
+            {role:"system",content:`You are a strict IELTS examiner AND an AI-content detection specialist. Score the writing on all 4 official criteria AND analyse if the response appears AI-generated. Return ONLY valid JSON — no markdown, no extra text — in this exact shape:
+{"band":6.5,"taskAchievement":{"band":6.5,"comment":"2-sentence specific comment on task achievement."},"coherenceCohesion":{"band":7.0,"comment":"2-sentence specific comment on structure and cohesion."},"lexicalResource":{"band":6.5,"comment":"2-sentence specific comment on vocabulary range."},"grammaticalRange":{"band":6.0,"comment":"2-sentence specific comment on grammar accuracy."},"wordCount":160,"summary":"2-3 sentence overall comment.","strengths":["specific strength 1","specific strength 2"],"improvements":["specific area 1","specific area 2"],"keyTip":"single most impactful tip to raise the band score","corrections":[{"original":"phrase from text","corrected":"corrected version","note":"brief reason"}],"aiDetection":{"risk":25,"verdict":"Human","signals":["natural hesitations present","minor grammatical errors typical of humans","personal voice evident"],"explanation":"1-2 sentence explanation of your AI detection assessment."}}
+Verdict must be one of: "Human" (0-25%), "Possibly AI" (26-55%), "Likely AI" (56-80%), "AI Generated" (81-100%). Risk is 0-100 integer. Use 0.5 increments 1–9 for bands. Be strict and realistic.`},
+            {role:"user",content:`IELTS Writing ${task.task}\n\nPrompt: ${task.prompt}\n\nCandidate's response (${countWords(text)} words):\n${text}`}
           ]
         })
       });
@@ -1363,7 +1363,7 @@ Use 0.5 increments 1–9. Be strict and realistic.`},
   const handleSubmit = () => {
     setSubmitted(true);
     const b0=aiFb[0]?.band||5.5, b1=aiFb[1]?.band||5.5;
-    setTimeout(()=>onComplete({band:Math.round((b0*.34+b1*.66)*2)/2, texts, aiFeedback:aiFb}),300);
+    setTimeout(()=>onComplete({band:Math.round((b0*.34+b1*.66)*2)/2, texts, aiFeedback:aiFb, aiDetection:{task1:aiFb[0]?.aiDetection, task2:aiFb[1]?.aiDetection}}),300);
   };
 
   const fb = aiFb[tIdx];
@@ -1523,7 +1523,7 @@ Use 0.5 increments 1–9. Be strict and realistic.`},
               )}
 
               {fb.corrections?.length>0&&(
-                <div style={{...cardStyle({padding:14,borderLeft:`3px solid ${C.rose}`})}}>
+                <div style={{...cardStyle({padding:14,borderLeft:`3px solid ${C.rose}`,marginBottom:10})}}>
                   <div style={{...tagStyle(C.rose),marginBottom:8}}>Language Corrections</div>
                   {fb.corrections.slice(0,4).map((c,i)=>(
                     <div key={i} style={{background:C.s100,borderRadius:8,padding:"8px 12px",marginBottom:6,fontSize:12}}>
@@ -1534,6 +1534,38 @@ Use 0.5 increments 1–9. Be strict and realistic.`},
                   ))}
                 </div>
               )}
+
+              {/* AI Detection */}
+              {fb.aiDetection&&(()=>{
+                const d = fb.aiDetection;
+                const riskColor = d.risk<=25?"#16A34A":d.risk<=55?"#D97706":d.risk<=80?"#EA580C":"#DC2626";
+                const riskBg    = d.risk<=25?"#F0FDF4":d.risk<=55?"#FFFBEB":d.risk<=80?"#FFF7ED":"#FEF2F2";
+                const riskLabel = d.verdict||"Unknown";
+                return (
+                  <div style={{borderRadius:12,border:`2px solid ${riskColor}`,background:riskBg,padding:16}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                      <div>
+                        <div style={{fontSize:11,fontWeight:800,color:riskColor,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:2}}>🤖 AI Content Detection</div>
+                        <div style={{fontSize:11,color:"#64748B"}}>Analysed by GPT-4o</div>
+                      </div>
+                      <div style={{textAlign:"center",background:"#fff",borderRadius:10,padding:"8px 16px",border:`1.5px solid ${riskColor}`}}>
+                        <div style={{fontSize:26,fontWeight:900,color:riskColor,lineHeight:1,fontFamily:"'JetBrains Mono',monospace"}}>{d.risk}%</div>
+                        <div style={{fontSize:10,fontWeight:700,color:riskColor,marginTop:2}}>{riskLabel}</div>
+                      </div>
+                    </div>
+                    {/* Risk bar */}
+                    <div style={{height:8,background:"rgba(0,0,0,.08)",borderRadius:99,marginBottom:12,overflow:"hidden"}}>
+                      <div style={{width:`${d.risk}%`,height:"100%",background:`linear-gradient(90deg,#16A34A,${riskColor})`,borderRadius:99,transition:"width .8s ease"}}/>
+                    </div>
+                    {d.explanation&&<p style={{fontSize:12,color:"#374151",lineHeight:1.6,margin:"0 0 10px"}}>{d.explanation}</p>}
+                    {d.signals?.length>0&&(
+                      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                        {d.signals.map((s,i)=><span key={i} style={{fontSize:11,background:"rgba(0,0,0,.06)",color:"#374151",padding:"3px 8px",borderRadius:6}}>{s}</span>)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )):(
             <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",textAlign:"center",gap:16}}>
@@ -1770,6 +1802,7 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
       listeningBand:lBand, readingBand:rBand, writingBand:wBand, overall,
       writingTexts:scores.writing.texts,
       writingFeedback:scores.writing.aiFeedback,
+      writingAiDetection:scores.writing.aiDetection,
       speakingBooking:booking,
       listeningAnswers:scores.listening.answers,
       readingAnswers:scores.reading.answers,
@@ -1922,13 +1955,12 @@ function AdminDashboard({ onExit }) {
         </div>
         <label style={labelStyle}>Password</label>
         <input type="password" value={pw} onChange={e=>setPw(e.target.value)}
-          onKeyDown={e=>e.key==="Enter"&&(pw==="admin123"?setAuth(true):alert("Incorrect password"))}
+          onKeyDown={e=>e.key==="Enter"&&(pw==="Lingvo.2025!"?setAuth(true):alert("Incorrect password"))}
           placeholder="Enter password" style={inputStyle} autoFocus/>
-        <button onClick={()=>pw==="admin123"?setAuth(true):alert("Incorrect password (hint: admin123)")}
+        <button onClick={()=>pw==="Lingvo.2025!"?setAuth(true):alert("Incorrect password")}
           style={{...btnStyle("primary"),width:"100%",marginTop:14,padding:"12px",borderRadius:10,fontSize:15}}>
           Sign In →
         </button>
-        <div style={{textAlign:"center",color:C.s400,fontSize:11,marginTop:10}}>Demo password: admin123</div>
       </div>
     </div>
   );
@@ -2304,20 +2336,34 @@ function ParticipantDetail({ profile, onBack }) {
                 return (
                   <div key={a.id||i} style={{...cardStyle({overflow:"hidden",border:`1px solid ${isOpen?C.brand:C.s200}`})}}>
                     {/* Row header — always visible */}
-                    <div onClick={()=>setExpandedAttempt(isOpen?null:i)}
-                      style={{display:"grid",gridTemplateColumns:"140px 1fr 1fr 1fr 1fr auto",gap:12,padding:"13px 16px",alignItems:"center",cursor:"pointer",background:isOpen?C.brandL:"",transition:"background .15s"}}>
-                      <div>
-                        <div style={{fontSize:13,fontWeight:700,color:C.s900}}>{a.date||"—"}</div>
-                        <div style={{fontSize:10,color:C.s400,marginTop:2}}>
-                          {a.listeningScore&&`L:${a.listeningScore} `}{a.readingScore&&`R:${a.readingScore}`}
+                    {(()=>{
+                      // AI detection badge for row
+                      const det = a.writingAiDetection;
+                      const maxRisk = det ? Math.max(det.task1?.risk||0, det.task2?.risk||0) : null;
+                      const riskColor = maxRisk===null?null:maxRisk<=25?"#16A34A":maxRisk<=55?"#D97706":maxRisk<=80?"#EA580C":"#DC2626";
+                      const riskBg    = maxRisk===null?null:maxRisk<=25?"#F0FDF4":maxRisk<=55?"#FFFBEB":maxRisk<=80?"#FFF7ED":"#FEF2F2";
+                      return (
+                        <div onClick={()=>setExpandedAttempt(isOpen?null:i)}
+                          style={{display:"grid",gridTemplateColumns:"140px 1fr 1fr 1fr 1fr auto",gap:12,padding:"13px 16px",alignItems:"center",cursor:"pointer",background:isOpen?C.brandL:"",transition:"background .15s"}}>
+                          <div>
+                            <div style={{fontSize:13,fontWeight:700,color:C.s900}}>{a.date||"—"}</div>
+                            <div style={{fontSize:10,color:C.s400,marginTop:2}}>
+                              {a.listeningScore&&`L:${a.listeningScore} `}{a.readingScore&&`R:${a.readingScore}`}
+                            </div>
+                            {maxRisk!==null&&(
+                              <div style={{marginTop:4,display:"inline-flex",alignItems:"center",gap:4,background:riskBg,border:`1px solid ${riskColor}`,borderRadius:5,padding:"2px 6px"}}>
+                                <span style={{fontSize:9,fontWeight:800,color:riskColor}}>🤖 AI Risk: {maxRisk}%</span>
+                              </div>
+                            )}
+                          </div>
+                          <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Listening</div><BandBadge val={a.listeningBand}/></div>
+                          <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Reading</div><BandBadge val={a.readingBand}/></div>
+                          <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Writing</div><BandBadge val={a.writingBand}/></div>
+                          <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Overall</div><BandBadge val={a.overall} large/></div>
+                          <div style={{fontSize:18,color:C.brand,transition:"transform .2s",transform:isOpen?"rotate(90deg)":""}}>›</div>
                         </div>
-                      </div>
-                      <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Listening</div><BandBadge val={a.listeningBand}/></div>
-                      <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Reading</div><BandBadge val={a.readingBand}/></div>
-                      <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Writing</div><BandBadge val={a.writingBand}/></div>
-                      <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Overall</div><BandBadge val={a.overall} large/></div>
-                      <div style={{fontSize:18,color:C.brand,transition:"transform .2s",transform:isOpen?"rotate(90deg)":""}}>›</div>
-                    </div>
+                      );
+                    })()}
 
                     {/* Expanded full-test detail */}
                     {isOpen&&(()=>{
@@ -2428,31 +2474,57 @@ function ParticipantDetail({ profile, onBack }) {
                                   <BandBadge val={a.writingBand} large/>
                                   <div style={{fontWeight:700,fontSize:13,color:C.s900}}>Writing Score</div>
                                 </div>
-                                {[0,1].map(ti=>(
-                                  <div key={ti} style={{marginBottom:20}}>
-                                    <div style={{fontWeight:700,fontSize:13,color:C.s900,marginBottom:8}}>Task {ti+1}</div>
-                                    {atx[ti]?(
-                                      <div style={{background:C.s100,borderRadius:8,padding:12,marginBottom:10,maxHeight:180,overflow:"auto"}}>
-                                        <div style={{fontSize:10,color:C.s400,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>Response ({countWords(atx[ti]||"")} words)</div>
-                                        <p style={{fontSize:12,lineHeight:1.8,color:C.s900,whiteSpace:"pre-wrap",margin:0}}>{atx[ti]}</p>
-                                      </div>
-                                    ):<div style={{color:C.s400,fontSize:12,marginBottom:10,fontStyle:"italic"}}>No response submitted</div>}
-                                    {afb[ti]&&(
-                                      <div>
-                                        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:8}}>
-                                          {[["Overall",afb[ti].band],["Task",(afb[ti].taskAchievement?.band??afb[ti].tr)],["Cohesion",(afb[ti].coherenceCohesion?.band??afb[ti].cc)],["Lexical",(afb[ti].lexicalResource?.band??afb[ti].lr)],["Grammar",(afb[ti].grammaticalRange?.band??afb[ti].gra)]].map(([lbl,val])=>(
-                                            <div key={lbl} style={{background:bandBg(val||5),borderRadius:6,padding:"7px 6px",textAlign:"center"}}>
-                                              <div style={{fontSize:8,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>{lbl}</div>
-                                              <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:800,fontSize:16,color:bandColor(val||5)}}>{val||"—"}</div>
-                                            </div>
-                                          ))}
+                                {[0,1].map(ti=>{
+                                  const det = a.writingAiDetection?.[`task${ti+1}`];
+                                  const riskColor = !det?null:det.risk<=25?"#16A34A":det.risk<=55?"#D97706":det.risk<=80?"#EA580C":"#DC2626";
+                                  const riskBg    = !det?null:det.risk<=25?"#F0FDF4":det.risk<=55?"#FFFBEB":det.risk<=80?"#FFF7ED":"#FEF2F2";
+                                  return (
+                                    <div key={ti} style={{marginBottom:24}}>
+                                      <div style={{fontWeight:700,fontSize:13,color:C.s900,marginBottom:8}}>Task {ti+1}</div>
+                                      {atx[ti]?(
+                                        <div style={{background:C.s100,borderRadius:8,padding:12,marginBottom:10,maxHeight:180,overflow:"auto"}}>
+                                          <div style={{fontSize:10,color:C.s400,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>Response ({countWords(atx[ti]||"")} words)</div>
+                                          <p style={{fontSize:12,lineHeight:1.8,color:C.s900,whiteSpace:"pre-wrap",margin:0}}>{atx[ti]}</p>
                                         </div>
-                                        {afb[ti].summary&&<p style={{fontSize:12,lineHeight:1.7,color:C.s800,background:C.s100,padding:10,borderRadius:8,margin:"6px 0"}}>{afb[ti].summary}</p>}
-                                        {afb[ti].keyTip&&<div style={{background:C.brandL,borderRadius:7,padding:"8px 12px",fontSize:11,color:C.brand,fontWeight:500}}>💡 {afb[ti].keyTip}</div>}
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
+                                      ):<div style={{color:C.s400,fontSize:12,marginBottom:10,fontStyle:"italic"}}>No response submitted</div>}
+                                      {afb[ti]&&(
+                                        <div>
+                                          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:8}}>
+                                            {[["Overall",afb[ti].band],["Task",(afb[ti].taskAchievement?.band??afb[ti].tr)],["Cohesion",(afb[ti].coherenceCohesion?.band??afb[ti].cc)],["Lexical",(afb[ti].lexicalResource?.band??afb[ti].lr)],["Grammar",(afb[ti].grammaticalRange?.band??afb[ti].gra)]].map(([lbl,val])=>(
+                                              <div key={lbl} style={{background:bandBg(val||5),borderRadius:6,padding:"7px 6px",textAlign:"center"}}>
+                                                <div style={{fontSize:8,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>{lbl}</div>
+                                                <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:800,fontSize:16,color:bandColor(val||5)}}>{val||"—"}</div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                          {afb[ti].summary&&<p style={{fontSize:12,lineHeight:1.7,color:C.s800,background:C.s100,padding:10,borderRadius:8,margin:"6px 0 8px"}}>{afb[ti].summary}</p>}
+                                          {afb[ti].keyTip&&<div style={{background:C.brandL,borderRadius:7,padding:"8px 12px",fontSize:11,color:C.brand,fontWeight:500,marginBottom:10}}>💡 {afb[ti].keyTip}</div>}
+                                        </div>
+                                      )}
+                                      {/* AI Detection for this task */}
+                                      {det&&(
+                                        <div style={{borderRadius:10,border:`2px solid ${riskColor}`,background:riskBg,padding:14}}>
+                                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                                            <div style={{fontSize:11,fontWeight:800,color:riskColor,textTransform:"uppercase",letterSpacing:"0.07em"}}>🤖 AI Content Detection — Task {ti+1}</div>
+                                            <div style={{textAlign:"center",background:"#fff",borderRadius:8,padding:"6px 14px",border:`1.5px solid ${riskColor}`}}>
+                                              <div style={{fontSize:20,fontWeight:900,color:riskColor,fontFamily:"'JetBrains Mono',monospace",lineHeight:1}}>{det.risk}%</div>
+                                              <div style={{fontSize:9,fontWeight:700,color:riskColor,marginTop:1}}>{det.verdict}</div>
+                                            </div>
+                                          </div>
+                                          <div style={{height:6,background:"rgba(0,0,0,.08)",borderRadius:99,marginBottom:8,overflow:"hidden"}}>
+                                            <div style={{width:`${det.risk}%`,height:"100%",background:`linear-gradient(90deg,#16A34A,${riskColor})`,borderRadius:99}}/>
+                                          </div>
+                                          {det.explanation&&<p style={{fontSize:11,color:"#374151",lineHeight:1.6,margin:"0 0 8px"}}>{det.explanation}</p>}
+                                          {det.signals?.length>0&&(
+                                            <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                                              {det.signals.map((s,si)=><span key={si} style={{fontSize:10,background:"rgba(0,0,0,.06)",color:"#374151",padding:"2px 7px",borderRadius:5}}>{s}</span>)}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
 
