@@ -2636,131 +2636,116 @@ function AdminDashboard({ onExit }) {
 
   const recalculateAllBands = async () => {
     setRecalculating(true);
-    const db = loadDB();
-    const allTests   = db.tests||[];
-    const allSuites  = db.testSuites||[];
 
-    // Build map: testId → flat questions array (with sequential IDs matching stored data)
-    const testQMap = {};
-    allTests.forEach(t => {
-      let qs=[];
+    // Step 1: reload fresh data from Supabase so we have the latest test answer keys
+    await reloadDB();
+    const db = loadDB();
+    const allTests = db.tests||[];
+
+    // Step 2: build flat question list (sequential IDs 1,2,3...) for every test
+    const getTestQs = t => {
+      let qs=[], off=0;
       if(t.sections?.length>0){
-        // Listening multi-section format
-        let off=0;
-        t.sections.forEach(s=>{(s.questions||[]).forEach((q,j)=>{qs.push({...q,id:off+j+1});});off+=s.questions?.length||0;});
+        t.sections.forEach(s=>{(s.questions||[]).forEach((q,j)=>qs.push({...q,id:off+j+1}));off+=s.questions?.length||0;});
       } else if(t.passages?.length>0){
-        // Reading multi-passage format
-        let off=0;
-        t.passages.forEach(p=>{(p.questions||[]).forEach((q,j)=>{qs.push({...q,id:off+j+1});});off+=p.questions?.length||0;});
+        t.passages.forEach(p=>{(p.questions||[]).forEach((q,j)=>qs.push({...q,id:off+j+1}));off+=p.questions?.length||0;});
       } else if(t.questions?.length>0){
         qs=t.questions.map((q,i)=>({...q,id:i+1}));
       }
-      if(qs.length) testQMap[t.id]=qs;
-    });
-    // Build map: suiteId → {listeningId, readingId}
-    const suiteMap={};
-    allSuites.forEach(s=>{suiteMap[s.id]={listeningId:s.listeningId,readingId:s.readingId};});
+      return qs;
+    };
+    const allTestQs = allTests.map(t=>({id:t.id, type:t.type||"", qs:getTestQs(t)})).filter(x=>x.qs.length>0);
 
-    // Re-score a set of stored answers against CURRENT question answer keys
-    const reScore = (storedQs, currentQs, answers) => {
-      // Build lookup: id → current correct answer
-      const keyById={};
-      currentQs.forEach(q=>{ keyById[q.id]=q; });
-      // Merge: take stored question but update correct from current test
-      const qs = storedQs.length>0
-        ? storedQs.map(q=>({...q, correct: keyById[q.id]?.correct ?? q.correct}))
-        : currentQs;
-      let correct=0;
-      qs.forEach(q=>{
-        const raw = answers[q.id];
-        const a = (raw&&typeof raw==="object"?raw.text:(raw||"")).trim().toLowerCase();
-        const c = (q.correct||"").trim().toLowerCase();
-        if(!a||!c) return;
-        if(q.type==="yesno"||q.type==="truefalse"){ if(a===c) correct++; return; }
-        if(TEXT_INPUT_TYPES.has(q.type)||q.type==="short"||q.type==="fillblank"){
-          if(a===c||a.includes(c)||c.includes(a)) correct++; return;
-        }
-        if(raw&&typeof raw==="object"&&typeof q.correctIdx==="number"){ if(raw.idx===q.correctIdx) correct++; return; }
-        if(a===c){ correct++; return; }
-        const al=a.replace(/[^a-h]/g,"")[0], cl=c.replace(/[^a-h]/g,"")[0];
-        if(al&&cl&&al===cl) correct++;
+    // Step 3: for a given set of student answers, find the test whose questions have the most
+    // non-empty correct keys covering the answered question IDs
+    const findBestTest = (answers) => {
+      if(!answers||!Object.keys(answers).length) return null;
+      const answeredIds = new Set(Object.keys(answers).map(Number));
+      let best=null, bestCount=-1;
+      allTestQs.forEach(({qs})=>{
+        const keyed = qs.filter(q=>answeredIds.has(q.id)&&(q.correct||"").trim()).length;
+        if(keyed>bestCount){ bestCount=keyed; best=qs; }
       });
-      return {correct, total:qs.length, updatedQs:qs};
+      return best;
     };
 
-    let count = 0;
-    const updated = (db.participants||[]).map(p => {
-      if(!p.listeningScore && !p.readingScore) return p;
-      // Use stored suiteId, or fall back: find the suite whose tests best match this participant's data
-      let suite = suiteMap[p.suiteId]||null;
-      if(!suite) {
-        // Fallback: try every suite and pick the one whose tests have the most questions matching stored answers
-        let bestScore=0, bestSuite=null;
-        allSuites.forEach(s=>{
-          let sc=0;
-          if(s.listeningId&&testQMap[s.listeningId]&&p.listeningAnswers) sc+=testQMap[s.listeningId].length;
-          if(s.readingId&&testQMap[s.readingId]&&p.readingAnswers) sc+=testQMap[s.readingId].length;
-          if(sc>bestScore){ bestScore=sc; bestSuite={listeningId:s.listeningId,readingId:s.readingId}; }
-        });
-        suite = bestSuite||{};
-      }
-      const [,lt] = (p.listeningScore||"0/40").split("/").map(Number);
-      const [,rt] = (p.readingScore||"0/40").split("/").map(Number);
+    // Step 4: score answers against a question list
+    const scoreAnswers = (qs, answers) => {
+      let correct=0;
+      qs.forEach(q=>{
+        const raw=answers[q.id];
+        const a=(raw&&typeof raw==="object"?raw.text:(raw||"")).trim().toLowerCase();
+        const c=(q.correct||"").trim().toLowerCase();
+        if(!a||!c) return;
+        if(q.type==="yesno"||q.type==="truefalse"){if(a===c)correct++;return;}
+        if(TEXT_INPUT_TYPES.has(q.type)||q.type==="short"||q.type==="fillblank"){
+          if(a===c||a.includes(c)||c.includes(a)){correct++;return;}
+        }
+        if(raw&&typeof raw==="object"&&typeof q.correctIdx==="number"){if(raw.idx===q.correctIdx){correct++;return;}}
+        if(a===c){correct++;return;}
+        const al=a.replace(/[^a-h]/g,"")[0],cl=c.replace(/[^a-h]/g,"")[0];
+        if(al&&cl&&al===cl)correct++;
+      });
+      return correct;
+    };
 
+    // Step 5: merge stored questions with current answer keys (so history shows correct answer)
+    const mergeQs = (storedQs, currentQs) => {
+      const keyById={};
+      currentQs.forEach(q=>{keyById[q.id]=q;});
+      const base = storedQs.length>0 ? storedQs : currentQs;
+      return base.map(q=>({...q, correct: keyById[q.id]?.correct ?? q.correct}));
+    };
+
+    // Step 6: process every participant
+    let count=0;
+    const updated = (db.participants||[]).map(p=>{
+      if(!p.listeningScore&&!p.readingScore) return p;
+      const [,lt]=(p.listeningScore||"0/40").split("/").map(Number);
+      const [,rt]=(p.readingScore||"0/40").split("/").map(Number);
       let lc=Number((p.listeningScore||"0/40").split("/")[0])||0;
       let rc=Number((p.readingScore||"0/40").split("/")[0])||0;
       let newLQs=p.allListeningQuestions||[];
       let newRQs=p.allReadingQuestions||[];
 
-      // Re-score listening if we have current question data
-      if(suite.listeningId && testQMap[suite.listeningId] && p.listeningAnswers){
-        const res=reScore(p.allListeningQuestions||[], testQMap[suite.listeningId], p.listeningAnswers);
-        lc=res.correct; newLQs=res.updatedQs;
+      if(p.listeningAnswers&&Object.keys(p.listeningAnswers).length){
+        const bestQs=findBestTest(p.listeningAnswers);
+        if(bestQs){ newLQs=mergeQs(p.allListeningQuestions||[],bestQs); lc=scoreAnswers(newLQs,p.listeningAnswers); }
       }
-      // Re-score reading if we have current question data
-      if(suite.readingId && testQMap[suite.readingId] && p.readingAnswers){
-        const res=reScore(p.allReadingQuestions||[], testQMap[suite.readingId], p.readingAnswers);
-        rc=res.correct; newRQs=res.updatedQs;
+      if(p.readingAnswers&&Object.keys(p.readingAnswers).length){
+        const bestQs=findBestTest(p.readingAnswers);
+        if(bestQs){ newRQs=mergeQs(p.allReadingQuestions||[],bestQs); rc=scoreAnswers(newRQs,p.readingAnswers); }
       }
 
-      const newLB = listeningBand(lc, lt||40);
-      const newRB = readingBand(rc, rt||40);
-      const wBand = p.writingBand ?? null;
-      const bands = wBand!=null ? [newLB,newRB,wBand] : [newLB,newRB];
-      const newOverall = overallBand(bands);
+      const newLB=listeningBand(lc,lt||40);
+      const newRB=readingBand(rc,rt||40);
+      const wBand=p.writingBand??null;
+      const bands=wBand!=null?[newLB,newRB,wBand]:[newLB,newRB];
       count++;
-      return {
-        ...p,
-        listeningScore:`${lc}/${lt||40}`,
-        readingScore:`${rc}/${rt||40}`,
-        listeningBand:newLB, readingBand:newRB, overall:newOverall,
-        allListeningQuestions:newLQs,
-        allReadingQuestions:newRQs,
-      };
+      return {...p,listeningScore:`${lc}/${lt||40}`,readingScore:`${rc}/${rt||40}`,
+        listeningBand:newLB,readingBand:newRB,overall:overallBand(bands),
+        allListeningQuestions:newLQs,allReadingQuestions:newRQs};
     });
-    db.participants = updated;
-    // Save to localStorage immediately
-    _db = db;
-    try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch{}
-    // Upsert each updated participant to Supabase (upsert = insert or update on conflict)
-    if(supabase) {
-      for(const p of updated) {
-        if(!p.listeningScore && !p.readingScore) continue;
-        try {
-          const email = ((p.candidate?.email||p.email)||"").toLowerCase().trim();
-          await supabase.from("participants").upsert(
-            {id:p.id, email, type:"attempt", data:p},
-            {onConflict:"id"}
-          );
-        } catch(e){ console.warn("[recalc] upsert failed for",p.id, e); }
+
+    // Step 7: save to localStorage and update in-memory state immediately
+    _db={...db,participants:updated};
+    try{localStorage.setItem(DB_KEY,JSON.stringify(_db));}catch{}
+    setDb({..._db});  // force UI update right now without waiting for Supabase
+
+    // Step 8: upsert every participant row to Supabase
+    if(supabase){
+      for(const p of updated){
+        if(!p.listeningScore&&!p.readingScore) continue;
+        try{
+          const email=((p.candidate?.email||p.email)||"").toLowerCase().trim();
+          await supabase.from("participants").upsert({id:p.id,email,type:"attempt",data:p},{onConflict:"id"});
+        }catch(e){console.warn("[recalc] upsert failed",p.id,e);}
       }
     }
-    // Also update the ielts_store config (some setups store participants there too)
-    await _flushConfig(db);
-    await refresh();
+
     setRecalculating(false);
-    setRecalcMsg(`✓ Recalculated ${count} test records`);
-    setTimeout(()=>setRecalcMsg(""),4000);
+    setRecalcMsg(`✓ Recalculated ${count} student records`);
+    setTimeout(()=>setRecalcMsg(""),5000);
   };
 
   if(!auth) return (
