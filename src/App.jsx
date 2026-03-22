@@ -69,7 +69,7 @@ let   _flushTmr = null;
 const _flushConfig = async db => {
   if(!supabase) return false;
   try {
-    const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[]};
+    const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{}};
     const {error} = await supabase.from("ielts_store").upsert({id:"main",data:cfg,updated_at:new Date().toISOString()});
     if(error){ console.warn("[DB] config write error:",error.message); return false; }
     return true;
@@ -127,7 +127,10 @@ export async function reloadDB() {
       const merged = [...(pts||[]), ...(base.participants||[])];
       const seen = new Set();
       const deduped = merged.filter(p=>{ const k=p.id||p.email||JSON.stringify(p); if(seen.has(k)) return false; seen.add(k); return true; });
-      _db = {..._emptyDB(), ...base, participants: deduped};
+      // Apply scoreOverrides (written by Recalculate All Bands) on top of participant data
+      const overrides = base.scoreOverrides||{};
+      const withOverrides = deduped.map(p=> overrides[p.id] ? {...p,...overrides[p.id]} : p);
+      _db = {..._emptyDB(), ...base, participants: withOverrides};
       localStorage.setItem(DB_KEY,JSON.stringify(_db));
       return;
     }catch{}
@@ -2637,81 +2640,68 @@ function AdminDashboard({ onExit }) {
   const recalculateAllBands = async () => {
     setRecalculating(true);
 
-    // Use _db.tests directly — always current in memory (updated the moment admin saves)
-    const allTests = _db.tests||[];
-
-    // Build TWO lookup maps from ALL tests:
-    // 1. By question TEXT (most reliable — text is unique per question)
-    // 2. By sequential ID (fallback)
+    // Build answer key maps from ALL current tests (always fresh in _db.tests)
     const keyByText={}, keyById={};
-    allTests.forEach(t=>{
+    (_db.tests||[]).forEach(t=>{
       let off=0;
       const addQ=(q,idx)=>{
-        const c=(q.correct||"").trim();
-        if(!c) return;
+        const c=(q.correct||"").trim(); if(!c) return;
         const txt=(q.text||"").trim().toLowerCase().slice(0,120);
         if(txt) keyByText[txt]=c;
         keyById[idx]=c;
       };
       if(t.sections?.length>0){
-        t.sections.forEach(s=>{(s.questions||[]).forEach((q,j)=>{addQ(q,off+j+1);});off+=s.questions?.length||0;});
+        t.sections.forEach(s=>{(s.questions||[]).forEach((q,j)=>addQ(q,off+j+1));off+=s.questions?.length||0;});
       } else if(t.passages?.length>0){
-        t.passages.forEach(p=>{(p.questions||[]).forEach((q,j)=>{addQ(q,off+j+1);});off+=p.questions?.length||0;});
+        t.passages.forEach(p=>{(p.questions||[]).forEach((q,j)=>addQ(q,off+j+1));off+=p.questions?.length||0;});
       } else if(t.questions?.length>0){
         t.questions.forEach((q,i)=>addQ(q,i+1));
       }
     });
 
-    // Get correct answer for a stored question — text match first, ID fallback
-    const getKey=(q)=>{
+    const getKey=q=>{
       const txt=(q.text||"").trim().toLowerCase().slice(0,120);
       if(txt&&keyByText[txt]) return keyByText[txt];
       if(q.id&&keyById[q.id]) return keyById[q.id];
       return q.correct||"";
     };
 
-    // Score a question list against stored answers
     const scoreAll=(qs,ans)=>{
-      let correct=0;
+      let n=0;
       qs.forEach(q=>{
         const raw=ans[q.id];
         const a=(raw&&typeof raw==="object"?raw.text:(raw||"")).trim().toLowerCase();
         const c=(q.correct||"").trim().toLowerCase();
         if(!a||!c) return;
-        if(q.type==="yesno"||q.type==="truefalse"){if(a===c)correct++;return;}
-        if(TEXT_INPUT_TYPES.has(q.type)||q.type==="short"||q.type==="fillblank"){
-          if(a===c||a.includes(c)||c.includes(a)){correct++;return;}
-        }
-        if(raw&&typeof raw==="object"&&typeof q.correctIdx==="number"){if(raw.idx===q.correctIdx){correct++;return;}}
-        if(a===c){correct++;return;}
+        if(q.type==="yesno"||q.type==="truefalse"){if(a===c)n++;return;}
+        if(TEXT_INPUT_TYPES.has(q.type)||q.type==="short"||q.type==="fillblank"){if(a===c||a.includes(c)||c.includes(a)){n++;return;}}
+        if(raw&&typeof raw==="object"&&typeof q.correctIdx==="number"){if(raw.idx===q.correctIdx){n++;return;}}
+        if(a===c){n++;return;}
         const al=a.replace(/[^a-h]/g,"")[0],cl=c.replace(/[^a-h]/g,"")[0];
-        if(al&&cl&&al===cl)correct++;
+        if(al&&cl&&al===cl)n++;
       });
-      return correct;
+      return n;
     };
 
-    // Load fresh participants directly from Supabase
-    const freshPts = supabase ? (await _loadParticipants()||[]) : [];
-    // Merge with any local-only participants (not yet in Supabase)
-    const localPts = _db.participants||[];
+    // Load fresh participants from Supabase, fall back to local
+    const freshPts=supabase?(await _loadParticipants()||[]):[];
     const allPtsMap={};
-    [...freshPts,...localPts].forEach(p=>{ if(p.id) allPtsMap[p.id]=p; });
-    const participants = Object.values(allPtsMap);
+    [...(_db.participants||[]),...freshPts].forEach(p=>{if(p.id)allPtsMap[p.id]=p;});
+    const participants=Object.values(allPtsMap);
 
     let count=0;
-    const updated=participants.map(p=>{
+    const scoreOverrides={}; // saved to ielts_store — survives refreshes
+    const updatedPts=participants.map(p=>{
       if(!p.listeningScore&&!p.readingScore) return p;
       const [,lt]=(p.listeningScore||"0/40").split("/").map(Number);
       const [,rt]=(p.readingScore||"0/40").split("/").map(Number);
       let lc=Number((p.listeningScore||"0/40").split("/")[0])||0;
       let rc=Number((p.readingScore||"0/40").split("/")[0])||0;
 
-      // Update listening questions with current answer keys, then re-score
       let newLQs=(p.allListeningQuestions||[]).map(q=>({...q,correct:getKey(q)}));
       if(newLQs.length&&p.listeningAnswers&&Object.keys(p.listeningAnswers).length)
         lc=scoreAll(newLQs,p.listeningAnswers);
 
-      // Update reading questions with current answer keys, then re-score
       let newRQs=(p.allReadingQuestions||[]).map(q=>({...q,correct:getKey(q)}));
       if(newRQs.length&&p.readingAnswers&&Object.keys(p.readingAnswers).length)
         rc=scoreAll(newRQs,p.readingAnswers);
@@ -2719,30 +2709,22 @@ function AdminDashboard({ onExit }) {
       const newLB=listeningBand(lc,lt||40);
       const newRB=readingBand(rc,rt||40);
       const wBand=p.writingBand??null;
+      const newOverall=overallBand(wBand!=null?[newLB,newRB,wBand]:[newLB,newRB]);
       count++;
-      return {...p,
+      const patch={
         listeningScore:`${lc}/${lt||40}`,readingScore:`${rc}/${rt||40}`,
-        listeningBand:newLB,readingBand:newRB,
-        overall:overallBand(wBand!=null?[newLB,newRB,wBand]:[newLB,newRB]),
+        listeningBand:newLB,readingBand:newRB,overall:newOverall,
         allListeningQuestions:newLQs,allReadingQuestions:newRQs,
       };
+      if(p.id) scoreOverrides[p.id]=patch; // persist via ielts_store
+      return {...p,...patch};
     });
 
-    // Save to memory + localStorage + update React state immediately
-    _db={..._db,participants:updated};
+    // Save overrides to ielts_store (reliable — same table as tests/suites)
+    _db={..._db,participants:updatedPts,scoreOverrides};
     try{localStorage.setItem(DB_KEY,JSON.stringify(_db));}catch{}
-    setDb({..._db});
-
-    // Upsert every participant to Supabase
-    if(supabase){
-      for(const p of updated){
-        if(!p.listeningScore&&!p.readingScore) continue;
-        try{
-          const email=((p.candidate?.email||p.email)||"").toLowerCase().trim();
-          await supabase.from("participants").upsert({id:p.id,email,type:"attempt",data:p},{onConflict:"id"});
-        }catch(e){console.warn("[recalc]",p.id,e);}
-      }
-    }
+    await _flushConfig(_db); // writes scoreOverrides to Supabase ielts_store
+    setDb({..._db}); // update UI immediately
 
     setRecalculating(false);
     setRecalcMsg(`✓ Recalculated ${count} student records`);
@@ -3182,11 +3164,35 @@ function ParticipantDetail({ profile, onBack }) {
                     {/* Expanded full-test detail */}
                     {isOpen&&(()=>{
                       const [histTab, setHistTab] = [a._histTab||"listening", v => { a._histTab=v; setExpandedAttempt(null); setTimeout(()=>setExpandedAttempt(i),0); }];
-                      const lQs = a.allListeningQuestions||[];
-                      const rQs = a.allReadingQuestions||[];
                       const lAns = a.listeningAnswers||{};
                       const rAns = a.readingAnswers||{};
                       const rawTxt = v => (v&&typeof v==="object")?v.text:(v||"");
+
+                      // Build live answer key from current tests (text-match first, ID fallback)
+                      // This means history ALWAYS shows the latest answer keys even without recalculate
+                      const liveKeyByText={}, liveKeyById={};
+                      (_db.tests||[]).forEach(t=>{
+                        let off=0;
+                        const addQ=(q,idx)=>{
+                          const c=(q.correct||"").trim(); if(!c) return;
+                          const txt=(q.text||"").trim().toLowerCase().slice(0,120);
+                          if(txt) liveKeyByText[txt]=c;
+                          liveKeyById[idx]=c;
+                        };
+                        if(t.sections?.length>0){t.sections.forEach(s=>{(s.questions||[]).forEach((q,j)=>addQ(q,off+j+1));off+=s.questions?.length||0;});}
+                        else if(t.passages?.length>0){t.passages.forEach(p=>{(p.questions||[]).forEach((q,j)=>addQ(q,off+j+1));off+=p.questions?.length||0;});}
+                        else if(t.questions?.length>0){t.questions.forEach((q,i)=>addQ(q,i+1));}
+                      });
+                      const liveKey=q=>{
+                        const txt=(q.text||"").trim().toLowerCase().slice(0,120);
+                        if(txt&&liveKeyByText[txt]) return liveKeyByText[txt];
+                        if(q.id&&liveKeyById[q.id]) return liveKeyById[q.id];
+                        return q.correct||"";
+                      };
+
+                      // Enrich stored questions with live answer keys
+                      const lQs = (a.allListeningQuestions||[]).map(q=>({...q,correct:liveKey(q)}));
+                      const rQs = (a.allReadingQuestions||[]).map(q=>({...q,correct:liveKey(q)}));
                       const tabs = [["listening","🎧","Listening"],["reading","📖","Reading"],["writing","✍️","Writing"],["speaking","🗣️","Speaking"]];
                       return (
                         <div style={{borderTop:`1px solid ${C.s200}`}}>
