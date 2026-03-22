@@ -123,7 +123,11 @@ export async function reloadDB() {
       const base = cfg?.data || {};
       // Load participants (student data)
       const pts = await _loadParticipants();
-      _db = {..._emptyDB(), ...base, participants: pts||base.participants||[]};
+      // Merge: participants table rows + any legacy rows still in ielts_store, deduplicate by id
+      const merged = [...(pts||[]), ...(base.participants||[])];
+      const seen = new Set();
+      const deduped = merged.filter(p=>{ const k=p.id||p.email||JSON.stringify(p); if(seen.has(k)) return false; seen.add(k); return true; });
+      _db = {..._emptyDB(), ...base, participants: deduped};
       localStorage.setItem(DB_KEY,JSON.stringify(_db));
       return;
     }catch{}
@@ -138,7 +142,10 @@ export async function initDB() {
       const base = cfg?.data || {};
       const pts  = await _loadParticipants();
       if(cfg?.data || pts){
-        _db = {..._emptyDB(), ...base, participants: pts||base.participants||[]};
+        const merged = [...(pts||[]), ...(base.participants||[])];
+        const seen = new Set();
+        const deduped = merged.filter(p=>{ const k=p.id||p.email||JSON.stringify(p); if(seen.has(k)) return false; seen.add(k); return true; });
+        _db = {..._emptyDB(), ...base, participants: deduped};
         localStorage.setItem(DB_KEY,JSON.stringify(_db));
         return;
       }
@@ -548,7 +555,7 @@ function Countdown({ seconds, onExpire }) {
   );
 }
 
-function SectionHeader({ icon, label, title, right }) {
+function SectionHeader({ icon, label, title, right, onExit }) {
   return (
     <div style={{
       background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
@@ -561,7 +568,17 @@ function SectionHeader({ icon, label, title, right }) {
         </div>
         <h2 style={{ color:"#fff", fontSize:20, fontWeight:800, letterSpacing:"-0.02em" }}>{title}</h2>
       </div>
-      {right}
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        {right}
+        {onExit&&(
+          <button onClick={onExit} style={{
+            background:"rgba(225,29,72,.85)",color:"#fff",border:"none",
+            borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",
+            display:"flex",alignItems:"center",gap:5,letterSpacing:"0.02em",
+            boxShadow:"0 2px 8px rgba(225,29,72,.35)",
+          }}>🚪 Exit</button>
+        )}
+      </div>
     </div>
   );
 }
@@ -624,7 +641,7 @@ function Registration({ onNext }) {
 }
 
 // ── LISTENING TEST ────────────────────────────────────────────────────────────
-function ListeningTest({ onComplete, testData }) {
+function ListeningTest({ onComplete, testData, onExit }) {
   const [ready, setReady]           = useState(false); // pre-test countdown
   const [phase, setPhase]           = useState("main"); // "main" | "checking"
   const [answers, setAnswers]       = useState({});
@@ -702,7 +719,7 @@ function ListeningTest({ onComplete, testData }) {
   if(phase==="checking" && !submitted) return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
       <SectionHeader icon="🎧" label="Listening Test" title="Checking Time"
-        right={<Countdown seconds={10*60} onExpire={handleSubmit}/>}/>
+        right={<Countdown seconds={10*60} onExpire={handleSubmit}/>} onExit={onExit}/>
       <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
         background:"#0F172A",gap:24,padding:32}}>
         <div style={{fontSize:48}}>🔍</div>
@@ -725,7 +742,7 @@ function ListeningTest({ onComplete, testData }) {
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
       <SectionHeader icon="🎧" label="Listening Test" title="IELTS Academic Listening"
-        right={<Countdown seconds={40*60} onExpire={handleMainExpire}/>}/>
+        right={<Countdown seconds={40*60} onExpire={handleMainExpire}/>} onExit={onExit}/>
 
       <div style={{display:"grid",gridTemplateColumns:"300px 1fr",flex:1,overflow:"hidden"}}>
         {/* Sidebar */}
@@ -919,7 +936,7 @@ function ListeningQ({ q, answer, submitted, correct, onChange }) {
 }
 
 // ── READING TEST ──────────────────────────────────────────────────────────────
-function ReadingTest({ onComplete, testData }) {
+function ReadingTest({ onComplete, testData, onExit }) {
   const [ready, setReady]         = useState(false);
   const [pIdx, setPIdx]           = useState(0);
   const [answers, setAnswers]     = useState({});
@@ -1011,7 +1028,7 @@ function ReadingTest({ onComplete, testData }) {
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
       <SectionHeader icon="📖" label="Reading Test" title="IELTS Academic Reading"
-        right={<Countdown seconds={60*60} onExpire={handleSubmit}/>}/>
+        right={<Countdown seconds={60*60} onExpire={handleSubmit}/>} onExit={onExit}/>
 
       {/* Tab bar + highlight tools */}
       <div style={{background:"#fff",borderBottom:`1px solid ${C.s200}`,padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
@@ -1392,7 +1409,7 @@ function ReadingQ({ q, answer, submitted, correct, onChange }) {
 }
 
 // ── WRITING TEST + AI ─────────────────────────────────────────────────────────
-function WritingTest({ onComplete, testData }) {
+function WritingTest({ onComplete, testData, onExit }) {
   const [ready, setReady]         = useState(false);
   const [tIdx, setTIdx]           = useState(0);
   const [imgZoom, setImgZoom]     = useState(false);
@@ -1499,21 +1516,21 @@ Verdict must be one of: "Human" (0-25%), "Possibly AI" (26-55%), "Likely AI" (56
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
       <SectionHeader icon="✍️" label="Writing Test" title="IELTS Academic Writing"
         right={
-          <div style={{display:"flex",gap:12,alignItems:"center"}}>
-            <Countdown seconds={60*60} onExpire={handleSubmit}/>
-            <div style={{display:"flex",gap:8}}>
+          <div style={{display:"flex",gap:10,alignItems:"center"}}>
+            <div style={{display:"flex",gap:6}}>
               {WRITING_TASKS.map((t,i)=>(
                 <button key={i} onClick={()=>setTIdx(i)} style={{
-                  padding:"8px 16px",borderRadius:8,fontSize:12,fontWeight:700,border:"none",cursor:"pointer",transition:"all .15s",
-                  background:tIdx===i?"rgba(255,255,255,.2)":"rgba(255,255,255,.08)",
-                  color:tIdx===i?"#fff":"rgba(255,255,255,.5)",
+                  padding:"7px 15px",borderRadius:8,fontSize:12,fontWeight:700,border:"none",cursor:"pointer",transition:"all .15s",
+                  background:tIdx===i?"rgba(255,255,255,.2)":"rgba(255,255,255,.07)",
+                  color:tIdx===i?"#fff":"rgba(255,255,255,.45)",
                 }}>
                   {t.task} {aiFb[i]&&<span style={{color:"#fde68a"}}>✓{aiFb[i].band}</span>}
                 </button>
               ))}
             </div>
+            <Countdown seconds={60*60} onExpire={handleSubmit}/>
           </div>
-        }/>
+        } onExit={onExit}/>
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",flex:1,overflow:"hidden"}}>
         {/* Editor side */}
@@ -4136,19 +4153,7 @@ export default function App() {
     <div style={{minHeight:"100vh",background:C.bg}}>
       <TopBar onAdmin={()=>setView("admin")}/>
 
-      {/* Exit Exam button — floats bottom-right during active test */}
-      {examActive&&(
-        <button onClick={()=>setExitConfirm(true)} style={{
-          position:"fixed",bottom:24,right:24,zIndex:9000,
-          background:"rgba(225,29,72,.92)",color:"#fff",border:"none",
-          borderRadius:12,padding:"11px 22px",fontSize:13,fontWeight:800,
-          cursor:"pointer",display:"flex",alignItems:"center",gap:8,
-          boxShadow:"0 4px 20px rgba(225,29,72,.4)",backdropFilter:"blur(6px)",
-          letterSpacing:"0.02em",
-        }}>
-          🚪 Exit Exam
-        </button>
-      )}
+      {/* Exit Exam button is now inline in each SectionHeader */}
 
       {/* Exit confirmation modal */}
       {exitConfirm&&(
@@ -4192,9 +4197,9 @@ export default function App() {
           {breakNext&&(
             <BreakScreen nextSection={breakNext.label} onContinue={()=>{ setStep(breakNext.step); setBreakNext(null); }}/>
           )}
-          {!breakNext&&step===2&&<ListeningTest testData={activeSuite?.listeningData} onComplete={r=>{setScores(s=>({...s,listening:r}));setBreakNext({label:"Reading Test",step:3});}}/>}
-          {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   onComplete={r=>{setScores(s=>({...s,reading:r})); setBreakNext({label:"Writing Test",step:4});}}/>}
-          {!breakNext&&step===4&&<WritingTest   testData={activeSuite?.writingData}   onComplete={w=>{setScores(s=>({...s,writing:w}));  setStep(5);}}/>}
+          {!breakNext&&step===2&&<ListeningTest testData={activeSuite?.listeningData} onExit={()=>setExitConfirm(true)} onComplete={r=>{setScores(s=>({...s,listening:r}));setBreakNext({label:"Reading Test",step:3});}}/>}
+          {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   onExit={()=>setExitConfirm(true)} onComplete={r=>{setScores(s=>({...s,reading:r})); setBreakNext({label:"Writing Test",step:4});}}/>}
+          {!breakNext&&step===4&&<WritingTest   testData={activeSuite?.writingData}   onExit={()=>setExitConfirm(true)} onComplete={w=>{setScores(s=>({...s,writing:w}));  setStep(5);}}/>}
           {!breakNext&&step===5&&<SpeakingBooking candidateInfo={candidate} onComplete={b=>{setBooking(b);setStep(6);}}/>}
           {step===6&&scores.listening&&scores.reading&&scores.writing&&(
             <Results scores={scores} candidateInfo={candidate} booking={booking} suiteName={activeSuite?.name}/>
