@@ -3017,6 +3017,7 @@ function ParticipantDetail({ profile, onBack }) {
   const [assignSuiteId, setAssignSuiteId] = useState("");
   const [assignMsg, setAssignMsg] = useState("");
   const [expandedAttempt, setExpandedAttempt] = useState(null);
+  const [speakingInputs, setSpeakingInputs] = useState({});  // {participantId: bandValue}
 
   const candidateEmail = profile.email||"";
   const allAttempts    = profile.attempts||[];
@@ -3353,27 +3354,75 @@ function ParticipantDetail({ profile, onBack }) {
                             )}
 
                             {/* SPEAKING */}
-                            {histTab==="speaking"&&(
-                              <div>
-                                {a.speakingBooking?(
-                                  <div>
-                                    <div style={{marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
-                                      <span style={{fontSize:28}}>🗣️</span>
-                                      <div>
-                                        <div style={{fontWeight:700,fontSize:13,color:C.s900}}>Speaking Session Booked</div>
-                                        <div style={{fontSize:12,color:C.s400}}>Details below</div>
-                                      </div>
+                            {histTab==="speaking"&&(()=>{
+                              const sBands=[0,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9];
+                              const curBand = a.speakingBand??null;
+                              const inputVal = speakingInputs[a.id]??( curBand!=null ? String(curBand) : "");
+                              const saveSpeaking = async () => {
+                                const val = parseFloat(inputVal);
+                                if(isNaN(val)||val<0||val>9) return;
+                                const lBand = a.listeningBand??0;
+                                const rBand = a.readingBand??0;
+                                const wBand = a.writingBand??null;
+                                const bands = wBand!=null?[lBand,rBand,wBand,val]:[lBand,rBand,val];
+                                const newOverall = overallBand(bands);
+                                // Update participant in local db
+                                const updated = (_db.participants||[]).map(p=>
+                                  p.id===a.id ? {...p,speakingBand:val,overall:newOverall} : p
+                                );
+                                // Also update scoreOverrides so it persists through refresh
+                                const overrides = {...(_db.scoreOverrides||{})};
+                                overrides[a.id] = {...(overrides[a.id]||{}), speakingBand:val, overall:newOverall};
+                                _db={..._db,participants:updated,scoreOverrides:overrides};
+                                try{localStorage.setItem(DB_KEY,JSON.stringify(_db));}catch{}
+                                await _flushConfig(_db);
+                                setDb({..._db});
+                                setSpeakingInputs(s=>({...s,[a.id]:""}));
+                              };
+                              return (
+                                <div>
+                                  {/* Score entry */}
+                                  <div style={{...cardStyle({padding:20,marginBottom:16,borderLeft:`4px solid ${C.brand}`})}}>
+                                    <div style={{fontSize:12,fontWeight:700,color:C.s900,marginBottom:12}}>🗣️ Speaking Band Score</div>
+                                    <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                                      <select value={inputVal} onChange={e=>setSpeakingInputs(s=>({...s,[a.id]:e.target.value}))}
+                                        style={{...inputStyle,width:120,fontSize:14,fontWeight:700,cursor:"pointer"}}>
+                                        <option value="">— select —</option>
+                                        {sBands.map(b=><option key={b} value={b}>{b}</option>)}
+                                      </select>
+                                      <button onClick={saveSpeaking} disabled={!inputVal}
+                                        style={{...btnStyle("primary"),padding:"9px 20px",fontSize:13,opacity:inputVal?1:.5}}>
+                                        Save Score
+                                      </button>
+                                      {curBand!=null&&(
+                                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                                          <span style={{fontSize:12,color:C.s400}}>Current:</span>
+                                          <BandBadge val={curBand} large/>
+                                        </div>
+                                      )}
                                     </div>
-                                    {[["Date",a.speakingBooking.dateFormatted||a.speakingBooking.date],["Time",a.speakingBooking.slot],["Mode",a.speakingBooking.mode],["Booking ID",a.speakingBooking.id]].map(([k,v])=>(
-                                      <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.s200}`,fontSize:12}}>
-                                        <span style={{color:C.s400,fontWeight:600}}>{k}</span>
-                                        <span style={{color:C.s900,fontWeight:600}}>{v||"—"}</span>
+                                    {curBand!=null&&(
+                                      <div style={{marginTop:12,padding:"10px 14px",background:C.brandL,borderRadius:8,fontSize:12,color:C.brand,fontWeight:600}}>
+                                        New overall with Speaking {curBand}: <strong>{a.overall}</strong>
+                                        &nbsp;(L:{a.listeningBand} + R:{a.readingBand}{a.writingBand!=null?` + W:${a.writingBand}`:""} + S:{curBand})
                                       </div>
-                                    ))}
+                                    )}
                                   </div>
-                                ):<div style={{color:C.s400,fontSize:12,fontStyle:"italic",padding:"12px 0",textAlign:"center"}}>No speaking session booked for this attempt.</div>}
-                              </div>
-                            )}
+                                  {/* Booking info */}
+                                  {a.speakingBooking?(
+                                    <div style={{...cardStyle({padding:16})}}>
+                                      <div style={{fontSize:11,fontWeight:700,color:C.s400,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Booking Details</div>
+                                      {[["Date",a.speakingBooking.dateFormatted||a.speakingBooking.date],["Time",a.speakingBooking.slot],["Mode",a.speakingBooking.mode],["Booking ID",a.speakingBooking.id]].map(([k,v])=>(
+                                        <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.s200}`,fontSize:12}}>
+                                          <span style={{color:C.s400,fontWeight:600}}>{k}</span>
+                                          <span style={{color:C.s900,fontWeight:600}}>{v||"—"}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ):<div style={{color:C.s400,fontSize:12,fontStyle:"italic",padding:"8px 0"}}>No speaking session booked.</div>}
+                                </div>
+                              );
+                            })()}
 
                           </div>
                         </div>
