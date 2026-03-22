@@ -550,29 +550,57 @@ function Countdown({ seconds, onExpire }) {
   );
 }
 
-function SectionHeader({ icon, label, title, right, onExit }) {
+function SectionHeader({ icon, label, title, right, onExit, candidateInfo }) {
   return (
     <div style={{
       background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
       borderBottom: "1px solid rgba(255,255,255,.08)",
-      padding:"18px 32px", display:"flex", justifyContent:"space-between", alignItems:"center",
     }}>
-      <div>
-        <div style={{ color:"rgba(255,255,255,.45)", fontSize:11, fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:4 }}>
-          {icon} {label}
+      {/* Candidate identification bar */}
+      {candidateInfo&&(
+        <div style={{
+          background:"rgba(17,205,135,.08)",
+          borderBottom:"1px solid rgba(17,205,135,.15)",
+          padding:"6px 32px",
+          display:"flex",alignItems:"center",gap:16,
+        }}>
+          <span style={{fontSize:11,color:"rgba(17,205,135,.7)",fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase"}}>
+            👤 Candidate
+          </span>
+          <span style={{fontSize:13,color:"#fff",fontWeight:700}}>
+            {candidateInfo.name||"—"}
+          </span>
+          {candidateInfo.id&&(
+            <span style={{fontSize:11,color:"rgba(255,255,255,.35)",fontFamily:"'JetBrains Mono',monospace",marginLeft:4}}>
+              ID: {candidateInfo.id}
+            </span>
+          )}
+          {candidateInfo.email&&(
+            <span style={{fontSize:11,color:"rgba(255,255,255,.3)",marginLeft:4}}>
+              {candidateInfo.email}
+            </span>
+          )}
         </div>
-        <h2 style={{ color:"#fff", fontSize:20, fontWeight:800, letterSpacing:"-0.02em" }}>{title}</h2>
-      </div>
-      <div style={{display:"flex",alignItems:"center",gap:10}}>
-        {right}
-        {onExit&&(
-          <button onClick={onExit} style={{
-            background:"rgba(225,29,72,.85)",color:"#fff",border:"none",
-            borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",
-            display:"flex",alignItems:"center",gap:5,letterSpacing:"0.02em",
-            boxShadow:"0 2px 8px rgba(225,29,72,.35)",
-          }}>🚪 Exit</button>
-        )}
+      )}
+      {/* Section title row */}
+      <div style={{padding:"14px 32px", display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+        <div>
+          <div style={{ color:"rgba(255,255,255,.45)", fontSize:11, fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:4 }}>
+            {icon} {label}
+          </div>
+          <h2 style={{ color:"#fff", fontSize:20, fontWeight:800, letterSpacing:"-0.02em" }}>{title}</h2>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          {right}
+          {onExit&&(
+            <button onClick={onExit} style={{
+              background:"rgba(225,29,72,.85)",color:"#fff",border:"none",
+              borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",
+              display:"flex",alignItems:"center",gap:5,letterSpacing:"0.02em",
+              boxShadow:"0 2px 8px rgba(225,29,72,.35)",
+            }}>🚪 Exit</button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -636,7 +664,7 @@ function Registration({ onNext }) {
 }
 
 // ── LISTENING TEST ────────────────────────────────────────────────────────────
-function ListeningTest({ onComplete, testData, onExit }) {
+function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
   const [ready, setReady]           = useState(false); // pre-test countdown
   const [phase, setPhase]           = useState("main"); // "main" | "checking"
   const [answers, setAnswers]       = useState({});
@@ -714,7 +742,7 @@ function ListeningTest({ onComplete, testData, onExit }) {
   if(phase==="checking" && !submitted) return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
       <SectionHeader icon="🎧" label="Listening Test" title="Checking Time"
-        right={<Countdown seconds={10*60} onExpire={handleSubmit}/>} onExit={onExit}/>
+        right={<Countdown seconds={10*60} onExpire={handleSubmit}/>} onExit={onExit} candidateInfo={candidateInfo}/>
       <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
         background:"#0F172A",gap:24,padding:32}}>
         <div style={{fontSize:48}}>🔍</div>
@@ -737,7 +765,7 @@ function ListeningTest({ onComplete, testData, onExit }) {
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
       <SectionHeader icon="🎧" label="Listening Test" title="IELTS Academic Listening"
-        right={<Countdown seconds={40*60} onExpire={handleMainExpire}/>} onExit={onExit}/>
+        right={<Countdown seconds={40*60} onExpire={handleMainExpire}/>} onExit={onExit} candidateInfo={candidateInfo}/>
 
       <div style={{display:"grid",gridTemplateColumns:"300px 1fr",flex:1,overflow:"hidden"}}>
         {/* Sidebar */}
@@ -958,7 +986,7 @@ function ListeningQ({ q, answer, submitted, correct, onChange }) {
 }
 
 // ── READING TEST ──────────────────────────────────────────────────────────────
-function ReadingTest({ onComplete, testData, onExit }) {
+function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
   const [ready, setReady]         = useState(false);
   const [pIdx, setPIdx]           = useState(0);
   const [answers, setAnswers]     = useState({});
@@ -1050,7 +1078,7 @@ function ReadingTest({ onComplete, testData, onExit }) {
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
       <SectionHeader icon="📖" label="Reading Test" title="IELTS Academic Reading"
-        right={<Countdown seconds={60*60} onExpire={handleSubmit}/>} onExit={onExit}/>
+        right={<Countdown seconds={60*60} onExpire={handleSubmit}/>} onExit={onExit} candidateInfo={candidateInfo}/>
 
       {/* Tab bar + highlight tools */}
       <div style={{background:"#fff",borderBottom:`1px solid ${C.s200}`,padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
@@ -1431,7 +1459,7 @@ function ReadingQ({ q, answer, submitted, correct, onChange }) {
 }
 
 // ── WRITING TEST (no AI — AI runs after speaking) ─────────────────────────────
-function WritingTest({ onComplete, testData, onExit }) {
+function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
   const [ready, setReady]         = useState(false);
   const [tIdx, setTIdx]           = useState(0);
   const [imgZoom, setImgZoom]     = useState(false);
@@ -1496,7 +1524,7 @@ function WritingTest({ onComplete, testData, onExit }) {
             </div>
             <Countdown seconds={60*60} onExpire={handleSubmit}/>
           </div>
-        } onExit={onExit}/>
+        } onExit={onExit} candidateInfo={candidateInfo}/>
 
       {/* Split: prompt left, writing right */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",flex:1,overflow:"hidden"}}>
@@ -4926,13 +4954,39 @@ export default function App() {
   const [scores, setScores]         = useState({});
   const [booking, setBooking]       = useState(null);
   const [exitConfirm, setExitConfirm] = useState(false);
+  const [exitReason, setExitReason]   = useState("manual"); // "manual" | "fullscreen"
   const [breakNext, setBreakNext]     = useState(null); // {label, step} — shown between sections
   const [speakingExamDone, setSpeakingExamDone] = useState(false);
   const [speakingBand, setSpeakingBand] = useState(null);
 
+  // Track whether we are programmatically exiting fullscreen (normal flow) vs user pressing Escape
+  const programmaticExitRef = useRef(false);
+
   useEffect(()=>{ initDB().then(()=>setDbReady(true)); },[]);
+
   // Exit fullscreen when results screen is shown — must be before any conditional returns
-  useEffect(()=>{ if(step===7) exitFullscreen(); },[step]);
+  useEffect(()=>{
+    if(step===7){ programmaticExitRef.current=true; exitFullscreen(); }
+  },[step]);
+
+  // Detect when user manually exits fullscreen during an active exam → show interrupt modal
+  useEffect(()=>{
+    const handler = () => {
+      if(document.fullscreenElement) return; // still in fullscreen — ignore
+      if(programmaticExitRef.current){ programmaticExitRef.current=false; return; } // we triggered it
+      // Check if exam is active (steps 2–5, not on results or lobby)
+      setStep(s=>{
+        if(s>=2&&s<=5){ setExitReason("fullscreen"); setExitConfirm(true); }
+        return s;
+      });
+    };
+    document.addEventListener("fullscreenchange", handler);
+    document.addEventListener("webkitfullscreenchange", handler);
+    return ()=>{
+      document.removeEventListener("fullscreenchange", handler);
+      document.removeEventListener("webkitfullscreenchange", handler);
+    };
+  },[]);
 
   if(!dbReady) return (
     <div style={{minHeight:"100vh",background:"#0F172A",display:"flex",flexDirection:"column",
@@ -4968,6 +5022,7 @@ export default function App() {
 
   // Confirm exit exam — exits fullscreen and resets everything
   const handleExitExam = () => {
+    programmaticExitRef.current = true;
     exitFullscreen();
     setExitConfirm(false);
     setView("home");
@@ -4994,24 +5049,40 @@ export default function App() {
 
       {/* Exit confirmation modal */}
       {exitConfirm&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.7)",zIndex:9999,
-          display:"flex",alignItems:"center",justifyContent:"center",padding:24,backdropFilter:"blur(4px)"}}>
-          <div style={{background:"#fff",borderRadius:20,padding:36,maxWidth:420,width:"100%",
-            textAlign:"center",boxShadow:"0 24px 80px rgba(0,0,0,.4)",animation:"fadeUp .2s ease both"}}>
-            <div style={{fontSize:48,marginBottom:16}}>⚠️</div>
-            <h2 style={{fontSize:22,fontWeight:800,color:C.s900,marginBottom:10,letterSpacing:"-0.02em"}}>
-              Exit Exam?
-            </h2>
-            <p style={{fontSize:14,color:C.s600,lineHeight:1.7,marginBottom:28}}>
-              Are you sure you want to close the exam?<br/>
-              <strong style={{color:C.rose}}>Your progress will be lost</strong> and you will return to the home screen.
-            </p>
+        <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.85)",zIndex:9999,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:24,backdropFilter:"blur(6px)"}}>
+          <div style={{background:"#fff",borderRadius:20,padding:36,maxWidth:440,width:"100%",
+            textAlign:"center",boxShadow:"0 24px 80px rgba(0,0,0,.5)",animation:"fadeUp .2s ease both"}}>
+            {exitReason==="fullscreen"?(
+              <>
+                <div style={{fontSize:52,marginBottom:12}}>🚫</div>
+                <h2 style={{fontSize:22,fontWeight:800,color:C.s900,marginBottom:10,letterSpacing:"-0.02em"}}>
+                  Test Interrupted
+                </h2>
+                <p style={{fontSize:14,color:C.s600,lineHeight:1.7,marginBottom:24}}>
+                  You exited full-screen mode.<br/>
+                  <strong style={{color:C.rose}}>The exam must be taken in full-screen.</strong><br/>
+                  Return to full-screen to continue, or exit the exam.
+                </p>
+              </>
+            ):(
+              <>
+                <div style={{fontSize:48,marginBottom:16}}>⚠️</div>
+                <h2 style={{fontSize:22,fontWeight:800,color:C.s900,marginBottom:10,letterSpacing:"-0.02em"}}>
+                  Exit Exam?
+                </h2>
+                <p style={{fontSize:14,color:C.s600,lineHeight:1.7,marginBottom:28}}>
+                  Are you sure you want to close the exam?<br/>
+                  <strong style={{color:C.rose}}>Your progress will be lost</strong> and you will return to the home screen.
+                </p>
+              </>
+            )}
             <div style={{display:"flex",gap:12}}>
-              <button onClick={()=>setExitConfirm(false)} style={{
+              <button onClick={()=>{ setExitConfirm(false); if(exitReason==="fullscreen") enterFullscreen(); }} style={{
                 flex:1,padding:"13px",borderRadius:12,border:`2px solid ${C.s200}`,
                 background:"#fff",color:C.s800,fontSize:14,fontWeight:700,cursor:"pointer",
               }}>
-                ← Continue Exam
+                {exitReason==="fullscreen"?"↩ Return to Full-Screen":"← Continue Exam"}
               </button>
               <button onClick={handleExitExam} style={{
                 flex:1,padding:"13px",borderRadius:12,border:"none",
@@ -5034,9 +5105,9 @@ export default function App() {
           {breakNext&&(
             <BreakScreen nextSection={breakNext.label} onContinue={()=>{ setStep(breakNext.step); setBreakNext(null); }}/>
           )}
-          {!breakNext&&step===2&&<ListeningTest testData={activeSuite?.listeningData} onExit={()=>setExitConfirm(true)} onComplete={r=>{setScores(s=>({...s,listening:r}));setBreakNext({label:"Reading Test",step:3});}}/>}
-          {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   onExit={()=>setExitConfirm(true)} onComplete={r=>{setScores(s=>({...s,reading:r})); setBreakNext({label:"Writing Test",step:4});}}/>}
-          {!breakNext&&step===4&&<WritingTest   testData={activeSuite?.writingData}   onExit={()=>setExitConfirm(true)} onComplete={w=>{setScores(s=>({...s,writing:w}));  setStep(5);}}/>}
+          {!breakNext&&step===2&&<ListeningTest testData={activeSuite?.listeningData} candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{setScores(s=>({...s,listening:r}));setBreakNext({label:"Reading Test",step:3});}}/>}
+          {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{setScores(s=>({...s,reading:r})); setBreakNext({label:"Writing Test",step:4});}}/>}
+          {!breakNext&&step===4&&<WritingTest   testData={activeSuite?.writingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={w=>{setScores(s=>({...s,writing:w}));  setStep(5);}}/>}
           {!breakNext&&step===5&&!speakingExamDone&&(
             <SpeakingExam
               candidateInfo={candidate}
