@@ -3909,16 +3909,15 @@ function Home({ onStart, onAdmin }) {
 
         <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,maxWidth:560,margin:"0 auto 40px",textAlign:"left"}}>
           {[
-            ["🎧","Listening","40 Qs · Uploaded audio","Admin-assigned content"],
-            ["📖","Reading","40 Qs · 3 passages","Admin-assigned passages"],
-            ["✍️","Writing","2 tasks · AI examiner","Band score, 4 criteria, corrections"],
-            ["🗓️","Speaking","Book with examiner","Online or in-person options"],
-          ].map(([icon,title,sub,desc])=>(
+            ["🎧","Listening","40 Questions"],
+            ["📖","Reading","40 Questions"],
+            ["✍️","Writing","2 Tasks · AI Evaluated"],
+            ["🗓️","Speaking","Book with Examiner"],
+          ].map(([icon,title,sub])=>(
             <div key={title} style={{...cardStyle({padding:20,transition:"all .2s",cursor:"default"})}}>
               <div style={{fontSize:26,marginBottom:10}}>{icon}</div>
-              <div style={{fontWeight:800,color:C.s900,marginBottom:2,fontSize:14}}>{title}</div>
-              <div style={{color:C.brand,fontSize:12,fontWeight:700,marginBottom:4}}>{sub}</div>
-              <div style={{color:C.s400,fontSize:12}}>{desc}</div>
+              <div style={{fontWeight:800,color:C.s900,marginBottom:4,fontSize:14}}>{title}</div>
+              <div style={{color:C.brand,fontSize:12,fontWeight:700}}>{sub}</div>
             </div>
           ))}
         </div>
