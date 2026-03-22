@@ -415,6 +415,57 @@ const exitFullscreen = () => {
 };
 
 // Pre-test countdown screen — shown 60 s before each section starts
+// ── 10-MINUTE BREAK SCREEN between sections ───────────────────────────────────
+function BreakScreen({ nextSection, onContinue }) {
+  const [left, setLeft] = useState(10 * 60);
+  useEffect(()=>{
+    if(left<=0){ onContinue(); return; }
+    const t = setTimeout(()=>setLeft(l=>l-1), 1000);
+    return ()=>clearTimeout(t);
+  },[left]);
+  const mins = Math.floor(left/60);
+  const secs = left%60;
+  const pct  = left/(10*60);
+  const urgent = left < 60;
+  return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+      height:"calc(100vh - 130px)",background:"#0F172A",gap:32,padding:32}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:13,color:"rgba(255,255,255,.5)",fontWeight:700,letterSpacing:"0.15em",
+          textTransform:"uppercase",marginBottom:8}}>Section Complete</div>
+        <div style={{fontSize:28,fontWeight:800,color:"#fff",marginBottom:4}}>Break Time ☕</div>
+        <div style={{fontSize:14,color:"rgba(255,255,255,.4)",maxWidth:360,lineHeight:1.6}}>
+          Next up: <strong style={{color:"#11CD87"}}>{nextSection}</strong>.<br/>
+          The break will end automatically. You may leave your seat.
+        </div>
+      </div>
+      {/* Circular countdown */}
+      <div style={{position:"relative",width:180,height:180}}>
+        <svg width="180" height="180" style={{transform:"rotate(-90deg)"}}>
+          <circle cx="90" cy="90" r="80" fill="none" stroke="rgba(255,255,255,.08)" strokeWidth="10"/>
+          <circle cx="90" cy="90" r="80" fill="none"
+            stroke={urgent?"#E11D48":"#11CD87"} strokeWidth="10"
+            strokeDasharray={`${2*Math.PI*80}`}
+            strokeDashoffset={`${2*Math.PI*80*(1-pct)}`}
+            strokeLinecap="round" style={{transition:"stroke-dashoffset 1s linear"}}/>
+        </svg>
+        <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
+          alignItems:"center",justifyContent:"center"}}>
+          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:36,fontWeight:900,
+            color:urgent?"#E11D48":"#11CD87",lineHeight:1}}>
+            {String(mins).padStart(2,"0")}:{String(secs).padStart(2,"0")}
+          </div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,.4)",marginTop:4}}>remaining</div>
+        </div>
+      </div>
+      <button onClick={onContinue} style={{background:"#11CD87",color:"#064E3B",border:"none",
+        borderRadius:12,padding:"12px 36px",fontSize:14,fontWeight:800,cursor:"pointer"}}>
+        Skip Break — Start {nextSection} Now →
+      </button>
+    </div>
+  );
+}
+
 function PreTestScreen({ icon, label, color="#11CD87", onStart }) {
   const [left, setLeft] = useState(60);
   const doStart = () => { onStart(); };
@@ -4009,7 +4060,8 @@ export default function App() {
   const [activeSuite, setActiveSuite] = useState(null);
   const [scores, setScores]         = useState({});
   const [booking, setBooking]       = useState(null);
-  const [exitConfirm, setExitConfirm] = useState(false); // exit exam confirmation dialog
+  const [exitConfirm, setExitConfirm] = useState(false);
+  const [breakNext, setBreakNext]     = useState(null); // {label, step} — shown between sections
 
   useEffect(()=>{ initDB().then(()=>setDbReady(true)); },[]);
   // Exit fullscreen when results screen is shown — must be before any conditional returns
@@ -4057,12 +4109,13 @@ export default function App() {
     setActiveSuite(null);
     setScores({});
     setBooking(null);
+    setBreakNext(null);
   };
 
   if(view==="admin") return <AdminDashboard onExit={()=>setView("home")}/>;
 
-  // Is the exam actively running (steps 2–5 = Listening/Reading/Writing/Speaking)
-  const examActive = view==="test" && step>=2 && step<=5;
+  // Is the exam actively running (steps 2–5 = Listening/Reading/Writing/Speaking, or on break)
+  const examActive = view==="test" && (step>=2 && step<=5 || breakNext!==null);
 
   return (
     <div style={{minHeight:"100vh",background:C.bg}}>
@@ -4120,10 +4173,14 @@ export default function App() {
           <StepNav step={step} steps={STEPS}/>
           {step===0&&<Registration onNext={handleRegComplete}/>}
           {step===1&&candidate&&<TestLobby candidate={candidate} onStart={handleStartTest}/>}
-          {step===2&&<ListeningTest testData={activeSuite?.listeningData} onComplete={r=>{setScores(s=>({...s,listening:r}));setStep(3);}}/>}
-          {step===3&&<ReadingTest   testData={activeSuite?.readingData}   onComplete={r=>{setScores(s=>({...s,reading:r}));  setStep(4);}}/>}
-          {step===4&&<WritingTest   testData={activeSuite?.writingData}   onComplete={w=>{setScores(s=>({...s,writing:w}));  setStep(5);}}/>}
-          {step===5&&<SpeakingBooking candidateInfo={candidate} onComplete={b=>{setBooking(b);setStep(6);}}/>}
+          {/* Break screen between sections */}
+          {breakNext&&(
+            <BreakScreen nextSection={breakNext.label} onContinue={()=>{ setStep(breakNext.step); setBreakNext(null); }}/>
+          )}
+          {!breakNext&&step===2&&<ListeningTest testData={activeSuite?.listeningData} onComplete={r=>{setScores(s=>({...s,listening:r}));setBreakNext({label:"Reading Test",step:3});}}/>}
+          {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   onComplete={r=>{setScores(s=>({...s,reading:r})); setBreakNext({label:"Writing Test",step:4});}}/>}
+          {!breakNext&&step===4&&<WritingTest   testData={activeSuite?.writingData}   onComplete={w=>{setScores(s=>({...s,writing:w}));  setStep(5);}}/>}
+          {!breakNext&&step===5&&<SpeakingBooking candidateInfo={candidate} onComplete={b=>{setBooking(b);setStep(6);}}/>}
           {step===6&&scores.listening&&scores.reading&&scores.writing&&(
             <Results scores={scores} candidateInfo={candidate} booking={booking} suiteName={activeSuite?.name}/>
           )}
