@@ -379,7 +379,7 @@ const exitFullscreen = () => {
 // Pre-test countdown screen — shown 60 s before each section starts
 function PreTestScreen({ icon, label, color="#11CD87", onStart }) {
   const [left, setLeft] = useState(60);
-  const doStart = () => { enterFullscreen(); onStart(); };
+  const doStart = () => { onStart(); };
   useEffect(()=>{
     if(left<=0){doStart();return;}
     const t=setTimeout(()=>setLeft(l=>l-1),1000);
@@ -544,9 +544,6 @@ function ListeningTest({ onComplete, testData }) {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
-
-  // Exit fullscreen when test is done
-  useEffect(()=>{ if(submitted) exitFullscreen(); }, [submitted]);
 
   // Reset audio seek tracker when section changes
   useEffect(()=>{ lastTimeRef.current = 0; }, [secIdx]);
@@ -835,7 +832,6 @@ function ReadingTest({ onComplete, testData }) {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
-  useEffect(()=>{ if(submitted) exitFullscreen(); }, [submitted]);
 
   if(!ready) return <PreTestScreen icon="📖" label="Reading Test" onStart={()=>setReady(true)}/>;
   // Build sections & passage map — supports new multi-passage format, old single-passage, or built-in
@@ -1318,7 +1314,6 @@ function WritingTest({ onComplete, testData }) {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
-  useEffect(()=>{ if(submitted) exitFullscreen(); }, [submitted]);
 
   if(!ready) return <PreTestScreen icon="✍️" label="Writing Test" onStart={()=>setReady(true)}/>;
 
@@ -3969,13 +3964,14 @@ function TestLobby({ candidate, onStart }) {
 }
 
 export default function App() {
-  const [dbReady, setDbReady]   = useState(false);
-  const [view, setView]         = useState("home");
-  const [step, setStep]         = useState(0);
-  const [candidate, setCand]    = useState(null);
+  const [dbReady, setDbReady]       = useState(false);
+  const [view, setView]             = useState("home");
+  const [step, setStep]             = useState(0);
+  const [candidate, setCand]        = useState(null);
   const [activeSuite, setActiveSuite] = useState(null);
-  const [scores, setScores]     = useState({});
-  const [booking, setBooking]   = useState(null);
+  const [scores, setScores]         = useState({});
+  const [booking, setBooking]       = useState(null);
+  const [exitConfirm, setExitConfirm] = useState(false); // exit exam confirmation dialog
 
   useEffect(()=>{ initDB().then(()=>setDbReady(true)); },[]);
 
@@ -4003,18 +3999,84 @@ export default function App() {
     setStep(1);
   };
 
-  // From lobby "Begin Test" → resolve suite → advance to listening
+  // From lobby "Begin Test" → enter fullscreen ONCE for the whole exam → advance to listening
   const handleStartTest = () => {
     const suite = resolveTestSuite(candidate.email);
     setActiveSuite(suite);
+    enterFullscreen();
     setStep(2);
   };
 
+  // Confirm exit exam — exits fullscreen and resets everything
+  const handleExitExam = () => {
+    exitFullscreen();
+    setExitConfirm(false);
+    setView("home");
+    setStep(0);
+    setCand(null);
+    setActiveSuite(null);
+    setScores({});
+    setBooking(null);
+  };
+
+  // Results page: exit fullscreen when shown
+  useEffect(()=>{ if(step===6) exitFullscreen(); },[step]);
+
   if(view==="admin") return <AdminDashboard onExit={()=>setView("home")}/>;
+
+  // Is the exam actively running (steps 2–5 = Listening/Reading/Writing/Speaking)
+  const examActive = view==="test" && step>=2 && step<=5;
 
   return (
     <div style={{minHeight:"100vh",background:C.bg}}>
       <TopBar onAdmin={()=>setView("admin")}/>
+
+      {/* Exit Exam button — floats bottom-right during active test */}
+      {examActive&&(
+        <button onClick={()=>setExitConfirm(true)} style={{
+          position:"fixed",bottom:24,right:24,zIndex:9000,
+          background:"rgba(225,29,72,.92)",color:"#fff",border:"none",
+          borderRadius:12,padding:"11px 22px",fontSize:13,fontWeight:800,
+          cursor:"pointer",display:"flex",alignItems:"center",gap:8,
+          boxShadow:"0 4px 20px rgba(225,29,72,.4)",backdropFilter:"blur(6px)",
+          letterSpacing:"0.02em",
+        }}>
+          🚪 Exit Exam
+        </button>
+      )}
+
+      {/* Exit confirmation modal */}
+      {exitConfirm&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.7)",zIndex:9999,
+          display:"flex",alignItems:"center",justifyContent:"center",padding:24,backdropFilter:"blur(4px)"}}>
+          <div style={{background:"#fff",borderRadius:20,padding:36,maxWidth:420,width:"100%",
+            textAlign:"center",boxShadow:"0 24px 80px rgba(0,0,0,.4)",animation:"fadeUp .2s ease both"}}>
+            <div style={{fontSize:48,marginBottom:16}}>⚠️</div>
+            <h2 style={{fontSize:22,fontWeight:800,color:C.s900,marginBottom:10,letterSpacing:"-0.02em"}}>
+              Exit Exam?
+            </h2>
+            <p style={{fontSize:14,color:C.s600,lineHeight:1.7,marginBottom:28}}>
+              Are you sure you want to close the exam?<br/>
+              <strong style={{color:C.rose}}>Your progress will be lost</strong> and you will return to the home screen.
+            </p>
+            <div style={{display:"flex",gap:12}}>
+              <button onClick={()=>setExitConfirm(false)} style={{
+                flex:1,padding:"13px",borderRadius:12,border:`2px solid ${C.s200}`,
+                background:"#fff",color:C.s800,fontSize:14,fontWeight:700,cursor:"pointer",
+              }}>
+                ← Continue Exam
+              </button>
+              <button onClick={handleExitExam} style={{
+                flex:1,padding:"13px",borderRadius:12,border:"none",
+                background:C.rose,color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",
+              }}>
+                Yes, Exit Exam
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {view==="home"&&<Home onStart={()=>setView("test")} onAdmin={()=>setView("admin")}/>}
       {view==="test"&&(
         <>
