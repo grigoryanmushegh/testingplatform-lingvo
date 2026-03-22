@@ -559,7 +559,7 @@ function ListeningTest({ onComplete, testData }) {
     sections=testData.sections.map((s,i)=>{
       const qs=(s.questions||[]).map((q,j)=>({...q,id:qOffset+j+1}));
       qOffset+=qs.length;
-      return {label:s.title||`Section ${i+1}`,instructions:s.instructions||"Answer the following questions.",questions:qs};
+      return {label:s.title||`Section ${i+1}`,instructions:s.instructions||"Answer the following questions.",questions:qs,audioUrl:s.audioUrl||null};
     });
   } else if(testData?.questions?.length>0) {
     sections=[{label:testData.title||"Section 1",instructions:"Answer the following questions.",questions:testData.questions.map((q,i)=>({...q,id:i+1}))}];
