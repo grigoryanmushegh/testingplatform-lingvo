@@ -2637,43 +2637,44 @@ function AdminDashboard({ onExit }) {
   const recalculateAllBands = async () => {
     setRecalculating(true);
 
-    // Step 1: reload fresh data from Supabase so we have the latest test answer keys
-    await reloadDB();
-    const db = loadDB();
-    const allTests = db.tests||[];
+    // Use _db.tests directly — always current in memory (updated the moment admin saves)
+    const allTests = _db.tests||[];
 
-    // Step 2: build flat question list (sequential IDs 1,2,3...) for every test
-    const getTestQs = t => {
-      let qs=[], off=0;
+    // Build TWO lookup maps from ALL tests:
+    // 1. By question TEXT (most reliable — text is unique per question)
+    // 2. By sequential ID (fallback)
+    const keyByText={}, keyById={};
+    allTests.forEach(t=>{
+      let off=0;
+      const addQ=(q,idx)=>{
+        const c=(q.correct||"").trim();
+        if(!c) return;
+        const txt=(q.text||"").trim().toLowerCase().slice(0,120);
+        if(txt) keyByText[txt]=c;
+        keyById[idx]=c;
+      };
       if(t.sections?.length>0){
-        t.sections.forEach(s=>{(s.questions||[]).forEach((q,j)=>qs.push({...q,id:off+j+1}));off+=s.questions?.length||0;});
+        t.sections.forEach(s=>{(s.questions||[]).forEach((q,j)=>{addQ(q,off+j+1);});off+=s.questions?.length||0;});
       } else if(t.passages?.length>0){
-        t.passages.forEach(p=>{(p.questions||[]).forEach((q,j)=>qs.push({...q,id:off+j+1}));off+=p.questions?.length||0;});
+        t.passages.forEach(p=>{(p.questions||[]).forEach((q,j)=>{addQ(q,off+j+1);});off+=p.questions?.length||0;});
       } else if(t.questions?.length>0){
-        qs=t.questions.map((q,i)=>({...q,id:i+1}));
+        t.questions.forEach((q,i)=>addQ(q,i+1));
       }
-      return qs;
-    };
-    const allTestQs = allTests.map(t=>({id:t.id, type:t.type||"", qs:getTestQs(t)})).filter(x=>x.qs.length>0);
+    });
 
-    // Step 3: for a given set of student answers, find the test whose questions have the most
-    // non-empty correct keys covering the answered question IDs
-    const findBestTest = (answers) => {
-      if(!answers||!Object.keys(answers).length) return null;
-      const answeredIds = new Set(Object.keys(answers).map(Number));
-      let best=null, bestCount=-1;
-      allTestQs.forEach(({qs})=>{
-        const keyed = qs.filter(q=>answeredIds.has(q.id)&&(q.correct||"").trim()).length;
-        if(keyed>bestCount){ bestCount=keyed; best=qs; }
-      });
-      return best;
+    // Get correct answer for a stored question — text match first, ID fallback
+    const getKey=(q)=>{
+      const txt=(q.text||"").trim().toLowerCase().slice(0,120);
+      if(txt&&keyByText[txt]) return keyByText[txt];
+      if(q.id&&keyById[q.id]) return keyById[q.id];
+      return q.correct||"";
     };
 
-    // Step 4: score answers against a question list
-    const scoreAnswers = (qs, answers) => {
+    // Score a question list against stored answers
+    const scoreAll=(qs,ans)=>{
       let correct=0;
       qs.forEach(q=>{
-        const raw=answers[q.id];
+        const raw=ans[q.id];
         const a=(raw&&typeof raw==="object"?raw.text:(raw||"")).trim().toLowerCase();
         const c=(q.correct||"").trim().toLowerCase();
         if(!a||!c) return;
@@ -2689,57 +2690,57 @@ function AdminDashboard({ onExit }) {
       return correct;
     };
 
-    // Step 5: merge stored questions with current answer keys (so history shows correct answer)
-    const mergeQs = (storedQs, currentQs) => {
-      const keyById={};
-      currentQs.forEach(q=>{keyById[q.id]=q;});
-      const base = storedQs.length>0 ? storedQs : currentQs;
-      return base.map(q=>({...q, correct: keyById[q.id]?.correct ?? q.correct}));
-    };
+    // Load fresh participants directly from Supabase
+    const freshPts = supabase ? (await _loadParticipants()||[]) : [];
+    // Merge with any local-only participants (not yet in Supabase)
+    const localPts = _db.participants||[];
+    const allPtsMap={};
+    [...freshPts,...localPts].forEach(p=>{ if(p.id) allPtsMap[p.id]=p; });
+    const participants = Object.values(allPtsMap);
 
-    // Step 6: process every participant
     let count=0;
-    const updated = (db.participants||[]).map(p=>{
+    const updated=participants.map(p=>{
       if(!p.listeningScore&&!p.readingScore) return p;
       const [,lt]=(p.listeningScore||"0/40").split("/").map(Number);
       const [,rt]=(p.readingScore||"0/40").split("/").map(Number);
       let lc=Number((p.listeningScore||"0/40").split("/")[0])||0;
       let rc=Number((p.readingScore||"0/40").split("/")[0])||0;
-      let newLQs=p.allListeningQuestions||[];
-      let newRQs=p.allReadingQuestions||[];
 
-      if(p.listeningAnswers&&Object.keys(p.listeningAnswers).length){
-        const bestQs=findBestTest(p.listeningAnswers);
-        if(bestQs){ newLQs=mergeQs(p.allListeningQuestions||[],bestQs); lc=scoreAnswers(newLQs,p.listeningAnswers); }
-      }
-      if(p.readingAnswers&&Object.keys(p.readingAnswers).length){
-        const bestQs=findBestTest(p.readingAnswers);
-        if(bestQs){ newRQs=mergeQs(p.allReadingQuestions||[],bestQs); rc=scoreAnswers(newRQs,p.readingAnswers); }
-      }
+      // Update listening questions with current answer keys, then re-score
+      let newLQs=(p.allListeningQuestions||[]).map(q=>({...q,correct:getKey(q)}));
+      if(newLQs.length&&p.listeningAnswers&&Object.keys(p.listeningAnswers).length)
+        lc=scoreAll(newLQs,p.listeningAnswers);
+
+      // Update reading questions with current answer keys, then re-score
+      let newRQs=(p.allReadingQuestions||[]).map(q=>({...q,correct:getKey(q)}));
+      if(newRQs.length&&p.readingAnswers&&Object.keys(p.readingAnswers).length)
+        rc=scoreAll(newRQs,p.readingAnswers);
 
       const newLB=listeningBand(lc,lt||40);
       const newRB=readingBand(rc,rt||40);
       const wBand=p.writingBand??null;
-      const bands=wBand!=null?[newLB,newRB,wBand]:[newLB,newRB];
       count++;
-      return {...p,listeningScore:`${lc}/${lt||40}`,readingScore:`${rc}/${rt||40}`,
-        listeningBand:newLB,readingBand:newRB,overall:overallBand(bands),
-        allListeningQuestions:newLQs,allReadingQuestions:newRQs};
+      return {...p,
+        listeningScore:`${lc}/${lt||40}`,readingScore:`${rc}/${rt||40}`,
+        listeningBand:newLB,readingBand:newRB,
+        overall:overallBand(wBand!=null?[newLB,newRB,wBand]:[newLB,newRB]),
+        allListeningQuestions:newLQs,allReadingQuestions:newRQs,
+      };
     });
 
-    // Step 7: save to localStorage and update in-memory state immediately
-    _db={...db,participants:updated};
+    // Save to memory + localStorage + update React state immediately
+    _db={..._db,participants:updated};
     try{localStorage.setItem(DB_KEY,JSON.stringify(_db));}catch{}
-    setDb({..._db});  // force UI update right now without waiting for Supabase
+    setDb({..._db});
 
-    // Step 8: upsert every participant row to Supabase
+    // Upsert every participant to Supabase
     if(supabase){
       for(const p of updated){
         if(!p.listeningScore&&!p.readingScore) continue;
         try{
           const email=((p.candidate?.email||p.email)||"").toLowerCase().trim();
           await supabase.from("participants").upsert({id:p.id,email,type:"attempt",data:p},{onConflict:"id"});
-        }catch(e){console.warn("[recalc] upsert failed",p.id,e);}
+        }catch(e){console.warn("[recalc]",p.id,e);}
       }
     }
 
