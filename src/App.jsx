@@ -315,18 +315,7 @@ const WRITING_TASKS = [
 
 function Logo({ size=18, dark=false }) {
   return (
-    <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-      {/* Teal accent bar */}
-      <div style={{ width: size*0.22+2, height: size*1.1, borderRadius: 3, background:"#11CD87", flexShrink:0 }}/>
-      <div style={{ lineHeight:1.15 }}>
-        <div style={{ fontWeight:900, fontSize:size*1.1, color: dark?"#fff":"#0A0A0A", letterSpacing:"-0.02em", whiteSpace:"nowrap" }}>
-          Lingvo Connect
-        </div>
-        <div style={{ fontSize:size*0.62, color:"#E8174A", fontWeight:600, letterSpacing:"0.01em" }}>
-          IELTS Testing Platform
-        </div>
-      </div>
-    </div>
+    <img src="/logo.png" alt="LingvoConnect" style={{ height: size*2.2, width:"auto", display:"block", filter: dark?"brightness(0) invert(1)":"none" }}/>
   );
 }
 // Demo Link Component
