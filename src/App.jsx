@@ -315,20 +315,15 @@ const WRITING_TASKS = [
 
 function Logo({ size=18, dark=false }) {
   return (
-    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-      <div style={{
-        width: size+14, height: size+14, borderRadius: 10,
-        background: "linear-gradient(135deg, #11CD87 0%, #0BA870 100%)",
-        display:"flex", alignItems:"center", justifyContent:"center",
-        boxShadow:"0 2px 8px rgba(17,205,135,.4)",
-        fontSize: size*0.7, color:"#fff", fontWeight:800,
-      }}>L</div>
-      <div style={{ lineHeight:1.1 }}>
-        <div style={{ fontWeight:800, fontSize:size, color: dark?"#fff":C.s900, letterSpacing:"-0.03em" }}>
-          Lingvo<span style={{ color:C.brand }}>Connect</span>
+    <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+      {/* Teal accent bar */}
+      <div style={{ width: size*0.22+2, height: size*1.1, borderRadius: 3, background:"#11CD87", flexShrink:0 }}/>
+      <div style={{ lineHeight:1.15 }}>
+        <div style={{ fontWeight:900, fontSize:size*1.1, color: dark?"#fff":"#0A0A0A", letterSpacing:"-0.02em", whiteSpace:"nowrap" }}>
+          Lingvo Connect
         </div>
-        <div style={{ fontSize:size*0.55, color: dark?"rgba(255,255,255,.5)":C.s400, fontWeight:500, letterSpacing:"0.08em", textTransform:"uppercase" }}>
-          IELTS Platform
+        <div style={{ fontSize:size*0.62, color:"#E8174A", fontWeight:600, letterSpacing:"0.01em" }}>
+          IELTS Testing Platform
         </div>
       </div>
     </div>
