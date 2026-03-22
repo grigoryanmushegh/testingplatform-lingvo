@@ -1876,17 +1876,18 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
   };
 
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0F172A 0%,#064E3B 60%,#0D4429 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0F172A 0%,#1a2e25 60%,#162620 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
       <div style={{maxWidth:520,width:"100%",textAlign:"center"}}>
 
         {/* Nova avatar */}
         <div style={{position:"relative",display:"inline-block",marginBottom:32}}>
           <div style={{
-            width:110,height:110,borderRadius:28,overflow:"hidden",
+            width:120,height:120,borderRadius:32,overflow:"hidden",
             boxShadow:"0 0 0 12px rgba(17,205,135,.12), 0 0 60px rgba(17,205,135,.25)",
             animation:allDone?"none":"pulse 2.4s ease infinite",
+            background:"#1a2e25",
           }}>
-            <img src="/nova.png" alt="Nova" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+            <img src="/nova.png" alt="Nova" style={{width:"100%",height:"100%",objectFit:"contain",display:"block"}}/>
           </div>
           {!allDone&&(
             <div style={{position:"absolute",bottom:-6,right:-6,width:28,height:28,borderRadius:"50%",background:"#FFB703",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,boxShadow:"0 2px 8px rgba(0,0,0,.3)"}}>⚡</div>
@@ -2056,8 +2057,8 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
         <div style={{marginBottom:20}}>
           {/* Nova header */}
           <div style={{background:"linear-gradient(135deg,#0F172A 0%,#064E3B 100%)",borderRadius:20,padding:"28px 32px",marginBottom:16,display:"flex",alignItems:"center",gap:20}}>
-            <div style={{width:60,height:60,borderRadius:16,overflow:"hidden",flexShrink:0,boxShadow:"0 4px 20px rgba(17,205,135,.35)"}}>
-              <img src="/nova.png" alt="Nova" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+            <div style={{width:64,height:64,borderRadius:16,overflow:"hidden",flexShrink:0,boxShadow:"0 4px 20px rgba(17,205,135,.35)",background:"#1a2e25"}}>
+              <img src="/nova.png" alt="Nova" style={{width:"100%",height:"100%",objectFit:"contain",display:"block"}}/>
             </div>
             <div>
               <div style={{fontSize:10,fontWeight:700,color:"rgba(17,205,135,.7)",letterSpacing:"0.18em",textTransform:"uppercase",marginBottom:4}}>LingvoConnect's AI Examiner</div>
