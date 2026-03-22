@@ -2247,37 +2247,37 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
   };
 
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0F172A 0%,#1a2e25 60%,#162620 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#f0fdf8 0%,#e8faf3 50%,#f0f9ff 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
       <div style={{maxWidth:520,width:"100%",textAlign:"center"}}>
 
         {/* Nova avatar */}
         <div style={{position:"relative",display:"inline-block",marginBottom:32}}>
           <div style={{
             width:120,height:120,borderRadius:32,overflow:"hidden",
-            boxShadow:"0 0 0 12px rgba(17,205,135,.12), 0 0 60px rgba(17,205,135,.25)",
+            boxShadow:"0 0 0 12px rgba(17,205,135,.15), 0 8px 40px rgba(17,205,135,.2)",
             animation:allDone?"none":"pulse 2.4s ease infinite",
-            background:"#1a2e25",
+            background:"#e8faf3",
           }}>
             <img src="/nova.png" alt="Nova" style={{width:"100%",height:"100%",objectFit:"contain",display:"block"}}/>
           </div>
           {!allDone&&(
-            <div style={{position:"absolute",bottom:-6,right:-6,width:28,height:28,borderRadius:"50%",background:"#FFB703",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,boxShadow:"0 2px 8px rgba(0,0,0,.3)"}}>⚡</div>
+            <div style={{position:"absolute",bottom:-6,right:-6,width:28,height:28,borderRadius:"50%",background:"#FFB703",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,boxShadow:"0 2px 8px rgba(0,0,0,.15)"}}>⚡</div>
           )}
           {allDone&&(
-            <div style={{position:"absolute",bottom:-6,right:-6,width:28,height:28,borderRadius:"50%",background:C.teal,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,boxShadow:"0 2px 8px rgba(0,0,0,.3)"}}>✓</div>
+            <div style={{position:"absolute",bottom:-6,right:-6,width:28,height:28,borderRadius:"50%",background:C.teal,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,boxShadow:"0 2px 8px rgba(0,0,0,.15)"}}>✓</div>
           )}
         </div>
 
         {/* Nova identity */}
-        <div style={{fontSize:11,fontWeight:700,color:"rgba(17,205,135,.7)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.teal,letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>
           LingvoConnect's AI Examiner
         </div>
-        <h2 style={{fontSize:32,fontWeight:900,color:"#fff",letterSpacing:"-0.03em",marginBottom:4,lineHeight:1.1}}>
+        <h2 style={{fontSize:32,fontWeight:900,color:C.s900,letterSpacing:"-0.03em",marginBottom:4,lineHeight:1.1}}>
           {allDone ? "Nova has finished reviewing your tasks." : "Nova"}
         </h2>
 
         {/* Dynamic status message */}
-        <p style={{color:"rgba(255,255,255,.55)",fontSize:14,lineHeight:1.75,marginBottom:36,minHeight:48,transition:"opacity .4s"}}>
+        <p style={{color:C.s400,fontSize:14,lineHeight:1.75,marginBottom:36,minHeight:48,transition:"opacity .4s"}}>
           {allDone
             ? "Evaluation complete. Here's your IELTS Writing score."
             : NOVA_LOADING_MSGS[msgIdx]}
@@ -2291,23 +2291,23 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
             const isChecking = s==="checking";
             const isDone = s==="done";
             const isErr  = s==="error";
-            const borderCol = isDone?"#11CD87":isErr?"#F43F5E":isChecking?"#FFB703":"rgba(255,255,255,.12)";
-            const bgCol     = isDone?"rgba(17,205,135,.06)":isErr?"rgba(244,63,94,.06)":isChecking?"rgba(255,183,3,.06)":"rgba(255,255,255,.04)";
+            const borderCol = isDone?C.teal:isErr?C.rose:isChecking?"#F59E0B":C.s200;
+            const bgCol     = isDone?C.tealL:isErr?C.roseL:isChecking?"#FFFBEB":"#fff";
             return (
               <div key={i} style={{background:bgCol,border:`1.5px solid ${borderCol}`,borderRadius:16,padding:"18px 22px",display:"flex",alignItems:"center",gap:16,textAlign:"left",transition:"all .4s"}}>
-                <div style={{width:44,height:44,borderRadius:12,background:isDone?"rgba(17,205,135,.15)":isErr?"rgba(244,63,94,.15)":isChecking?"rgba(255,183,3,.15)":"rgba(255,255,255,.07)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                <div style={{width:44,height:44,borderRadius:12,background:isDone?C.tealL:isErr?C.roseL:isChecking?"#FEF3C7":C.s100,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                   {isChecking
-                    ? <div style={{width:22,height:22,borderRadius:"50%",border:"2.5px solid rgba(255,183,3,.3)",borderTop:"2.5px solid #FFB703",animation:"spin 0.9s linear infinite"}}/>
+                    ? <div style={{width:22,height:22,borderRadius:"50%",border:`2.5px solid #FDE68A`,borderTop:"2.5px solid #F59E0B",animation:"spin 0.9s linear infinite"}}/>
                     : <span style={{fontSize:20}}>{isDone?"✅":isErr?"⚠️":"⏳"}</span>}
                 </div>
                 <div style={{flex:1}}>
-                  <div style={{fontWeight:700,color:"#fff",fontSize:14,marginBottom:3}}>{WRITING_TASKS[i].task}</div>
-                  <div style={{fontSize:12,color:isDone?"#6EE7B7":isErr?"#FDA4AF":isChecking?"#FDE68A":"rgba(255,255,255,.35)",fontWeight:500}}>{taskLabel(i,s)}</div>
+                  <div style={{fontWeight:700,color:C.s900,fontSize:14,marginBottom:3}}>{WRITING_TASKS[i].task}</div>
+                  <div style={{fontSize:12,color:isDone?C.teal:isErr?C.rose:isChecking?"#D97706":C.s400,fontWeight:500}}>{taskLabel(i,s)}</div>
                 </div>
                 {isDone&&fb?.band&&(
-                  <div style={{textAlign:"center",background:"rgba(17,205,135,.12)",borderRadius:12,padding:"8px 16px",border:"1px solid rgba(17,205,135,.25)",flexShrink:0}}>
-                    <div style={{fontSize:26,fontWeight:900,color:"#11CD87",lineHeight:1,fontFamily:"'JetBrains Mono',monospace"}}>{fb.band}</div>
-                    <div style={{fontSize:9,color:"rgba(255,255,255,.4)",fontWeight:700,letterSpacing:"0.1em",marginTop:2}}>BAND</div>
+                  <div style={{textAlign:"center",background:C.tealL,borderRadius:12,padding:"8px 16px",border:`1px solid ${C.teal}40`,flexShrink:0}}>
+                    <div style={{fontSize:26,fontWeight:900,color:C.teal,lineHeight:1,fontFamily:"'JetBrains Mono',monospace"}}>{fb.band}</div>
+                    <div style={{fontSize:9,color:C.s400,fontWeight:700,letterSpacing:"0.1em",marginTop:2}}>BAND</div>
                   </div>
                 )}
               </div>
@@ -2316,23 +2316,23 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
         </div>
 
         {/* Progress bar */}
-        <div style={{height:5,background:"rgba(255,255,255,.08)",borderRadius:99,overflow:"hidden",marginBottom:10}}>
-          <div style={{height:"100%",borderRadius:99,background:"linear-gradient(90deg,#11CD87,#0BA870)",transition:"width 1.2s ease",width:`${pct}%`}}/>
+        <div style={{height:5,background:C.s200,borderRadius:99,overflow:"hidden",marginBottom:10}}>
+          <div style={{height:"100%",borderRadius:99,background:`linear-gradient(90deg,${C.teal},#0BA870)`,transition:"width 1.2s ease",width:`${pct}%`}}/>
         </div>
-        <div style={{color:"rgba(255,255,255,.25)",fontSize:11,fontWeight:600,letterSpacing:"0.06em"}}>
+        <div style={{color:C.s400,fontSize:11,fontWeight:600,letterSpacing:"0.06em"}}>
           {doneCount} OF 2 TASKS EVALUATED
         </div>
 
         {/* Fallback: show "Proceed to Results" if stuck >60s */}
         {showSkip&&(
-          <div style={{marginTop:28,padding:"18px 24px",background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.12)",borderRadius:14,textAlign:"center"}}>
-            <div style={{fontSize:12,color:"rgba(255,255,255,.45)",marginBottom:12}}>
+          <div style={{marginTop:28,padding:"18px 24px",background:"#fff",border:`1px solid ${C.s200}`,borderRadius:14,textAlign:"center"}}>
+            <div style={{fontSize:12,color:C.s400,marginBottom:12}}>
               Taking longer than expected? You can proceed with partial results.
             </div>
             <button onClick={skipToResults} style={{
-              background:"linear-gradient(135deg,#0BA870,#11CD87)",color:"#fff",border:"none",
+              background:`linear-gradient(135deg,#0BA870,${C.teal})`,color:"#fff",border:"none",
               borderRadius:10,padding:"11px 28px",fontSize:13,fontWeight:700,cursor:"pointer",
-              boxShadow:"0 4px 16px rgba(17,205,135,.3)",letterSpacing:"0.02em",
+              boxShadow:"0 4px 16px rgba(17,205,135,.25)",letterSpacing:"0.02em",
             }}>
               Proceed to Results →
             </button>
