@@ -515,20 +515,34 @@ function Countdown({ seconds, onExpire }) {
     const t=setTimeout(()=>setLeft(l=>l-1),1000);
     return()=>clearTimeout(t);
   },[left]);
-  const urgent=left<300;
+  const urgent  = left < 300;   // last 5 min → red
+  const warning = left < 600;   // last 10 min → amber
+  const col = urgent ? "#FF4D6D" : warning ? "#FFB703" : "#4ADE80";
+  const bg  = urgent ? "rgba(255,30,60,.15)" : warning ? "rgba(255,183,3,.1)" : "rgba(0,0,0,.18)";
+  const bdr = urgent ? "rgba(255,30,60,.5)"  : warning ? "rgba(255,183,3,.4)"  : "rgba(255,255,255,.15)";
   return (
     <div style={{
-      display:"flex", alignItems:"center", gap:12,
-      background: urgent?"rgba(225,29,72,.15)":"rgba(17,205,135,.12)",
-      border:`2px solid ${urgent?"rgba(225,29,72,.5)":"rgba(17,205,135,.4)"}`,
-      borderRadius:12, padding:"10px 20px",
-      boxShadow: urgent?"0 0 16px rgba(225,29,72,.3)":"0 0 12px rgba(17,205,135,.2)",
-      animation: urgent?"pulse 1s ease-in-out infinite":"none",
+      display:"flex", alignItems:"center", gap:10,
+      background: bg,
+      border: `1.5px solid ${bdr}`,
+      borderRadius: 10,
+      padding: "7px 14px",
+      animation: urgent ? "pulse 0.8s ease-in-out infinite" : "none",
     }}>
-      <div style={{ fontSize:18, color:urgent?C.rose:"#11CD87" }}>⏱</div>
+      {/* Time display */}
+      <span style={{fontSize:13,opacity:.6}}>{urgent?"🔴":warning?"🟡":"⏱"}</span>
       <div>
-        <div style={{ fontSize:10, color:urgent?C.rose:"rgba(255,255,255,.7)", fontWeight:700, letterSpacing:"0.1em", textTransform:"uppercase" }}>Time Left</div>
-        <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:24, fontWeight:900, color:urgent?C.rose:"#11CD87", lineHeight:1 }}>{fmtTime(left)}</div>
+        <div style={{fontSize:9,color:"rgba(255,255,255,.45)",fontWeight:700,letterSpacing:"0.1em",
+          textTransform:"uppercase",lineHeight:1,marginBottom:2}}>Time Left</div>
+        <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:22,fontWeight:800,
+          color:col,lineHeight:1,letterSpacing:"-0.01em"}}>
+          {fmtTime(left)}
+        </div>
+        {urgent && (
+          <div style={{fontSize:9,color:col,fontWeight:700,marginTop:2,letterSpacing:"0.04em"}}>
+            ⚠ under 5 min
+          </div>
+        )}
       </div>
     </div>
   );
@@ -537,14 +551,15 @@ function Countdown({ seconds, onExpire }) {
 function SectionHeader({ icon, label, title, right }) {
   return (
     <div style={{
-      background: "linear-gradient(135deg, #0BA870 0%, #11CD87 50%, #0BA870 100%)",
-      padding:"24px 32px", display:"flex", justifyContent:"space-between", alignItems:"center",
+      background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
+      borderBottom: "1px solid rgba(255,255,255,.08)",
+      padding:"18px 32px", display:"flex", justifyContent:"space-between", alignItems:"center",
     }}>
       <div>
-        <div style={{ color:"rgba(255,255,255,.6)", fontSize:11, fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:4 }}>
+        <div style={{ color:"rgba(255,255,255,.45)", fontSize:11, fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:4 }}>
           {icon} {label}
         </div>
-        <h2 style={{ color:"#fff", fontSize:22, fontWeight:800, letterSpacing:"-0.02em" }}>{title}</h2>
+        <h2 style={{ color:"#fff", fontSize:20, fontWeight:800, letterSpacing:"-0.02em" }}>{title}</h2>
       </div>
       {right}
     </div>
@@ -1134,8 +1149,8 @@ function MatchingHeadingsGroup({ questions, answers, submitted, scoreQ, onChange
           ))}
         </div>
       )}
-      <div style={{background:C.brandL,padding:"14px 18px",borderBottom:`1px solid ${C.brand}20`}}>
-        <div style={{fontSize:10,fontWeight:800,color:C.brand,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>List of Headings</div>
+      <div style={{background:C.s100,padding:"14px 18px",borderBottom:`1px solid ${C.s200}`}}>
+        <div style={{fontSize:10,fontWeight:800,color:C.s500,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>List of Headings</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 16px"}}>
           {headings.map((h,i)=>{
             const isUsed = !submitted && usedMap[h] !== undefined;
@@ -1232,8 +1247,8 @@ function MatchingGroup({ questions, answers, submitted, scoreQ, onChange }) {
         </div>
       )}
       {/* Shared options box */}
-      <div style={{background:C.brandL,padding:"14px 18px",borderBottom:`1px solid ${C.brand}20`}}>
-        <div style={{fontSize:10,fontWeight:800,color:C.brand,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{labels.box}</div>
+      <div style={{background:C.s100,padding:"14px 18px",borderBottom:`1px solid ${C.s200}`}}>
+        <div style={{fontSize:10,fontWeight:800,color:C.s500,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{labels.box}</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 16px"}}>
           {options.map((opt,i)=>{
             const isUsed = oneUseOnly && !submitted && usedMap[opt] !== undefined;
@@ -1628,7 +1643,7 @@ Verdict must be one of: "Human" (0-25%), "Possibly AI" (26-55%), "Likely AI" (56
               </div>
 
               {fb.keyTip&&(
-                <div style={{...cardStyle({padding:14,marginBottom:10,borderLeft:`3px solid ${C.violet}`,background:C.brandL})}}>
+                <div style={{...cardStyle({padding:14,marginBottom:10,borderLeft:`3px solid ${C.violet}`})}}>
                   <div style={{fontSize:11,color:C.violet,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>💡 Key Tip to Raise Your Score</div>
                   <p style={{fontSize:13,color:C.s800,lineHeight:1.6,margin:0,fontWeight:500}}>{fb.keyTip}</p>
                 </div>
