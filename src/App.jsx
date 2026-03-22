@@ -171,22 +171,30 @@ const countWords = t => t.trim().split(/\s+/).filter(w => w.length >= 3 && /[a-z
 // Scores are scaled to /40 equivalent before lookup (supports custom-length tests)
 // Source: official IELTS score conversion charts (Cambridge / British Council)
 
+// ── LISTENING: Official IELTS band conversion ─────────────────────────────────
+// 39-40=9.0 | 37-38=8.5 | 35-36=8.0 | 32-34=7.5 | 30-31=7.0 | 26-29=6.5
+// 23-25=6.0 | 18-22=5.5 | 16-17=5.0 | 13-15=4.5 | 10-12=4.0 | 8-9=3.5 …
 function listeningBand(c, t) {
   const s = t > 0 ? Math.round(c / t * 40) : 0;
   if(s>=39)return 9.0; if(s>=37)return 8.5; if(s>=35)return 8.0;
   if(s>=32)return 7.5; if(s>=30)return 7.0; if(s>=26)return 6.5;
   if(s>=23)return 6.0; if(s>=18)return 5.5; if(s>=16)return 5.0;
-  if(s>=13)return 4.5; if(s>=11)return 4.0; if(s>=9) return 3.5;
-  if(s>=6) return 3.0; if(s>=4) return 2.5; return 2.0;
+  if(s>=13)return 4.5; if(s>=10)return 4.0; if(s>=8) return 3.5;
+  if(s>=6) return 3.0; if(s>=4) return 2.5; if(s>=2) return 2.0;
+  if(s>=1) return 1.5; return 0.0;
 }
 
+// ── READING (Academic): Official IELTS band conversion ───────────────────────
+// 39-40=9.0 | 37-38=8.5 | 35-36=8.0 | 33-34=7.5 | 30-32=7.0 | 27-29=6.5
+// 23-26=6.0 | 19-22=5.5 | 15-18=5.0 | 13-14=4.5 | 10-12=4.0 | 8-9=3.5 …
 function readingBand(c, t) {
   const s = t > 0 ? Math.round(c / t * 40) : 0;
-  if(s>=40)return 9.0; if(s>=39)return 8.5; if(s>=37)return 8.0;
-  if(s>=35)return 7.5; if(s>=33)return 7.0; if(s>=30)return 6.5;
-  if(s>=27)return 6.0; if(s>=23)return 5.5; if(s>=19)return 5.0;
-  if(s>=15)return 4.5; if(s>=13)return 4.0; if(s>=10)return 3.5;
-  if(s>=8) return 3.0; if(s>=6) return 2.5; return 2.0;
+  if(s>=39)return 9.0; if(s>=37)return 8.5; if(s>=35)return 8.0;
+  if(s>=33)return 7.5; if(s>=30)return 7.0; if(s>=27)return 6.5;
+  if(s>=23)return 6.0; if(s>=19)return 5.5; if(s>=15)return 5.0;
+  if(s>=13)return 4.5; if(s>=10)return 4.0; if(s>=8) return 3.5;
+  if(s>=6) return 3.0; if(s>=4) return 2.5; if(s>=2) return 2.0;
+  if(s>=1) return 1.5; return 0.0;
 }
 
 // Overall band: average of all four skills, rounded to nearest 0.5
