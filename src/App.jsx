@@ -2636,18 +2636,89 @@ function AdminDashboard({ onExit }) {
   const recalculateAllBands = async () => {
     setRecalculating(true);
     const db = loadDB();
+    const allTests   = db.tests||[];
+    const allSuites  = db.testSuites||[];
+
+    // Build map: testId → flat questions array (with sequential IDs matching stored data)
+    const testQMap = {};
+    allTests.forEach(t => {
+      let qs=[];
+      if(t.sections?.length>0){
+        let off=0;
+        t.sections.forEach(s=>{(s.questions||[]).forEach((q,j)=>{qs.push({...q,id:off+j+1});});off+=s.questions?.length||0;});
+      } else if(t.questions?.length>0){
+        qs=t.questions.map((q,i)=>({...q,id:i+1}));
+      }
+      if(qs.length) testQMap[t.id]=qs;
+    });
+    // Build map: suiteId → {listeningId, readingId}
+    const suiteMap={};
+    allSuites.forEach(s=>{suiteMap[s.id]={listeningId:s.listeningId,readingId:s.readingId};});
+
+    // Re-score a set of stored answers against CURRENT question answer keys
+    const reScore = (storedQs, currentQs, answers) => {
+      // Build lookup: id → current correct answer
+      const keyById={};
+      currentQs.forEach(q=>{ keyById[q.id]=q; });
+      // Merge: take stored question but update correct from current test
+      const qs = storedQs.length>0
+        ? storedQs.map(q=>({...q, correct: keyById[q.id]?.correct ?? q.correct}))
+        : currentQs;
+      let correct=0;
+      qs.forEach(q=>{
+        const raw = answers[q.id];
+        const a = (raw&&typeof raw==="object"?raw.text:(raw||"")).trim().toLowerCase();
+        const c = (q.correct||"").trim().toLowerCase();
+        if(!a||!c) return;
+        if(q.type==="yesno"||q.type==="truefalse"){ if(a===c) correct++; return; }
+        if(TEXT_INPUT_TYPES.has(q.type)||q.type==="short"||q.type==="fillblank"){
+          if(a===c||a.includes(c)||c.includes(a)) correct++; return;
+        }
+        if(raw&&typeof raw==="object"&&typeof q.correctIdx==="number"){ if(raw.idx===q.correctIdx) correct++; return; }
+        if(a===c){ correct++; return; }
+        const al=a.replace(/[^a-h]/g,"")[0], cl=c.replace(/[^a-h]/g,"")[0];
+        if(al&&cl&&al===cl) correct++;
+      });
+      return {correct, total:qs.length, updatedQs:qs};
+    };
+
     let count = 0;
     const updated = (db.participants||[]).map(p => {
       if(!p.listeningScore && !p.readingScore) return p;
-      const [lc,lt] = (p.listeningScore||"0/40").split("/").map(Number);
-      const [rc,rt] = (p.readingScore||"0/40").split("/").map(Number);
-      const newLB = listeningBand(lc||0, lt||40);
-      const newRB = readingBand(rc||0, rt||40);
+      const suite = suiteMap[p.suiteId]||{};
+      const [,lt] = (p.listeningScore||"0/40").split("/").map(Number);
+      const [,rt] = (p.readingScore||"0/40").split("/").map(Number);
+
+      let lc=Number((p.listeningScore||"0/40").split("/")[0])||0;
+      let rc=Number((p.readingScore||"0/40").split("/")[0])||0;
+      let newLQs=p.allListeningQuestions||[];
+      let newRQs=p.allReadingQuestions||[];
+
+      // Re-score listening if we have current question data
+      if(suite.listeningId && testQMap[suite.listeningId] && p.listeningAnswers){
+        const res=reScore(p.allListeningQuestions||[], testQMap[suite.listeningId], p.listeningAnswers);
+        lc=res.correct; newLQs=res.updatedQs;
+      }
+      // Re-score reading if we have current question data
+      if(suite.readingId && testQMap[suite.readingId] && p.readingAnswers){
+        const res=reScore(p.allReadingQuestions||[], testQMap[suite.readingId], p.readingAnswers);
+        rc=res.correct; newRQs=res.updatedQs;
+      }
+
+      const newLB = listeningBand(lc, lt||40);
+      const newRB = readingBand(rc, rt||40);
       const wBand = p.writingBand ?? null;
       const bands = wBand!=null ? [newLB,newRB,wBand] : [newLB,newRB];
       const newOverall = overallBand(bands);
       count++;
-      return {...p, listeningBand:newLB, readingBand:newRB, overall:newOverall};
+      return {
+        ...p,
+        listeningScore:`${lc}/${lt||40}`,
+        readingScore:`${rc}/${rt||40}`,
+        listeningBand:newLB, readingBand:newRB, overall:newOverall,
+        allListeningQuestions:newLQs,
+        allReadingQuestions:newRQs,
+      };
     });
     db.participants = updated;
     await saveDBNow(db);
@@ -3180,17 +3251,19 @@ function ParticipantDetail({ profile, onBack }) {
                                       const cv = (q.correct||"").trim().toLowerCase();
                                       const av = ansText.trim().toLowerCase();
                                       const correct = av&&cv&&(av===cv||av.includes(cv)||cv.includes(av)||av.replace(/[^a-h]/g,"")[0]===cv.replace(/[^a-h]/g,"")[0]);
+                                      const noKey = !cv;
                                       return (
                                         <div key={qi} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"8px 0",borderBottom:`1px solid ${C.s200}`}}>
                                           <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:4,padding:"2px 6px",flexShrink:0,marginTop:2}}>Q{q.id}</span>
                                           <div style={{flex:1}}>
                                             <div style={{fontSize:12,color:C.s800,marginBottom:3}}>{q.text}</div>
                                             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                                              <span style={{fontSize:11,fontWeight:600,color:ansText?(correct?C.teal:C.rose):C.s400}}>
+                                              <span style={{fontSize:11,fontWeight:600,color:ansText?(noKey?C.s400:correct?C.teal:C.rose):C.s400}}>
                                                 {ansText?`Your answer: "${ansText}"`:"Not answered"}
                                               </span>
-                                              {ansText&&!correct&&<span style={{fontSize:11,color:C.teal,fontWeight:600}}>✓ Correct: "{q.correct}"</span>}
-                                              {ansText&&correct&&<span style={{fontSize:11,color:C.teal}}>✓</span>}
+                                              {noKey&&ansText&&<span style={{fontSize:11,color:"#d97706",fontWeight:600}}>⚠ No answer key set</span>}
+                                              {!noKey&&ansText&&!correct&&<span style={{fontSize:11,color:C.teal,fontWeight:600}}>✓ Correct: "{q.correct}"</span>}
+                                              {!noKey&&ansText&&correct&&<span style={{fontSize:11,color:C.teal}}>✓</span>}
                                             </div>
                                           </div>
                                         </div>
