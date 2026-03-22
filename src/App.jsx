@@ -4067,8 +4067,10 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1}) {
               <div>
                 <label style={labelStyle}>Correct Answer</label>
                 {fixedChoices?(
-                  <select value={q.correct} onChange={e=>qbUpdateQ(setQuestions,q.id,"correct",e.target.value)} style={{...inputStyle,cursor:"pointer"}}>
-                    {fixedChoices.map(o=><option key={o}>{o}</option>)}
+                  <select value={q.correct} onChange={e=>qbUpdateQ(setQuestions,q.id,"correct",e.target.value)}
+                    style={{...inputStyle,cursor:"pointer",color:q.correct?"":C.s400,borderColor:q.correct?C.s300:"#f97316"}}>
+                    <option value="">— select answer —</option>
+                    {fixedChoices.map(o=><option key={o} value={o}>{o}</option>)}
                   </select>
                 ):isGroupMatch?(
                   /* Dropdown from shared options list */
