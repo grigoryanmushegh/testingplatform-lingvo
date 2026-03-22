@@ -3386,6 +3386,87 @@ function PassageCard({ passage, idx, total, onUpdate, onDelete, setQuestions, qS
   );
 }
 
+// ── AUDIO UPLOADER ────────────────────────────────────────────────────────────
+// Uploads audio to Supabase Storage and returns a permanent public URL.
+// Falls back to a URL-paste field if Supabase Storage is unavailable.
+function AudioUploader({ onUrl }) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError]         = useState("");
+  const [urlInput, setUrlInput]   = useState("");
+  const [mode, setMode]           = useState("upload"); // "upload" | "url"
+
+  const handleFile = async e => {
+    const file = e.target.files?.[0]; if(!file) return;
+    setError(""); setUploading(true);
+    if(supabase) {
+      try {
+        const ext  = file.name.split(".").pop();
+        const path = `audio/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+        const { error: upErr } = await supabase.storage.from("ielts-audio").upload(path, file, { upsert: true });
+        if(upErr) throw upErr;
+        const { data } = supabase.storage.from("ielts-audio").getPublicUrl(path);
+        onUrl(data.publicUrl);
+        setUploading(false); return;
+      } catch(err) {
+        console.warn("[Audio upload]", err.message||err);
+        setError(`Supabase Storage error: ${err.message||err}. Please create a public bucket named "ielts-audio" in Supabase, or use the URL option below.`);
+        setUploading(false); return;
+      }
+    }
+    setError("Supabase not configured. Please paste a direct audio URL below.");
+    setMode("url"); setUploading(false);
+  };
+
+  return (
+    <div>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        {["upload","url"].map(m=>(
+          <button key={m} onClick={()=>setMode(m)} style={{
+            padding:"5px 14px",borderRadius:7,border:`1.5px solid ${mode===m?C.brand:C.s200}`,
+            background:mode===m?C.brandL:"#fff",color:mode===m?C.brand:C.s600,
+            fontSize:12,fontWeight:700,cursor:"pointer"
+          }}>{m==="upload"?"📤 Upload File":"🔗 Paste URL"}</button>
+        ))}
+      </div>
+
+      {mode==="upload"&&(
+        <label style={{display:"flex",alignItems:"center",gap:12,cursor:uploading?"default":"pointer",
+          border:`1.5px dashed ${error?C.rose:C.s200}`,borderRadius:10,padding:"14px 18px",
+          background:uploading?"#F8FAFC":C.s100,transition:"background .15s",opacity:uploading?.6:1}}>
+          <span style={{fontSize:24}}>{uploading?"⏳":"🎵"}</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:13,color:C.s900}}>{uploading?"Uploading to Supabase Storage…":"Upload Audio File"}</div>
+            <div style={{fontSize:11,color:C.s400,marginTop:2}}>MP3 · WAV · M4A · OGG — uploaded to cloud, no size limit</div>
+          </div>
+          <input type="file" accept="audio/*" onChange={handleFile} style={{display:"none"}} disabled={uploading}/>
+        </label>
+      )}
+
+      {mode==="url"&&(
+        <div style={{display:"flex",gap:8}}>
+          <input value={urlInput} onChange={e=>setUrlInput(e.target.value)}
+            placeholder="https://… direct link to MP3/WAV/OGG file"
+            style={{...inputStyle,flex:1}}/>
+          <button onClick={()=>{ if(urlInput.trim()) onUrl(urlInput.trim()); }}
+            disabled={!urlInput.trim()}
+            style={{...btnStyle("teal",!urlInput.trim()),padding:"0 16px",flexShrink:0,whiteSpace:"nowrap"}}>
+            Use URL
+          </button>
+        </div>
+      )}
+
+      {error&&<div style={{marginTop:8,fontSize:11,color:C.rose,lineHeight:1.5,background:C.roseL,borderRadius:7,padding:"8px 12px"}}>{error}</div>}
+
+      {mode==="upload"&&!error&&(
+        <div style={{marginTop:6,fontSize:11,color:C.s400,lineHeight:1.5}}>
+          ℹ️ Requires a <strong>public Supabase Storage bucket</strong> named <code style={{background:C.s100,padding:"1px 5px",borderRadius:4}}>ielts-audio</code>.
+          {" "}<button onClick={()=>setMode("url")} style={{background:"none",border:"none",color:C.brand,cursor:"pointer",fontSize:11,fontWeight:700,padding:0}}>Or paste a URL instead →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── SECTION CARD (top-level to avoid remount / focus loss) ───────────────────
 function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qStart=1 }) {
   const colors = [C.brand, C.teal, C.violet, C.amber];
@@ -3418,25 +3499,15 @@ function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qS
           <div style={{marginBottom:14}}>
             <label style={labelStyle}>Audio File <span style={{color:C.s400,fontWeight:400}}>(played during test)</span></label>
             {section.audioUrl?(
-              <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.tealL,border:`1.5px solid ${C.teal}40`,borderRadius:10}}>
-                <span style={{fontSize:18}}>🎵</span>
-                <audio controls src={section.audioUrl} style={{flex:1,height:32,minWidth:0}}/>
-                <button onClick={()=>onUpdate("audioUrl",null)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:7,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700,flexShrink:0}}>✕ Remove</button>
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.tealL,border:`1.5px solid ${C.teal}40`,borderRadius:10,marginBottom:6}}>
+                  <span style={{fontSize:18}}>🎵</span>
+                  <audio controls src={section.audioUrl} style={{flex:1,height:32,minWidth:0}}/>
+                  <button onClick={()=>onUpdate("audioUrl",null)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:7,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700,flexShrink:0}}>✕ Remove</button>
+                </div>
               </div>
             ):(
-              <label style={{display:"flex",alignItems:"center",gap:12,cursor:"pointer",border:`1.5px dashed ${C.s200}`,borderRadius:10,padding:"14px 18px",background:C.s100,transition:"background .15s"}}>
-                <span style={{fontSize:24}}>🎵</span>
-                <div>
-                  <div style={{fontWeight:700,fontSize:13,color:C.s900}}>Upload Audio File</div>
-                  <div style={{fontSize:11,color:C.s400,marginTop:2}}>MP3 · WAV · M4A · OGG — stored in browser</div>
-                </div>
-                <input type="file" accept="audio/*" onChange={e=>{
-                  const f=e.target.files[0]; if(!f) return;
-                  const r=new FileReader();
-                  r.onload=ev=>onUpdate("audioUrl",ev.target.result);
-                  r.readAsDataURL(f);
-                }} style={{display:"none"}}/>
-              </label>
+              <AudioUploader onUrl={url=>onUpdate("audioUrl",url)}/>
             )}
           </div>
           <div style={{marginBottom:14}}>
