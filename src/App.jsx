@@ -868,6 +868,9 @@ function ListeningQ({ q, answer, submitted, correct, onChange }) {
   const borderCol = submitted?(correct===true?C.teal:correct===false?C.rose:C.s200):C.s200;
   const isOptionType = OPTION_TYPES.has(q.type);
   const isTextInput  = TEXT_INPUT_TYPES.has(q.type)||q.type==="short";
+  const isTF = q.type==="truefalse";
+  const isYN = q.type==="yesno";
+  const fixedChoices = isTF?["TRUE","FALSE","NOT GIVEN"]:isYN?["YES","NO","NOT GIVEN"]:null;
   const inputHint = q.hint || (isTextInput?"Write your answer":"");
   return (
     <>
@@ -881,6 +884,7 @@ function ListeningQ({ q, answer, submitted, correct, onChange }) {
         </div>
       </div>
     )}
+
     <div style={{...cardStyle({borderLeft:`4px solid ${borderCol}`,marginBottom:10,padding:16})}}>
       <div style={{display:"flex",gap:10,marginBottom:10}}>
         <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:6,padding:"2px 7px",flexShrink:0,marginTop:2}}>{q.id}</span>
@@ -912,13 +916,36 @@ function ListeningQ({ q, answer, submitted, correct, onChange }) {
         </div>
       )}
 
+      {fixedChoices&&(
+        <div style={{display:"flex",gap:8,marginLeft:40,flexWrap:"wrap"}}>
+          {fixedChoices.map(choice=>{
+            const sel = answer===choice;
+            const isAns = submitted && (q.correct||"").trim().toUpperCase()===choice;
+            const isWrong = submitted && sel && !isAns;
+            return (
+              <button key={choice} onClick={()=>!submitted&&onChange(choice)} style={{
+                padding:"7px 16px",borderRadius:8,fontSize:12,fontWeight:sel||isAns?700:400,
+                border:`1.5px solid ${isAns?C.teal:isWrong?C.rose:sel?C.brand:C.s200}`,
+                background:isAns?C.tealL:isWrong?C.roseL:sel?C.brandL:"#fff",
+                color:C.s900,cursor:submitted?"default":"pointer",transition:"all .1s",
+              }}>
+                {choice}
+              </button>
+            );
+          })}
+          {submitted&&<div style={{width:"100%",color:correct?C.teal:C.rose,fontSize:12,marginTop:4,fontWeight:600}}>
+            {correct?"✓ Correct":(q.correct?`✗ Correct: ${q.correct}`:"⚠ No answer key set")}
+          </div>}
+        </div>
+      )}
+
       {isTextInput&&(
         <div style={{marginLeft:40}}>
           <input value={answer||""} onChange={e=>!submitted&&onChange(e.target.value)}
             placeholder={inputHint||"Your answer…"} disabled={submitted}
             style={{...inputStyle,borderRadius:8,borderColor:submitted?(correct?C.teal:answer?C.rose:C.s200):C.s200}}/>
           {submitted&&answer&&<div style={{color:correct?C.teal:C.rose,fontSize:12,marginTop:5,fontWeight:600}}>
-            {correct?"✓ Correct":`✗ Answer: "${q.correct}"`}
+            {correct?"✓ Correct":(q.correct?`✗ Answer: "${q.correct}"`:"⚠ No answer key set")}
           </div>}
         </div>
       )}
@@ -1581,6 +1608,274 @@ function WritingTest({ onComplete, testData, onExit }) {
   );
 }
 
+// ── AI SPEAKING EXAMINER ──────────────────────────────────────────────────────
+const DEFAULT_SPEAKING_QUESTIONS = {
+  part1: ["Tell me about yourself and where you are from.","What do you do — are you a student or do you work?","What are your hobbies and interests?","Do you prefer spending time indoors or outdoors? Why?"],
+  part2: {cue:"Describe a memorable trip or journey you have taken.\n\nYou should say:\n• where you went\n• who you went with\n• what you did there\nand explain why it was memorable for you.\n\nYou have 1 minute to prepare, then speak for 1-2 minutes."},
+  part3: ["Do you think travel is important for personal development?","How has tourism changed in your country over the past decade?","What are the advantages and disadvantages of living abroad?","Do you think everyone will be able to travel freely in the future?"]
+};
+
+async function runSpeakingCheck(transcript, questionContext, part) {
+  const OPENAI_KEY = import.meta.env.VITE_OPENAI_API_KEY || "";
+  if(!OPENAI_KEY) return {band:null,fluency:{band:null,comment:""},lexical:{band:null,comment:""},grammar:{band:null,comment:""},pronunciation:{band:null,comment:""},summary:"AI evaluation unavailable.",strengths:[],improvements:[],_error:"No API key"};
+  try {
+    const controller = new AbortController();
+    const tid = setTimeout(()=>controller.abort(),40000);
+    const res = await fetch("https://api.openai.com/v1/chat/completions",{
+      signal:controller.signal,
+      method:"POST",
+      headers:{"Content-Type":"application/json","Authorization":`Bearer ${OPENAI_KEY}`},
+      body:JSON.stringify({
+        model:"gpt-4o", max_tokens:1200,
+        messages:[
+          {role:"system",content:`You are Nova, LingvoConnect's AI IELTS Speaking Examiner. Evaluate the candidate's spoken response based on the 4 official IELTS Speaking criteria. Be professional, supportive, and realistic. Return ONLY valid JSON in this exact shape:
+{"band":7.0,"fluency":{"band":7.0,"comment":"..."},"lexical":{"band":7.0,"comment":"..."},"grammar":{"band":7.0,"comment":"..."},"pronunciation":{"band":7.0,"comment":"..."},"summary":"...","strengths":["..."],"improvements":["..."]}
+Criteria: Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy, Pronunciation. Use 0.5 increments 1-9. Be honest and IELTS-accurate.`},
+          {role:"user",content:`IELTS Speaking ${part}\n\nQuestion context:\n${questionContext}\n\nCandidate's transcribed response:\n${transcript}`}
+        ]
+      })
+    });
+    clearTimeout(tid);
+    const data = await res.json();
+    if(!res.ok||data.error) throw new Error(data.error?.message||"API error");
+    const raw = (data.choices?.[0]?.message?.content||"").replace(/```json|```/g,"").trim();
+    return JSON.parse(raw);
+  } catch(e) {
+    return {band:null,fluency:{band:null,comment:""},lexical:{band:null,comment:""},grammar:{band:null,comment:""},pronunciation:{band:null,comment:""},summary:"Evaluation unavailable: "+e.message,strengths:[],improvements:[],_error:e.message};
+  }
+}
+
+function SpeakingExam({ candidateInfo, onComplete, onSkip }) {
+  const [part, setPart]             = useState(1);        // 1, 2, 3
+  const [qIdx, setQIdx]             = useState(0);
+  const [answers, setAnswers]       = useState({p1:{},p2:"",p3:{}});
+  const [listening, setListening]   = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [prepTimer, setPrepTimer]   = useState(60);       // Part 2 prep
+  const [prepDone, setPrepDone]     = useState(false);
+  const [evaluating, setEvaluating] = useState(false);
+  const [results, setResults]       = useState(null);
+  const [msgIdx, setMsgIdx]         = useState(0);
+  const recognitionRef              = useRef(null);
+  const prepRef                     = useRef(null);
+
+  // Load admin-configured questions or use defaults
+  const db = loadDB();
+  const adminQ = db.speakingQuestions||DEFAULT_SPEAKING_QUESTIONS;
+  const q1 = adminQ.part1||DEFAULT_SPEAKING_QUESTIONS.part1;
+  const q2 = adminQ.part2||DEFAULT_SPEAKING_QUESTIONS.part2;
+  const q3 = adminQ.part3||DEFAULT_SPEAKING_QUESTIONS.part3;
+
+  const EVAL_MSGS = [
+    "Nova is listening to your performance…",
+    "Analysing your fluency and coherence…",
+    "Evaluating your lexical resource…",
+    "Checking grammatical range…",
+    "Almost done — finalising your speaking score…"
+  ];
+  useEffect(()=>{if(evaluating){const t=setInterval(()=>setMsgIdx(i=>(i+1)%EVAL_MSGS.length),3000);return()=>clearInterval(t);}}, [evaluating]);
+
+  // Prep timer for Part 2
+  useEffect(()=>{
+    if(part===2&&!prepDone&&prepTimer>0){
+      prepRef.current=setTimeout(()=>setPrepTimer(t=>t-1),1000);
+    } else if(part===2&&prepTimer===0) { setPrepDone(true); }
+    return()=>clearTimeout(prepRef.current);
+  },[part,prepTimer,prepDone]);
+
+  const startListening = () => {
+    const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){alert("Speech recognition not supported in this browser. Please type your answer instead.");return;}
+    const rec = new SR();
+    rec.continuous=true; rec.interimResults=true; rec.lang="en-US";
+    rec.onresult = e=>{
+      let t="";
+      for(let i=0;i<e.results.length;i++) t+=e.results[i][0].transcript+" ";
+      setTranscript(t.trim());
+    };
+    rec.onerror = ()=>setListening(false);
+    rec.onend   = ()=>setListening(false);
+    recognitionRef.current=rec;
+    rec.start();
+    setListening(true);
+    setTranscript("");
+  };
+
+  const stopListening = () => {
+    recognitionRef.current?.stop();
+    setListening(false);
+  };
+
+  const saveAnswer = () => {
+    const ans = transcript.trim();
+    if(part===1) setAnswers(a=>({...a,p1:{...a.p1,[qIdx]:ans}}));
+    if(part===2) setAnswers(a=>({...a,p2:ans}));
+    if(part===3) setAnswers(a=>({...a,p3:{...a.p3,[qIdx]:ans}}));
+    setTranscript("");
+    stopListening();
+  };
+
+  const nextQ = () => {
+    saveAnswer();
+    if(part===1) {
+      if(qIdx<q1.length-1) { setQIdx(i=>i+1); }
+      else { setPart(2); setQIdx(0); setPrepTimer(60); setPrepDone(false); }
+    } else if(part===2) { setPart(3); setQIdx(0); }
+    else if(part===3) {
+      if(qIdx<q3.length-1) { setQIdx(i=>i+1); }
+      else { finishExam(); }
+    }
+  };
+
+  const finishExam = async () => {
+    saveAnswer();
+    setEvaluating(true);
+    // Build transcripts
+    const p1text = q1.map((q,i)=>`Q: ${q}\nA: ${answers.p1[i]||"[No answer]"}`).join("\n\n");
+    const p2text = `Cue: ${typeof q2==="object"?q2.cue:q2}\nA: ${answers.p2||"[No answer]"}`;
+    const p3text = q3.map((q,i)=>`Q: ${q}\nA: ${answers.p3[i]||"[No answer]"}`).join("\n\n");
+    // Evaluate all parts together
+    const combined = `PART 1:\n${p1text}\n\nPART 2:\n${p2text}\n\nPART 3:\n${p3text}`;
+    const fb = await runSpeakingCheck(combined, "Full IELTS Speaking Test (Parts 1, 2 & 3)", "Parts 1–3");
+    setResults(fb);
+    setEvaluating(false);
+  };
+
+  // ── Evaluating screen ──
+  if(evaluating) return (
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0F172A 0%,#1a2e25 60%,#162620 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+      <div style={{maxWidth:480,width:"100%",textAlign:"center"}}>
+        <div style={{width:100,height:100,borderRadius:28,overflow:"hidden",margin:"0 auto 28px",boxShadow:"0 0 0 10px rgba(17,205,135,.12)",background:"#1a2e25",animation:"pulse 2s ease infinite"}}>
+          <img src="/nova.png" alt="Nova" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
+        </div>
+        <div style={{fontSize:10,fontWeight:700,color:"rgba(17,205,135,.7)",letterSpacing:"0.2em",textTransform:"uppercase",marginBottom:8}}>AI Examiner</div>
+        <h2 style={{fontSize:28,fontWeight:900,color:"#fff",marginBottom:8}}>Nova</h2>
+        <p style={{color:"rgba(255,255,255,.55)",fontSize:14,lineHeight:1.75,minHeight:40}}>{EVAL_MSGS[msgIdx]}</p>
+      </div>
+    </div>
+  );
+
+  // ── Results screen ──
+  if(results) {
+    const band = results.band;
+    const CRITERIA = [["fluency","Fluency & Coherence","🗣️"],["lexical","Lexical Resource","📚"],["grammar","Grammatical Range","⚙️"],["pronunciation","Pronunciation","🎵"]];
+    return (
+      <div style={{maxWidth:700,margin:"0 auto",padding:"40px 24px"}}>
+        <div style={{background:"linear-gradient(135deg,#064E3B 0%,#0BA870 100%)",borderRadius:20,padding:"40px 36px",textAlign:"center",marginBottom:24}}>
+          <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.5)",letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:6}}>Speaking Band Score</div>
+          <div style={{fontSize:96,fontWeight:900,color:band?bandColor(band):"#fff",lineHeight:1,fontFamily:"'JetBrains Mono',monospace"}}>{band?.toFixed(1)||"—"}</div>
+          <div style={{fontSize:18,color:"rgba(255,255,255,.8)",fontWeight:700,marginTop:8}}>{band?bandLabel(band):"Evaluation unavailable"}</div>
+        </div>
+        {results.summary&&<div style={{...cardStyle({padding:20,marginBottom:20,borderLeft:`4px solid ${C.brand}`})}}>
+          <div style={{fontSize:11,fontWeight:700,color:C.brand,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Nova's Overall Assessment</div>
+          <p style={{fontSize:13,color:C.s800,lineHeight:1.8,margin:0}}>{results.summary}</p>
+        </div>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
+          {CRITERIA.map(([k,lbl,icon])=>{const c=results[k]||{};const b=c.band;return b!=null?(
+            <div key={k} style={{...cardStyle({padding:16})}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.s400,textTransform:"uppercase"}}>{icon} {lbl}</div>
+                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:22,fontWeight:900,color:bandColor(b)}}>{b}</div>
+              </div>
+              <div style={{height:4,background:C.s200,borderRadius:99,marginBottom:8}}><div style={{width:`${(b-1)/8*100}%`,height:"100%",background:bandColor(b),borderRadius:99}}/></div>
+              {c.comment&&<p style={{fontSize:12,color:C.s600,lineHeight:1.65,margin:0}}>{c.comment}</p>}
+            </div>
+          ):null;})}
+        </div>
+        {(results.strengths?.length>0||results.improvements?.length>0)&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
+            {results.strengths?.length>0&&<div style={{background:"#F0FDF4",border:"1.5px solid #BBF7D0",borderRadius:12,padding:"14px 16px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#16A34A",textTransform:"uppercase",marginBottom:10}}>✓ Strengths</div>
+              {results.strengths.map((s,i)=><div key={i} style={{fontSize:12,color:"#166534",marginBottom:5}}>• {s}</div>)}
+            </div>}
+            {results.improvements?.length>0&&<div style={{background:"#FFFBEB",border:"1.5px solid #FDE68A",borderRadius:12,padding:"14px 16px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#B45309",textTransform:"uppercase",marginBottom:10}}>📈 Areas to Improve</div>
+              {results.improvements.map((s,i)=><div key={i} style={{fontSize:12,color:"#92400E",marginBottom:5}}>• {s}</div>)}
+            </div>}
+          </div>
+        )}
+        <button onClick={()=>onComplete({speakingBand:band, speakingFeedback:results})} style={{...btnStyle("primary"),width:"100%",padding:"14px",fontSize:15,fontWeight:700}}>
+          Continue to Speaking Booking →
+        </button>
+      </div>
+    );
+  }
+
+  // ── Exam screen ──
+  const currentQ = part===1?q1[qIdx]:part===2?(typeof q2==="object"?q2.cue:q2):q3[qIdx];
+  const partLabel = part===1?"Part 1 — Interview":part===2?"Part 2 — Long Turn":"Part 3 — Discussion";
+  const totalQ    = part===1?q1.length:part===2?1:q3.length;
+  const progress  = part===1?(qIdx/q1.length*33):part===2?33:33+(qIdx/q3.length*34);
+
+  return (
+    <div style={{maxWidth:680,margin:"0 auto",padding:"32px 24px"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:24}}>
+        <div style={{width:48,height:48,borderRadius:14,overflow:"hidden",background:"#1a2e25",flexShrink:0}}>
+          <img src="/nova.png" alt="Nova" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
+        </div>
+        <div style={{flex:1}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.brand,textTransform:"uppercase",letterSpacing:"0.15em"}}>Nova — AI Speaking Examiner</div>
+          <div style={{fontSize:16,fontWeight:800,color:C.s900}}>{partLabel}</div>
+        </div>
+        <button onClick={onSkip} style={{...btnStyle("ghost"),fontSize:12,color:C.s400,border:`1px solid ${C.s200}`,borderRadius:8,padding:"6px 14px"}}>Skip exam →</button>
+      </div>
+
+      {/* Progress */}
+      <div style={{height:4,background:C.s200,borderRadius:99,marginBottom:24,overflow:"hidden"}}>
+        <div style={{width:`${progress}%`,height:"100%",background:`linear-gradient(90deg,${C.brand},${C.teal})`,borderRadius:99,transition:"width .5s ease"}}/>
+      </div>
+
+      {/* Part 2 prep timer */}
+      {part===2&&!prepDone&&(
+        <div style={{...cardStyle({padding:20,marginBottom:20,borderLeft:`4px solid ${C.amber}`,background:C.amberL})}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontWeight:700,color:C.amber}}>⏱ Preparation Time</div>
+            <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:32,fontWeight:900,color:C.amber}}>{prepTimer}s</div>
+          </div>
+          <button onClick={()=>setPrepDone(true)} style={{...btnStyle("primary"),marginTop:12,width:"100%"}}>I'm ready — Start speaking</button>
+        </div>
+      )}
+
+      {/* Question card */}
+      <div style={{...cardStyle({padding:24,marginBottom:20,borderLeft:`4px solid ${C.brand}`})}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.brand,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>
+          {part===2?"Cue Card":part===1?`Question ${qIdx+1} of ${totalQ}`:`Question ${qIdx+1} of ${totalQ}`}
+        </div>
+        <p style={{fontSize:15,color:C.s900,lineHeight:1.75,margin:0,whiteSpace:"pre-line"}}>{currentQ}</p>
+      </div>
+
+      {/* Voice / text input */}
+      {(part!==2||prepDone)&&(
+        <div style={{...cardStyle({padding:20,marginBottom:16})}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.s600,marginBottom:10}}>Your Answer</div>
+          <textarea
+            value={transcript}
+            onChange={e=>setTranscript(e.target.value)}
+            placeholder={listening?"Listening… speak now":"Click 🎤 to speak, or type your answer here…"}
+            style={{...inputStyle,width:"100%",minHeight:100,resize:"vertical",fontSize:13,lineHeight:1.7,borderColor:listening?C.brand:C.s200}}
+          />
+          <div style={{display:"flex",gap:10,marginTop:10}}>
+            {!listening
+              ? <button onClick={startListening} style={{...btnStyle("secondary"),display:"flex",alignItems:"center",gap:6,padding:"9px 16px"}}>🎤 Speak</button>
+              : <button onClick={stopListening} style={{background:"#FEE2E2",color:"#DC2626",border:"none",borderRadius:8,padding:"9px 16px",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}><span style={{animation:"pulse 1s infinite"}}>⏹</span> Stop</button>
+            }
+          </div>
+        </div>
+      )}
+
+      {/* Navigation */}
+      {(part!==2||prepDone)&&(
+        <div style={{display:"flex",gap:12}}>
+          <button onClick={nextQ} style={{...btnStyle("primary"),flex:1,padding:"13px",fontSize:14,fontWeight:700}}>
+            {part===3&&qIdx===q3.length-1?"Finish & Get Score →":"Next Question →"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── SPEAKING BOOKING ──────────────────────────────────────────────────────────
 function SpeakingBooking({ candidateInfo, onComplete }) {
   const [selDate, setSelDate]       = useState(null);
@@ -1791,7 +2086,10 @@ async function runAICheck(text, taskMeta) {
   });
   if(!OPENAI_KEY) return errFb("OpenAI API key not configured.");
   try {
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(()=>controller.abort(), 45000); // 45s timeout
     const res = await fetch("https://api.openai.com/v1/chat/completions",{
+      signal: controller.signal,
       method:"POST",
       headers:{"Content-Type":"application/json","Authorization":`Bearer ${OPENAI_KEY}`},
       body:JSON.stringify({
@@ -1842,12 +2140,14 @@ Verdict must be "Human" (0-25%), "Possibly AI" (26-55%), "Likely AI" (56-80%), o
         ]
       })
     });
+    clearTimeout(timeoutId);
     const data = await res.json();
     if(!res.ok||data.error) return errFb(`OpenAI error: ${data.error?.message||`HTTP ${res.status}`}`);
     const raw = (data.choices?.[0]?.message?.content||"").replace(/```json|```/g,"").trim();
     if(!raw) return errFb("Empty response from OpenAI.");
     return JSON.parse(raw);
   } catch(e) {
+    if(e?.name==="AbortError") return errFb("Evaluation timed out. Please check your connection.");
     return errFb(`Connection error: ${e?.message||"Could not reach OpenAI."}`);
   }
 }
@@ -1862,10 +2162,13 @@ const NOVA_LOADING_MSGS = [
 ];
 
 function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
-  const [status,  setStatus]  = useState({0:"pending",1:"pending"});
-  const [aiFb,    setAiFb]    = useState({});
-  const [msgIdx,  setMsgIdx]  = useState(0);
-  const ran = useRef(false);
+  const [status,   setStatus]   = useState({0:"pending",1:"pending"});
+  const [aiFb,     setAiFb]     = useState({});
+  const [msgIdx,   setMsgIdx]   = useState(0);
+  const [elapsed,  setElapsed]  = useState(0);   // seconds since mount
+  const ran      = useRef(false);
+  const aiFbRef  = useRef({});                   // mirror for use in timeout
+  const statusRef= useRef({0:"pending",1:"pending"});
 
   const customTasks = writingTaskData;
   const getTask = idx => {
@@ -1881,6 +2184,12 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
     return ()=>clearInterval(t);
   },[]);
 
+  // Elapsed timer — used to show fallback button after 60s
+  useEffect(()=>{
+    const t = setInterval(()=>setElapsed(s=>s+1), 1000);
+    return ()=>clearInterval(t);
+  },[]);
+
   useEffect(()=>{
     if(ran.current) return;
     ran.current = true;
@@ -1889,14 +2198,18 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
       for(const idx of [0,1]) {
         const text = writingTexts?.[idx]||"";
         if(countWords(text)<10) {
-          results[idx]={band:null,_error:"No text detected. Please paste your essay."};
-          setStatus(s=>({...s,[idx]:"error"})); setAiFb(f=>({...f,[idx]:results[idx]})); continue;
+          results[idx]={band:null,_error:"No text submitted for this task."};
+          statusRef.current={...statusRef.current,[idx]:"error"};
+          setStatus(s=>({...s,[idx]:"error"})); setAiFb(f=>{const n={...f,[idx]:results[idx]};aiFbRef.current=n;return n;}); continue;
         }
+        statusRef.current={...statusRef.current,[idx]:"checking"};
         setStatus(s=>({...s,[idx]:"checking"}));
         const fb = await runAICheck(text, getTask(idx));
         results[idx] = fb;
-        setStatus(s=>({...s,[idx]:fb._error?"error":"done"}));
-        setAiFb(f=>({...f,[idx]:fb}));
+        const st = fb._error?"error":"done";
+        statusRef.current={...statusRef.current,[idx]:st};
+        setStatus(s=>({...s,[idx]:st}));
+        setAiFb(f=>{const n={...f,[idx]:fb};aiFbRef.current=n;return n;});
       }
       const b0=results[0]?.band??null, b1=results[1]?.band??null;
       let band=null;
@@ -1907,15 +2220,27 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
     })();
   },[]);
 
+  // Helper to build result from whatever we have so far (for manual skip)
+  const skipToResults = () => {
+    const r = aiFbRef.current||{};
+    const b0=r[0]?.band??null, b1=r[1]?.band??null;
+    let band=null;
+    if(b0!=null&&b1!=null) band=Math.round((b0*.34+b1*.66)*2)/2;
+    else if(b1!=null) band=b1;
+    else if(b0!=null) band=b0;
+    onComplete({band, aiFeedback:r, aiDetection:{task1:r[0]?.aiDetection, task2:r[1]?.aiDetection}});
+  };
+
   const allDone = [0,1].every(i=>status[i]!=="pending"&&status[i]!=="checking");
   const doneCount = [status[0],status[1]].filter(s=>s==="done"||s==="error").length;
   const pct = doneCount/2*100;
+  const showSkip = elapsed >= 60 && !allDone; // show fallback after 60s
 
   const taskLabel = (i,s) => {
     if(s==="pending")  return "Waiting for Nova…";
     if(s==="checking") return "Nova is reviewing this task…";
     if(s==="done")     return "Evaluation complete.";
-    return "Something went wrong. Nova couldn't complete the evaluation.";
+    return "Evaluation unavailable — will show partial results.";
   };
 
   return (
@@ -1994,6 +2319,22 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
         <div style={{color:"rgba(255,255,255,.25)",fontSize:11,fontWeight:600,letterSpacing:"0.06em"}}>
           {doneCount} OF 2 TASKS EVALUATED
         </div>
+
+        {/* Fallback: show "Proceed to Results" if stuck >60s */}
+        {showSkip&&(
+          <div style={{marginTop:28,padding:"18px 24px",background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.12)",borderRadius:14,textAlign:"center"}}>
+            <div style={{fontSize:12,color:"rgba(255,255,255,.45)",marginBottom:12}}>
+              Taking longer than expected? You can proceed with partial results.
+            </div>
+            <button onClick={skipToResults} style={{
+              background:"linear-gradient(135deg,#0BA870,#11CD87)",color:"#fff",border:"none",
+              borderRadius:10,padding:"11px 28px",fontSize:13,fontWeight:700,cursor:"pointer",
+              boxShadow:"0 4px 16px rgba(17,205,135,.3)",letterSpacing:"0.02em",
+            }}>
+              Proceed to Results →
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2001,35 +2342,40 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
 
 // ── RESULTS ───────────────────────────────────────────────────────────────────
 function Results({ scores, candidateInfo, booking, suiteName }) {
-  const lBand = listeningBand(scores.listening.correct, scores.listening.total);
-  const rBand = readingBand(scores.reading.correct,   scores.reading.total);
-  const wBand = scores.writing.band ?? null;  // null if AI didn't check
+  // Null-safe score access in case of partial data
+  const L = scores.listening||{correct:0,total:40,answers:{},allQuestions:[]};
+  const R = scores.reading  ||{correct:0,total:40,answers:{},allQuestions:[]};
+  const W = scores.writing  ||{texts:{},taskData:null,band:null,aiFeedback:null,aiDetection:null};
+  const lBand = listeningBand(L.correct, L.total);
+  const rBand = readingBand(R.correct,   R.total);
+  const wBand = W.band ?? null;  // null if AI didn't check
   const aiChecked = wBand != null;
   const overall = aiChecked ? overallBand([lBand, rBand, wBand]) : overallBand([lBand, rBand]);
   const bc = bandColor(overall);
+  const info = candidateInfo||{name:"Candidate",email:""};
 
   useEffect(()=>{
     dbPushNow("participants",{
-      id:genId("IELTS"), candidate:candidateInfo,
+      id:genId("IELTS"), candidate:info,
       date:new Date().toLocaleDateString("en-GB"),
       timestamp:Date.now(),
-      listeningScore:`${scores.listening.correct}/${scores.listening.total}`,
-      readingScore:`${scores.reading.correct}/${scores.reading.total}`,
+      listeningScore:`${L.correct}/${L.total}`,
+      readingScore:`${R.correct}/${R.total}`,
       listeningBand:lBand, readingBand:rBand, writingBand:wBand, overall,
-      writingTexts:scores.writing.texts,
-      writingFeedback:scores.writing.aiFeedback,
-      writingAiDetection:scores.writing.aiDetection,
+      writingTexts:W.texts,
+      writingFeedback:W.aiFeedback,
+      writingAiDetection:W.aiDetection,
       speakingBooking:booking,
-      listeningAnswers:scores.listening.answers,
-      readingAnswers:scores.reading.answers,
-      allListeningQuestions:scores.listening.allQuestions||[],
-      allReadingQuestions:scores.reading.allQuestions||[],
+      listeningAnswers:L.answers,
+      readingAnswers:R.answers,
+      allListeningQuestions:L.allQuestions||[],
+      allReadingQuestions:R.allQuestions||[],
     });
   },[]);
 
   const sections=[
-    {name:"Listening",band:lBand,icon:"🎧",detail:`${scores.listening.correct}/${scores.listening.total} correct`},
-    {name:"Reading",band:rBand,icon:"📖",detail:`${scores.reading.correct}/${scores.reading.total} correct`},
+    {name:"Listening",band:lBand,icon:"🎧",detail:`${L.correct}/${L.total} correct`},
+    {name:"Reading",band:rBand,icon:"📖",detail:`${R.correct}/${R.total} correct`},
     {name:"Writing",band:wBand,icon:"✍️",detail:aiChecked?"AI evaluated":"Task not checked"},
     {name:"Speaking",band:null,icon:"🗣️",detail:booking?`${booking.dateFormatted||booking.date} · ${booking.slot}`:"Booking pending"},
   ];
@@ -2045,7 +2391,7 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
         </div>
         <div style={{fontSize:108,fontWeight:900,color:bc,lineHeight:1,letterSpacing:"-0.05em"}}>{overall.toFixed(1)}</div>
         <div style={{fontSize:20,color:"rgba(255,255,255,.85)",fontWeight:700,marginBottom:12,letterSpacing:"-0.02em"}}>{bandLabel(overall)}</div>
-        <div style={{color:"rgba(255,255,255,.4)",fontSize:14}}>{candidateInfo.name} · {new Date().toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</div>
+        <div style={{color:"rgba(255,255,255,.4)",fontSize:14}}>{info.name} · {new Date().toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</div>
         {suiteName&&<div style={{display:"inline-block",background:"rgba(255,255,255,.08)",borderRadius:8,padding:"5px 14px",marginTop:8,fontSize:12,color:"rgba(255,255,255,.55)"}}>🧪 {suiteName}</div>}
         {booking&&(
           <div style={{display:"inline-block",background:"rgba(255,255,255,.1)",borderRadius:10,padding:"8px 20px",marginTop:14,fontSize:13,color:"rgba(255,255,255,.7)"}}>
@@ -2096,7 +2442,7 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
       </div>
 
       {/* Nova Writing Feedback */}
-      {scores.writing.aiFeedback && Object.keys(scores.writing.aiFeedback).length>0 && (
+      {W.aiFeedback && Object.keys(W.aiFeedback).length>0 && (
         <div style={{marginBottom:20}}>
           {/* Nova header */}
           <div style={{background:"linear-gradient(135deg,#0F172A 0%,#064E3B 100%)",borderRadius:20,padding:"28px 32px",marginBottom:16,display:"flex",alignItems:"center",gap:20}}>
@@ -2111,7 +2457,7 @@ function Results({ scores, candidateInfo, booking, suiteName }) {
           </div>
 
           {[0,1].map(tIdx=>{
-            const fb = scores.writing.aiFeedback[tIdx];
+            const fb = W.aiFeedback[tIdx];
             if(!fb||fb._error) return null;
             const CRITERIA = [
               ["taskAchievement","Task Response","📋"],
@@ -2277,6 +2623,8 @@ function AdminDashboard({ onExit }) {
   const [selected, setSelected] = useState(null);
 
   const [refreshing, setRefreshing] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
+  const [recalcMsg, setRecalcMsg] = useState("");
   const refresh = async () => {
     setRefreshing(true);
     await reloadDB();
@@ -2284,6 +2632,40 @@ function AdminDashboard({ onExit }) {
     setRefreshing(false);
   };
   useEffect(()=>{const t=setInterval(refresh,15000);return()=>clearInterval(t);},[]);
+
+  const recalculateAllBands = async () => {
+    setRecalculating(true);
+    const db = loadDB();
+    let count = 0;
+    const updated = (db.participants||[]).map(p => {
+      if(!p.listeningScore && !p.readingScore) return p;
+      const [lc,lt] = (p.listeningScore||"0/40").split("/").map(Number);
+      const [rc,rt] = (p.readingScore||"0/40").split("/").map(Number);
+      const newLB = listeningBand(lc||0, lt||40);
+      const newRB = readingBand(rc||0, rt||40);
+      const wBand = p.writingBand ?? null;
+      const bands = wBand!=null ? [newLB,newRB,wBand] : [newLB,newRB];
+      const newOverall = overallBand(bands);
+      count++;
+      return {...p, listeningBand:newLB, readingBand:newRB, overall:newOverall};
+    });
+    db.participants = updated;
+    await saveDBNow(db);
+    // Also push each updated attempt to Supabase participants table
+    for(const p of updated) {
+      if(p.listeningScore||p.readingScore) {
+        try {
+          if(supabase) {
+            await supabase.from("participants").update({data:p}).eq("id",p.id);
+          }
+        } catch{}
+      }
+    }
+    await refresh();
+    setRecalculating(false);
+    setRecalcMsg(`✓ Recalculated ${count} test records`);
+    setTimeout(()=>setRecalcMsg(""),4000);
+  };
 
   if(!auth) return (
     <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0F172A,#064E3B)",display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -2359,6 +2741,16 @@ function AdminDashboard({ onExit }) {
                     </div>
                   </div>
                 ))}
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24,padding:"14px 20px",background:C.brandL,borderRadius:12,border:`1px solid ${C.brand}30`}}>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:700,fontSize:13,color:C.s900}}>Recalculate Band Scores</div>
+                  <div style={{fontSize:12,color:C.s600}}>Updates all stored band scores using the corrected official IELTS conversion tables.</div>
+                </div>
+                {recalcMsg&&<span style={{fontSize:12,color:C.teal,fontWeight:700}}>{recalcMsg}</span>}
+                <button onClick={recalculateAllBands} disabled={recalculating} style={{...btnStyle("primary"),padding:"9px 20px",fontSize:13,opacity:recalculating?.6:1}}>
+                  {recalculating?"Recalculating…":"↻ Recalculate All Bands"}
+                </button>
               </div>
               <h3 style={{fontSize:11,color:C.s400,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:12}}>Recent Candidates</h3>
               {(()=>{
@@ -2747,17 +3139,19 @@ function ParticipantDetail({ profile, onBack }) {
                                       const cv = (q.correct||"").trim().toLowerCase();
                                       const av = ansText.trim().toLowerCase();
                                       const correct = av&&cv&&(av===cv||av.includes(cv)||cv.includes(av)||av.replace(/[^a-h]/g,"")[0]===cv.replace(/[^a-h]/g,"")[0]);
+                                      const noKey = !cv;
                                       return (
                                         <div key={qi} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"8px 0",borderBottom:`1px solid ${C.s200}`}}>
                                           <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:4,padding:"2px 6px",flexShrink:0,marginTop:2}}>{q.id}</span>
                                           <div style={{flex:1}}>
                                             <div style={{fontSize:12,color:C.s800,marginBottom:3}}>{q.text}</div>
                                             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                                              <span style={{fontSize:11,fontWeight:600,color:ansText?(correct?C.teal:C.rose):C.s400}}>
+                                              <span style={{fontSize:11,fontWeight:600,color:ansText?(noKey?C.s400:correct?C.teal:C.rose):C.s400}}>
                                                 {ansText?`Your answer: "${ansText}"`:"Not answered"}
                                               </span>
-                                              {ansText&&!correct&&<span style={{fontSize:11,color:C.teal,fontWeight:600}}>✓ Correct: "{q.correct}"</span>}
-                                              {ansText&&correct&&<span style={{fontSize:11,color:C.teal}}>✓</span>}
+                                              {noKey&&ansText&&<span style={{fontSize:11,color:"#d97706",fontWeight:600}}>⚠ No answer key set</span>}
+                                              {!noKey&&ansText&&!correct&&<span style={{fontSize:11,color:C.teal,fontWeight:600}}>✓ Correct: "{q.correct}"</span>}
+                                              {!noKey&&ansText&&correct&&<span style={{fontSize:11,color:C.teal}}>✓</span>}
                                             </div>
                                           </div>
                                         </div>
@@ -3413,6 +3807,7 @@ const READING_Q_TYPES = [
 ];
 const LISTENING_Q_TYPES = [
   ["mcq","Multiple Choice"],["matching","Matching"],
+  ["truefalse","True / False / Not Given"],["yesno","Yes / No / Not Given"],
   ["diagram_label","Plan / Map / Diagram Labeling"],["form_completion","Form Completion"],
   ["note_completion","Note Completion"],["table_completion","Table Completion"],
   ["flowchart_completion","Flow-chart Completion"],["summary_completion","Summary Completion"],
@@ -3846,6 +4241,7 @@ function AddTestManager() {
   const [tests, setTests]         = useState((loadDB().tests)||[]);
   const [activeType, setActiveType] = useState("Reading");
   const [saved, setSaved]         = useState(false);
+  const [editingId, setEditingId] = useState(null);
 
   // Reading: multi-passage
   const [rTitle, setRTitle]       = useState("");
@@ -3857,9 +4253,11 @@ function AddTestManager() {
   const [wTask1Image, setWTask1Image]   = useState(null);
   const [wTask2Prompt, setWTask2Prompt] = useState("");
 
-  // Listening: multi-section
-  const [lTitle, setLTitle]       = useState("");
-  const [lSections, setLSections] = useState([newSection(0)]);
+  // Listening: multi-section + audio upload
+  const [lTitle, setLTitle]             = useState("");
+  const [lSections, setLSections]       = useState([newSection(0)]);
+  const [lAudioUrl, setLAudioUrl]       = useState(()=>loadDB().listeningAudioUrl||"");
+  const [lAudioUploading, setLAudioUploading] = useState(false);
 
   const handleImageUpload = e => {
     const file = e.target.files[0]; if(!file) return;
@@ -3881,8 +4279,34 @@ function AddTestManager() {
   const addSection     = ()       => { if(lSections.length<4) setLSections(ss=>[...ss,newSection(ss.length)]); };
 
   const doSave = t => {
-    const updated = [...tests, t]; setTests(updated); dbSave("tests",updated);
+    let updated;
+    if(editingId) {
+      updated = tests.map(x => x.id===editingId ? {...t, id:editingId, createdAt:x.createdAt} : x);
+      setEditingId(null);
+    } else {
+      updated = [...tests, t];
+    }
+    setTests(updated); dbSave("tests", updated);
     setSaved(true); setTimeout(()=>setSaved(false),2500);
+  };
+
+  const loadForEdit = t => {
+    setEditingId(t.id);
+    setActiveType(t.type);
+    if(t.type==="Reading") {
+      setRTitle(t.title||"");
+      setRPassages(t.passages?.length ? t.passages : [newPassage(0)]);
+    } else if(t.type==="Writing") {
+      setWTitle(t.title||"");
+      setWTask1Prompt(t.task1Prompt||"");
+      setWTask1Image(t.task1Image||null);
+      setWTask2Prompt(t.task2Prompt||"");
+    } else if(t.type==="Listening") {
+      setLTitle(t.title||"");
+      setLSections(t.sections?.length ? t.sections : [newSection(0)]);
+    }
+    // Scroll to top of builder
+    window.scrollTo({top:0,behavior:"smooth"});
   };
 
   const saveReading = () => {
@@ -3897,9 +4321,38 @@ function AddTestManager() {
     doSave({id:genId("TEST"),type:"Writing",title:wTitle||"Custom Writing Tasks",task1Prompt:wTask1Prompt,task1Image:wTask1Image,task2Prompt:wTask2Prompt,createdAt:new Date().toLocaleDateString("en-GB")});
     setWTitle(""); setWTask1Prompt(""); setWTask1Image(null); setWTask2Prompt("");
   };
+  const uploadListeningAudio = async e => {
+    const file = e.target.files[0]; if(!file) return;
+    setLAudioUploading(true);
+    try {
+      if(supabase) {
+        const ext = file.name.split(".").pop();
+        const path = `listening/${Date.now()}.${ext}`;
+        const {error:upErr} = await supabase.storage.from("ielts-audio").upload(path,file,{upsert:true});
+        if(upErr) throw upErr;
+        const {data} = supabase.storage.from("ielts-audio").getPublicUrl(path);
+        const db = loadDB(); db.listeningAudioUrl = data.publicUrl; saveDB(db);
+        setLAudioUrl(data.publicUrl);
+      } else {
+        const reader = new FileReader();
+        reader.onload = ev => {
+          const db = loadDB(); db.listeningAudioUrl = ev.target.result; saveDB(db);
+          setLAudioUrl(ev.target.result);
+        };
+        reader.readAsDataURL(file);
+      }
+    } catch(e){ alert("Audio upload failed: "+e.message); }
+    setLAudioUploading(false);
+  };
+  const removeListeningAudio = () => {
+    const db = loadDB(); delete db.listeningAudioUrl; saveDB(db); setLAudioUrl("");
+  };
+
   const saveListening = () => {
     if(!lTitle.trim()) return;
-    doSave({id:genId("TEST"),type:"Listening",title:lTitle,sections:lSections.map(s=>({...s})),createdAt:new Date().toLocaleDateString("en-GB")});
+    // Save audio URL to global config
+    const db = loadDB(); if(lAudioUrl) db.listeningAudioUrl = lAudioUrl; saveDB(db);
+    doSave({id:genId("TEST"),type:"Listening",title:lTitle,sections:lSections.map(s=>({...s})),audioUrl:lAudioUrl||null,createdAt:new Date().toLocaleDateString("en-GB")});
     setLTitle(""); setLSections([newSection(0)]);
   };
   const deleteTest = id => { const u=tests.filter(t=>t.id!==id); setTests(u); dbSave("tests",u); };
@@ -3909,6 +4362,12 @@ function AddTestManager() {
     <div>
       <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:6}}>Section Builder</h2>
       <p style={{color:C.s400,fontSize:14,marginBottom:24}}>Build reading passages, listening sections, and writing prompts — then combine them into named Test Suites.</p>
+      {editingId&&(
+        <div style={{background:"#FEF3C7",border:"1px solid #FDE68A",borderRadius:10,padding:"10px 16px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:13,fontWeight:700,color:"#92400E"}}>✏ Editing existing section — save to update</span>
+          <button onClick={()=>{setEditingId(null);setRTitle("");setRPassages([newPassage(0)]);setWTitle("");setWTask1Prompt("");setWTask1Image(null);setWTask2Prompt("");setLTitle("");setLSections([newSection(0)]);}} style={{background:"#FDE68A",color:"#92400E",border:"none",borderRadius:6,padding:"4px 12px",fontSize:11,cursor:"pointer",fontWeight:700}}>✕ Cancel Edit</button>
+        </div>
+      )}
 
       {/* Saved sections list */}
       {tests.length>0&&(
@@ -3930,7 +4389,10 @@ function AddTestManager() {
                     {t.task1Image&&" · 📷 image"}
                   </div>
                 </div>
-                <button onClick={()=>deleteTest(t.id)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:8,padding:"5px 14px",fontSize:12,cursor:"pointer",fontWeight:700}}>Delete</button>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>loadForEdit(t)} style={{background:C.brandL,color:C.brand,border:"none",borderRadius:8,padding:"5px 14px",fontSize:12,cursor:"pointer",fontWeight:700}}>✏ Edit</button>
+                  <button onClick={()=>deleteTest(t.id)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:8,padding:"5px 14px",fontSize:12,cursor:"pointer",fontWeight:700}}>Delete</button>
+                </div>
               </div>
             ))}
           </div>
@@ -4057,6 +4519,23 @@ function AddTestManager() {
             <div style={{paddingTop:22}}>
               <span style={{fontSize:12,color:C.s400}}>{lSections.length}/4 sections</span>
             </div>
+          </div>
+
+          {/* Listening Audio Upload */}
+          <div style={{...cardStyle({padding:16,marginBottom:16,borderLeft:`4px solid ${C.amber}`})}}>
+            <div style={{fontWeight:700,fontSize:13,color:C.s900,marginBottom:3}}>🎧 Listening Audio File</div>
+            <div style={{fontSize:11,color:C.s400,marginBottom:10}}>Upload one MP3/WAV recording that plays for all candidates during this test. Shared across all sessions.</div>
+            {lAudioUrl?(
+              <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                <audio controls src={lAudioUrl} style={{flex:1,minWidth:200,height:34}}/>
+                <button onClick={removeListeningAudio} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:8,padding:"5px 12px",fontSize:11,cursor:"pointer",fontWeight:700}}>✕ Remove</button>
+              </div>
+            ):(
+              <label style={{display:"inline-flex",alignItems:"center",gap:8,background:C.s100,border:`1.5px dashed ${C.s200}`,borderRadius:10,padding:"9px 18px",cursor:"pointer",fontSize:12,color:C.s600,fontWeight:600}}>
+                {lAudioUploading?"Uploading…":"⬆ Upload Audio (MP3/WAV/M4A)"}
+                <input type="file" accept="audio/*" onChange={uploadListeningAudio} style={{display:"none"}} disabled={lAudioUploading}/>
+              </label>
+            )}
           </div>
 
           {lSections.map((s,i)=>{
@@ -4289,6 +4768,8 @@ export default function App() {
   const [booking, setBooking]       = useState(null);
   const [exitConfirm, setExitConfirm] = useState(false);
   const [breakNext, setBreakNext]     = useState(null); // {label, step} — shown between sections
+  const [speakingExamDone, setSpeakingExamDone] = useState(false);
+  const [speakingBand, setSpeakingBand] = useState(null);
 
   useEffect(()=>{ initDB().then(()=>setDbReady(true)); },[]);
   // Exit fullscreen when results screen is shown — must be before any conditional returns
@@ -4337,6 +4818,8 @@ export default function App() {
     setScores({});
     setBooking(null);
     setBreakNext(null);
+    setSpeakingExamDone(false);
+    setSpeakingBand(null);
   };
 
   if(view==="admin") return <AdminDashboard onExit={()=>setView("home")}/>;
@@ -4395,21 +4878,39 @@ export default function App() {
           {!breakNext&&step===2&&<ListeningTest testData={activeSuite?.listeningData} onExit={()=>setExitConfirm(true)} onComplete={r=>{setScores(s=>({...s,listening:r}));setBreakNext({label:"Reading Test",step:3});}}/>}
           {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   onExit={()=>setExitConfirm(true)} onComplete={r=>{setScores(s=>({...s,reading:r})); setBreakNext({label:"Writing Test",step:4});}}/>}
           {!breakNext&&step===4&&<WritingTest   testData={activeSuite?.writingData}   onExit={()=>setExitConfirm(true)} onComplete={w=>{setScores(s=>({...s,writing:w}));  setStep(5);}}/>}
-          {!breakNext&&step===5&&<SpeakingBooking candidateInfo={candidate} onComplete={b=>{setBooking(b);setStep(6);}}/>}
+          {!breakNext&&step===5&&!speakingExamDone&&(
+            <SpeakingExam
+              candidateInfo={candidate}
+              onComplete={r=>{setSpeakingBand(r.speakingBand); setSpeakingExamDone(true);}}
+              onSkip={()=>setSpeakingExamDone(true)}
+            />
+          )}
+          {!breakNext&&step===5&&speakingExamDone&&(
+            <SpeakingBooking candidateInfo={candidate} onComplete={b=>{setBooking(b);setStep(6);}}/>
+          )}
           {/* Step 6: AI checks writing in background — "results on the way" screen */}
           {step===6&&scores.writing&&(
             <ResultsLoading
-              writingTexts={scores.writing.texts}
-              writingTaskData={scores.writing.taskData||activeSuite?.writingData}
+              writingTexts={scores.writing?.texts}
+              writingTaskData={scores.writing?.taskData||activeSuite?.writingData}
               onComplete={aiResult=>{
                 setScores(s=>({...s, writing:{...s.writing, band:aiResult.band, aiFeedback:aiResult.aiFeedback, aiDetection:aiResult.aiDetection}}));
                 setStep(7);
               }}
             />
           )}
-          {/* Step 7: Final results */}
-          {step===7&&scores.listening&&scores.reading&&scores.writing&&(
-            <Results scores={scores} candidateInfo={candidate} booking={booking} suiteName={activeSuite?.name}/>
+          {/* Step 7: Final results — always attempt to render if step===7 */}
+          {step===7&&(
+            <Results
+              scores={{
+                listening: scores.listening||{correct:0,total:40,answers:{},allQuestions:[]},
+                reading:   scores.reading  ||{correct:0,total:40,answers:{},allQuestions:[]},
+                writing:   scores.writing  ||{texts:{},taskData:null,band:null,aiFeedback:null,aiDetection:null},
+              }}
+              candidateInfo={candidate||{name:"Candidate",email:""}}
+              booking={booking}
+              suiteName={activeSuite?.name}
+            />
           )}
         </>
       )}
