@@ -2470,27 +2470,27 @@ function exportResultsPDF({ candidateInfo, lBand, rBand, wBand, overall, L, R, W
   // ── OVERALL BAND SCORE ──
   doc.setFillColor(...TEAL);
   doc.roundedRect(30, y, PW - 60, 88, 10, 10, "F");
-  // Dim overlay for contrast
-  doc.setFillColor(0, 0, 0, 30);
   doc.setFont("helvetica","bold");
   doc.setFontSize(9);
   doc.setTextColor(200, 255, 235);
   doc.text("OVERALL BAND SCORE", PW/2, y + 20, { align:"center" });
-  doc.setFontSize(56);
+  doc.setFontSize(60);
   doc.setTextColor(...WHITE);
-  doc.text(overall ? overall.toFixed(1) : "—", PW/2, y + 66, { align:"center" });
+  const overallText = (overall != null && overall > 0) ? Number(overall).toFixed(1) : "N/A";
+  doc.text(overallText, PW/2, y + 68, { align:"center" });
   doc.setFontSize(12);
   doc.setFont("helvetica","normal");
-  doc.text(bandLabel(overall), PW/2, y + 82, { align:"center" });
+  doc.setTextColor(220, 255, 240);
+  doc.text(bandLabel(overall), PW/2, y + 83, { align:"center" });
 
   y += 106;
 
-  // ── SCORES TABLE ──
+  // ── SCORES TABLE — no emoji (jsPDF built-in fonts don't support emoji glyphs) ──
   const sections = [
-    ["🎧 Listening", lBand ? lBand.toFixed(1) : "N/A", `${L.correct}/${L.total} correct`, bandLabel(lBand), lBand],
-    ["📖 Reading",   rBand ? rBand.toFixed(1) : "N/A", `${R.correct}/${R.total} correct`, bandLabel(rBand), rBand],
-    ["✍️ Writing",   wBand ? wBand.toFixed(1) : "N/A", wBand ? "AI evaluated" : "Not checked", bandLabel(wBand), wBand],
-    ["🗣️ Speaking",  "—",                               booking ? "Scheduled" : "Pending",  "Booked", null],
+    ["Listening", lBand ? Number(lBand).toFixed(1) : "N/A", `${L.correct}/${L.total} correct`, bandLabel(lBand), lBand],
+    ["Reading",   rBand ? Number(rBand).toFixed(1) : "N/A", `${R.correct}/${R.total} correct`, bandLabel(rBand), rBand],
+    ["Writing",   wBand ? Number(wBand).toFixed(1) : "N/A", wBand ? "AI evaluated" : "Not checked", bandLabel(wBand), wBand],
+    ["Speaking",  "—",                                        booking ? "Scheduled" : "Pending", "Booked", null],
   ];
 
   autoTable(doc, {
@@ -3006,6 +3006,103 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId }) {
   );
 }
 
+// ── AI SPEAKING MANAGER ───────────────────────────────────────────────────────
+function AISpeakingManager({ onRefresh }) {
+  const db0 = loadDB();
+  const [enabled, setEnabled]   = useState(!!(db0.aiSpeakingEnabled));
+  const [q1, setQ1]             = useState((db0.speakingQuestions?.part1||DEFAULT_SPEAKING_QUESTIONS.part1).join("\n"));
+  const [cue, setCue]           = useState(db0.speakingQuestions?.part2?.cue||DEFAULT_SPEAKING_QUESTIONS.part2.cue);
+  const [q3, setQ3]             = useState((db0.speakingQuestions?.part3||DEFAULT_SPEAKING_QUESTIONS.part3).join("\n"));
+  const [saved, setSaved]       = useState(false);
+
+  const save = () => {
+    const db = loadDB();
+    db.aiSpeakingEnabled = enabled;
+    db.speakingQuestions = {
+      part1: q1.split("\n").map(s=>s.trim()).filter(Boolean),
+      part2: { cue: cue.trim() },
+      part3: q3.split("\n").map(s=>s.trim()).filter(Boolean),
+    };
+    localStorage.setItem(DB_KEY, JSON.stringify(db));
+    _flushConfig(db);
+    setSaved(true);
+    setTimeout(()=>setSaved(false), 2500);
+    onRefresh?.();
+  };
+
+  const taStyle = { ...inputStyle, width:"100%", minHeight:120, fontFamily:"inherit", resize:"vertical", fontSize:12, lineHeight:1.7 };
+
+  return (
+    <div style={{maxWidth:760}}>
+      <div style={{fontWeight:800,fontSize:18,color:C.s900,marginBottom:4}}>AI Speaking Examiner</div>
+      <p style={{fontSize:13,color:C.s500,marginBottom:24}}>
+        Enable or disable the in-test AI speaking exam. When disabled, candidates skip straight to the speaking booking page.
+        You can customise the questions for each part below.
+      </p>
+
+      {/* Enable / Disable toggle */}
+      <div style={{...cardStyle({padding:20,marginBottom:24}),display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div>
+          <div style={{fontWeight:700,fontSize:15,color:C.s900,marginBottom:3}}>AI Speaking Exam</div>
+          <div style={{fontSize:12,color:C.s400}}>
+            {enabled ? "Candidates will complete the AI speaking exam before booking." : "Candidates will go directly to the speaking booking page."}
+          </div>
+        </div>
+        <button onClick={()=>setEnabled(e=>!e)} style={{
+          width:56,height:30,borderRadius:99,border:"none",cursor:"pointer",position:"relative",
+          background:enabled?C.teal:C.s300,transition:"background .2s",flexShrink:0,
+        }}>
+          <span style={{
+            position:"absolute",top:3,left:enabled?28:4,width:24,height:24,borderRadius:"50%",
+            background:"#fff",transition:"left .2s",boxShadow:"0 1px 4px rgba(0,0,0,.25)",
+          }}/>
+        </button>
+      </div>
+
+      {/* Questions editor — shown whether enabled or not so admin can always edit */}
+      <div style={{display:"flex",flexDirection:"column",gap:20}}>
+
+        {/* Part 1 */}
+        <div style={cardStyle({padding:22})}>
+          <div style={{fontWeight:700,fontSize:14,color:C.s900,marginBottom:4}}>Part 1 — Introduction & Interview</div>
+          <div style={{fontSize:12,color:C.s400,marginBottom:10}}>One question per line. The examiner will ask these in order.</div>
+          <textarea value={q1} onChange={e=>setQ1(e.target.value)} style={taStyle} spellCheck={false}/>
+          <div style={{fontSize:11,color:C.s400,marginTop:6}}>{q1.split("\n").filter(Boolean).length} question{q1.split("\n").filter(Boolean).length!==1?"s":""}</div>
+        </div>
+
+        {/* Part 2 */}
+        <div style={cardStyle({padding:22})}>
+          <div style={{fontWeight:700,fontSize:14,color:C.s900,marginBottom:4}}>Part 2 — Individual Long Turn (Cue Card)</div>
+          <div style={{fontSize:12,color:C.s400,marginBottom:10}}>Write the full cue card text. Use bullet points with "•" for the talking points.</div>
+          <textarea value={cue} onChange={e=>setCue(e.target.value)} style={{...taStyle,minHeight:160}} spellCheck={false}/>
+        </div>
+
+        {/* Part 3 */}
+        <div style={cardStyle({padding:22})}>
+          <div style={{fontWeight:700,fontSize:14,color:C.s900,marginBottom:4}}>Part 3 — Two-Way Discussion</div>
+          <div style={{fontSize:12,color:C.s400,marginBottom:10}}>One question per line.</div>
+          <textarea value={q3} onChange={e=>setQ3(e.target.value)} style={taStyle} spellCheck={false}/>
+          <div style={{fontSize:11,color:C.s400,marginTop:6}}>{q3.split("\n").filter(Boolean).length} question{q3.split("\n").filter(Boolean).length!==1?"s":""}</div>
+        </div>
+
+        {/* Reset to defaults */}
+        <div style={{display:"flex",gap:10,alignItems:"center"}}>
+          <button onClick={save} style={{...btnStyle("primary"),padding:"11px 28px",fontSize:14,fontWeight:800}}>
+            {saved ? "✓ Saved!" : "Save Settings"}
+          </button>
+          <button onClick={()=>{
+            setQ1(DEFAULT_SPEAKING_QUESTIONS.part1.join("\n"));
+            setCue(DEFAULT_SPEAKING_QUESTIONS.part2.cue);
+            setQ3(DEFAULT_SPEAKING_QUESTIONS.part3.join("\n"));
+          }} style={{...btnStyle("ghost"),padding:"11px 20px",fontSize:13}}>
+            Reset to Defaults
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── ADMIN DASHBOARD ───────────────────────────────────────────────────────────
 function AdminDashboard({ onExit }) {
   const [auth, setAuth]       = useState(false);
@@ -3141,7 +3238,7 @@ function AdminDashboard({ onExit }) {
 
   const pts=db.participants||[], bks=db.bookings||[];
   const avg=arr=>arr.length?(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1):"—";
-  const navItems=[["overview","📊","Overview"],["participants","👥","Test Takers"],["bookings","🗓️","Bookings"],["slots","🕐","Speaking Slots"],["analytics","📈","Analytics"],["suites","🧪","Test Suites"],["assign","📋","Assignments"],["addtest","➕","Section Builder"]];
+  const navItems=[["overview","📊","Overview"],["participants","👥","Test Takers"],["bookings","🗓️","Bookings"],["slots","🕐","Speaking Slots"],["analytics","📈","Analytics"],["suites","🧪","Test Suites"],["assign","📋","Assignments"],["speaking","🗣️","AI Speaking"],["addtest","➕","Section Builder"]];
 
   return (
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",fontFamily:"'Montserrat',sans-serif"}}>
@@ -3350,6 +3447,7 @@ function AdminDashboard({ onExit }) {
 
           {tab==="suites"&&<TestSuiteManager/>}
           {tab==="assign"&&<AssignManager/>}
+          {tab==="speaking"&&<AISpeakingManager onRefresh={refresh}/>}
           {tab==="addtest"&&<AddTestManager/>}
         </div>
       </div>
@@ -5493,13 +5591,17 @@ export default function App() {
           {!breakNext&&step===2&&<ListeningTest testData={activeSuite?.listeningData} candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{setScores(s=>({...s,listening:r}));setBreakNext({label:"Reading Test",step:3});}}/>}
           {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{setScores(s=>({...s,reading:r})); setBreakNext({label:"Writing Test",step:4});}}/>}
           {!breakNext&&step===4&&<WritingTest   testData={activeSuite?.writingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={w=>{setScores(s=>({...s,writing:w}));  setStep(5);}}/>}
-          {!breakNext&&step===5&&!speakingExamDone&&(
-            <SpeakingExam
-              candidateInfo={candidate}
-              onComplete={r=>{setSpeakingBand(r.speakingBand); setSpeakingExamDone(true);}}
-              onSkip={()=>setSpeakingExamDone(true)}
-            />
-          )}
+          {!breakNext&&step===5&&!speakingExamDone&&(()=>{
+            const aiSpeakingOn = !!(loadDB().aiSpeakingEnabled);
+            if(!aiSpeakingOn) { setTimeout(()=>setSpeakingExamDone(true),0); return null; }
+            return (
+              <SpeakingExam
+                candidateInfo={candidate}
+                onComplete={r=>{setSpeakingBand(r.speakingBand); setSpeakingExamDone(true);}}
+                onSkip={()=>setSpeakingExamDone(true)}
+              />
+            );
+          })()}
           {!breakNext&&step===5&&speakingExamDone&&(
             <SpeakingBooking candidateInfo={candidate} onComplete={b=>{setBooking(b);setStep(6);}}/>
           )}
