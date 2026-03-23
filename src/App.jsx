@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 // ── FONTS: Montserrat everywhere ──────────────────────────────────────────────
 (() => {
@@ -2371,6 +2373,344 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
   );
 }
 
+// ── PDF EXPORT ────────────────────────────────────────────────────────────────
+function exportResultsPDF({ candidateInfo, lBand, rBand, wBand, overall, L, R, W, suiteName, booking }) {
+  const doc = new jsPDF({ unit:"pt", format:"a4" });
+  const PW = doc.internal.pageSize.getWidth();
+  const PH = doc.internal.pageSize.getHeight();
+  const info = candidateInfo || { name:"Candidate", email:"", id:"" };
+  const dateStr = new Date().toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});
+  const TEAL   = [17, 205, 135];
+  const DARK   = [15, 23, 42];
+  const GREY   = [100, 116, 139];
+  const LGREY  = [241, 245, 249];
+  const WHITE  = [255, 255, 255];
+  const AMBER  = [217, 119, 6];
+
+  const bandCol = b => {
+    if(!b) return [148,163,184];
+    if(b>=8) return [16,185,129];
+    if(b>=6.5) return [59,130,246];
+    if(b>=5) return [245,158,11];
+    return [239,68,68];
+  };
+  const bandLabel = b => {
+    if(!b) return "N/A";
+    if(b>=9) return "Expert";
+    if(b>=8) return "Very Good";
+    if(b>=7) return "Good";
+    if(b>=6) return "Competent";
+    if(b>=5) return "Modest";
+    if(b>=4) return "Limited";
+    return "Extremely Limited";
+  };
+
+  let y = 0;
+
+  // ── HEADER BANNER ──
+  doc.setFillColor(...DARK);
+  doc.rect(0, 0, PW, 100, "F");
+  // Teal accent line
+  doc.setFillColor(...TEAL);
+  doc.rect(0, 96, PW, 4, "F");
+
+  // Logo text
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(22);
+  doc.setTextColor(...TEAL);
+  doc.text("LingvoConnect", 40, 42);
+  doc.setFontSize(10);
+  doc.setTextColor(255,255,255);
+  doc.setFont("helvetica","normal");
+  doc.text("IELTS Practice Test · Official Score Report", 40, 58);
+  doc.setFontSize(9);
+  doc.setTextColor(...GREY);
+  doc.text(dateStr, 40, 74);
+
+  // Report title right side
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(13);
+  doc.setTextColor(...WHITE);
+  doc.text("SCORE REPORT", PW - 40, 42, { align:"right" });
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(9);
+  doc.setTextColor(...GREY);
+  doc.text("Practice Assessment", PW - 40, 58, { align:"right" });
+
+  y = 120;
+
+  // ── CANDIDATE INFO BLOCK ──
+  doc.setFillColor(...LGREY);
+  doc.roundedRect(30, y, PW - 60, 72, 8, 8, "F");
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(10);
+  doc.setTextColor(...GREY);
+  doc.text("CANDIDATE", 48, y + 18);
+  doc.setFontSize(16);
+  doc.setTextColor(...DARK);
+  doc.text(info.name || "—", 48, y + 38);
+  doc.setFontSize(9);
+  doc.setFont("helvetica","normal");
+  doc.setTextColor(...GREY);
+  const subLine = [info.email, info.id ? `ID: ${info.id}` : null, suiteName ? `Test: ${suiteName}` : null].filter(Boolean).join("   ·   ");
+  doc.text(subLine, 48, y + 54);
+  // Booking info right
+  if(booking) {
+    doc.setFont("helvetica","bold");
+    doc.setFontSize(9);
+    doc.setTextColor(...TEAL);
+    doc.text("SPEAKING APPOINTMENT", PW - 48, y + 18, { align:"right" });
+    doc.setFont("helvetica","normal");
+    doc.setTextColor(...DARK);
+    doc.text(`${booking.dateFormatted || booking.date}  ·  ${booking.slot}`, PW - 48, y + 34, { align:"right" });
+  }
+
+  y += 90;
+
+  // ── OVERALL BAND SCORE ──
+  doc.setFillColor(...TEAL);
+  doc.roundedRect(30, y, PW - 60, 88, 10, 10, "F");
+  // Dim overlay for contrast
+  doc.setFillColor(0, 0, 0, 30);
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(9);
+  doc.setTextColor(200, 255, 235);
+  doc.text("OVERALL BAND SCORE", PW/2, y + 20, { align:"center" });
+  doc.setFontSize(56);
+  doc.setTextColor(...WHITE);
+  doc.text(overall ? overall.toFixed(1) : "—", PW/2, y + 66, { align:"center" });
+  doc.setFontSize(12);
+  doc.setFont("helvetica","normal");
+  doc.text(bandLabel(overall), PW/2, y + 82, { align:"center" });
+
+  y += 106;
+
+  // ── SCORES TABLE ──
+  const sections = [
+    ["🎧 Listening", lBand ? lBand.toFixed(1) : "N/A", `${L.correct}/${L.total} correct`, bandLabel(lBand), lBand],
+    ["📖 Reading",   rBand ? rBand.toFixed(1) : "N/A", `${R.correct}/${R.total} correct`, bandLabel(rBand), rBand],
+    ["✍️ Writing",   wBand ? wBand.toFixed(1) : "N/A", wBand ? "AI evaluated" : "Not checked", bandLabel(wBand), wBand],
+    ["🗣️ Speaking",  "—",                               booking ? "Scheduled" : "Pending",  "Booked", null],
+  ];
+
+  autoTable(doc, {
+    startY: y,
+    margin: { left: 30, right: 30 },
+    head: [["Section","Band","Score","Level"]],
+    body: sections.map(([s,b,score,lvl,bv]) => [s, b, score, lvl]),
+    styles: { font:"helvetica", fontSize:10, cellPadding:10, textColor:DARK },
+    headStyles: { fillColor:DARK, textColor:WHITE, fontStyle:"bold", fontSize:9, cellPadding:8 },
+    columnStyles: {
+      0: { fontStyle:"bold", cellWidth:160 },
+      1: { cellWidth:70, halign:"center", fontStyle:"bold", fontSize:14 },
+      2: { cellWidth:110, halign:"center" },
+      3: { halign:"center" },
+    },
+    didDrawCell: (data) => {
+      if(data.section==="body" && data.column.index===1) {
+        const bv = sections[data.row.index][4];
+        if(bv) {
+          const col = bandCol(bv);
+          doc.setTextColor(...col);
+        }
+      }
+    },
+    alternateRowStyles: { fillColor:[248, 250, 252] },
+    theme: "grid",
+  });
+
+  y = doc.lastAutoTable.finalY + 24;
+
+  // ── WRITING FEEDBACK ──
+  const aiChecked = wBand != null;
+  const hasFeedback = W.aiFeedback && Object.keys(W.aiFeedback).length > 0;
+
+  if(hasFeedback) {
+    // Section title
+    doc.setFont("helvetica","bold");
+    doc.setFontSize(13);
+    doc.setTextColor(...DARK);
+    doc.text("Nova's Writing Evaluation", 30, y);
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(9);
+    doc.setTextColor(...GREY);
+    doc.text("AI feedback assessed against official IELTS band criteria", 30, y + 14);
+    y += 28;
+
+    const CRITERIA = [
+      ["taskAchievement","Task Response"],
+      ["coherenceCohesion","Coherence & Cohesion"],
+      ["lexicalResource","Lexical Resource"],
+      ["grammaticalRange","Grammatical Range & Accuracy"],
+    ];
+    const TASK_LABELS = ["Writing Task 1", "Writing Task 2"];
+
+    [0, 1].forEach(tIdx => {
+      const fb = W.aiFeedback[tIdx];
+      if(!fb || fb._error) return;
+
+      // Check if we need a new page
+      if(y > PH - 200) { doc.addPage(); y = 40; }
+
+      // Task header
+      doc.setFillColor(...DARK);
+      doc.roundedRect(30, y, PW - 60, 34, 6, 6, "F");
+      doc.setFont("helvetica","bold");
+      doc.setFontSize(11);
+      doc.setTextColor(...WHITE);
+      doc.text(TASK_LABELS[tIdx], 48, y + 14);
+      if(fb.band) {
+        doc.setFontSize(9);
+        doc.setTextColor(...TEAL);
+        doc.text(`Band ${fb.band}`, PW - 48, y + 14, { align:"right" });
+      }
+      doc.setFont("helvetica","normal");
+      doc.setFontSize(9);
+      doc.setTextColor(200, 230, 220);
+      const taskTitle = W.taskData?.tasks?.[tIdx]?.task || TASK_LABELS[tIdx];
+      doc.text(typeof taskTitle === "string" ? taskTitle.slice(0, 80) : TASK_LABELS[tIdx], 48, y + 26);
+      y += 44;
+
+      // Summary
+      if(fb.summary) {
+        if(y > PH - 100) { doc.addPage(); y = 40; }
+        doc.setFillColor(240, 253, 244);
+        doc.roundedRect(30, y, PW - 60, 14 + Math.ceil(doc.splitTextToSize(fb.summary, PW - 100).length * 13), 5, 5, "F");
+        doc.setFillColor(...TEAL);
+        doc.rect(30, y, 3, 14 + Math.ceil(doc.splitTextToSize(fb.summary, PW - 100).length * 13), "F");
+        doc.setFont("helvetica","bold");
+        doc.setFontSize(8);
+        doc.setTextColor(...TEAL);
+        doc.text("OVERALL ASSESSMENT", 42, y + 11);
+        doc.setFont("helvetica","normal");
+        doc.setFontSize(9);
+        doc.setTextColor(22, 101, 52);
+        const sumLines = doc.splitTextToSize(fb.summary, PW - 100);
+        doc.text(sumLines, 42, y + 23);
+        y += 18 + sumLines.length * 13;
+      }
+
+      // Criteria breakdown table
+      const critRows = CRITERIA.map(([k, lbl]) => {
+        const c = fb[k] || {};
+        const b = typeof c === "object" ? c.band : null;
+        const comment = typeof c === "object" ? (c.comment || "") : "";
+        return [lbl, b ? String(b) : "N/A", comment];
+      }).filter(r => r[1] !== "N/A");
+
+      if(critRows.length > 0) {
+        if(y > PH - 150) { doc.addPage(); y = 40; }
+        doc.setFont("helvetica","bold");
+        doc.setFontSize(9);
+        doc.setTextColor(...GREY);
+        doc.text("CRITERIA BREAKDOWN", 30, y + 4);
+        y += 12;
+        autoTable(doc, {
+          startY: y,
+          margin: { left: 30, right: 30 },
+          head: [["Criterion","Band","Comment"]],
+          body: critRows,
+          styles: { font:"helvetica", fontSize:9, cellPadding:7, textColor:DARK },
+          headStyles: { fillColor:[30, 41, 59], textColor:WHITE, fontStyle:"bold", fontSize:8 },
+          columnStyles: {
+            0: { cellWidth:140, fontStyle:"bold" },
+            1: { cellWidth:50, halign:"center", fontStyle:"bold", fontSize:12 },
+            2: { },
+          },
+          didDrawCell: (data) => {
+            if(data.section==="body" && data.column.index===1) {
+              const bv = parseFloat(critRows[data.row.index]?.[1]);
+              if(!isNaN(bv)) { doc.setTextColor(...bandCol(bv)); }
+            }
+          },
+          alternateRowStyles: { fillColor:[248, 250, 252] },
+          theme: "grid",
+        });
+        y = doc.lastAutoTable.finalY + 10;
+      }
+
+      // Strengths & Improvements
+      const hasStr = fb.strengths?.length > 0;
+      const hasImp = fb.improvements?.length > 0;
+      if(hasStr || hasImp) {
+        if(y > PH - 120) { doc.addPage(); y = 40; }
+        const colW = (PW - 70) / 2;
+        let leftY = y, rightY = y;
+
+        if(hasStr) {
+          doc.setFillColor(240, 253, 244);
+          const strLines = fb.strengths.flatMap(s => doc.splitTextToSize(`• ${s}`, colW - 24));
+          const strH = 22 + strLines.length * 12 + 10;
+          doc.roundedRect(30, y, colW, strH, 5, 5, "F");
+          doc.setFont("helvetica","bold");
+          doc.setFontSize(8);
+          doc.setTextColor(22, 163, 74);
+          doc.text("POSITIVE FEEDBACK", 40, y + 13);
+          doc.setFont("helvetica","normal");
+          doc.setFontSize(9);
+          doc.setTextColor(22, 101, 52);
+          doc.text(strLines, 40, y + 25);
+          leftY = y + strH + 6;
+        }
+        if(hasImp) {
+          doc.setFillColor(255, 251, 235);
+          const impLines = fb.improvements.flatMap(s => doc.splitTextToSize(`• ${s}`, colW - 24));
+          const impH = 22 + impLines.length * 12 + 10;
+          doc.roundedRect(35 + colW, y, colW, impH, 5, 5, "F");
+          doc.setFont("helvetica","bold");
+          doc.setFontSize(8);
+          doc.setTextColor(...AMBER);
+          doc.text("AREAS FOR IMPROVEMENT", 45 + colW, y + 13);
+          doc.setFont("helvetica","normal");
+          doc.setFontSize(9);
+          doc.setTextColor(146, 64, 14);
+          doc.text(impLines, 45 + colW, y + 25);
+          rightY = y + impH + 6;
+        }
+        y = Math.max(leftY, rightY) + 6;
+      }
+
+      // Nova's Tip
+      if(fb.keyTip) {
+        if(y > PH - 80) { doc.addPage(); y = 40; }
+        const tipLines = doc.splitTextToSize(fb.keyTip, PW - 120);
+        const tipH = 28 + tipLines.length * 13;
+        doc.setFillColor(6, 78, 59);
+        doc.roundedRect(30, y, PW - 60, tipH, 6, 6, "F");
+        doc.setFont("helvetica","bold");
+        doc.setFontSize(8);
+        doc.setTextColor(...TEAL);
+        doc.text("💡  NOVA'S TIP", 48, y + 14);
+        doc.setFont("helvetica","normal");
+        doc.setFontSize(9);
+        doc.setTextColor(220, 252, 231);
+        doc.text(tipLines, 48, y + 26);
+        y += tipH + 14;
+      }
+
+      y += 10;
+    });
+  }
+
+  // ── FOOTER on every page ──
+  const totalPages = doc.getNumberOfPages();
+  for(let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFillColor(...DARK);
+    doc.rect(0, PH - 28, PW, 28, "F");
+    doc.setFillColor(...TEAL);
+    doc.rect(0, PH - 28, PW, 2, "F");
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(8);
+    doc.setTextColor(...GREY);
+    doc.text("This is a practice test report by LingvoConnect. Official IELTS results are issued through authorised test centres only.", PW/2, PH - 12, { align:"center" });
+    doc.text(`Page ${i} of ${totalPages}`, PW - 36, PH - 12, { align:"right" });
+  }
+
+  const safeName = (info.name || "Candidate").replace(/[^a-zA-Z0-9]/g,"_");
+  doc.save(`IELTS_Report_${safeName}_${new Date().toLocaleDateString("en-GB").replace(/\//g,"-")}.pdf`);
+}
+
 // ── RESULTS ───────────────────────────────────────────────────────────────────
 function Results({ scores, candidateInfo, booking, suiteName, suiteId }) {
   // Null-safe score access in case of partial data
@@ -2637,6 +2977,26 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId }) {
           })}
         </div>
       )}
+
+      {/* Export PDF button */}
+      <div style={{textAlign:"center",marginBottom:20}}>
+        <button
+          onClick={()=>exportResultsPDF({candidateInfo:info, lBand, rBand, wBand, overall, L, R, W, suiteName, booking})}
+          style={{
+            display:"inline-flex",alignItems:"center",gap:10,
+            background:"linear-gradient(135deg,#064E3B 0%,#059669 100%)",
+            color:"#fff",border:"none",borderRadius:14,padding:"14px 32px",
+            fontSize:15,fontWeight:800,cursor:"pointer",letterSpacing:"-0.01em",
+            boxShadow:"0 4px 20px rgba(17,205,135,.35)",transition:"transform .15s,box-shadow .15s",
+          }}
+          onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 8px 28px rgba(17,205,135,.45)";}}
+          onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="0 4px 20px rgba(17,205,135,.35)";}}
+        >
+          <span style={{fontSize:20}}>📄</span>
+          Export Score Report (PDF)
+        </button>
+        <div style={{fontSize:11,color:C.s400,marginTop:8}}>Includes scores, band breakdown & writing feedback</div>
+      </div>
 
       <div style={{background:C.brandL,borderRadius:12,padding:"14px 20px",textAlign:"center",color:C.brand,fontSize:13,fontWeight:500}}>
         This is a practice test by LingvoConnect. Official IELTS results are issued through authorised test centres only.
