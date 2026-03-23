@@ -3448,16 +3448,38 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
 
   return (
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,gap:12,flexWrap:"wrap"}}>
         <button onClick={onBack} style={{display:"flex",alignItems:"center",gap:8,background:C.brandL,color:C.brand,border:`1.5px solid ${C.brand}30`,borderRadius:9,padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:700}}>← Back to All Candidates</button>
-        <div style={{display:"flex",gap:0,borderBottom:`2px solid ${C.s200}`}}>
-          {[["overview","📊 Overview"],["history","🕑 History"],["assign","📋 Assign Test"]].map(([t,lbl])=>(
-            <button key={t} onClick={()=>setMainTab(t)} style={{
-              padding:"8px 18px",border:"none",cursor:"pointer",fontSize:12,fontWeight:mainTab===t?700:500,
-              color:mainTab===t?C.brand:C.s400,borderBottom:`2px solid ${mainTab===t?C.brand:"transparent"}`,
-              background:"transparent",marginBottom:-2,
-            }}>{lbl}</button>
-          ))}
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          {/* Export latest attempt PDF */}
+          {allAttempts.length>0&&(
+            <button onClick={()=>{
+              const a = latest;
+              const parseScore = s => { const [c,t]=(s||"0/0").split("/").map(Number); return {correct:isNaN(c)?0:c, total:isNaN(t)?40:t}; };
+              const L2 = parseScore(a.listeningScore);
+              const R2 = parseScore(a.readingScore);
+              exportResultsPDF({
+                candidateInfo: profile.candidate||{name:profile.email,email:profile.email,id:""},
+                lBand: a.listeningBand, rBand: a.readingBand, wBand: a.writingBand,
+                overall: a.overall,
+                L: L2, R: R2,
+                W: { aiFeedback: a.writingFeedback||{}, aiDetection: a.writingAiDetection||null, texts: a.writingTexts||{} },
+                suiteName: a.suiteName||null,
+                booking: a.speakingBooking||null,
+              });
+            }} style={{display:"flex",alignItems:"center",gap:7,background:"linear-gradient(135deg,#064E3B,#059669)",color:"#fff",border:"none",borderRadius:9,padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:700,boxShadow:"0 2px 10px rgba(17,205,135,.3)"}}>
+              📄 Export PDF
+            </button>
+          )}
+          <div style={{display:"flex",gap:0,borderBottom:`2px solid ${C.s200}`}}>
+            {[["overview","📊 Overview"],["history","🕑 History"],["assign","📋 Assign Test"]].map(([t,lbl])=>(
+              <button key={t} onClick={()=>setMainTab(t)} style={{
+                padding:"8px 18px",border:"none",cursor:"pointer",fontSize:12,fontWeight:mainTab===t?700:500,
+                color:mainTab===t?C.brand:C.s400,borderBottom:`2px solid ${mainTab===t?C.brand:"transparent"}`,
+                background:"transparent",marginBottom:-2,
+              }}>{lbl}</button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -3559,7 +3581,10 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                           <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Reading</div><BandBadge val={a.readingBand}/></div>
                           <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Writing</div><BandBadge val={a.writingBand} pending={a.writingBand==null&&a.writingTexts!=null}/></div>
                           <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Overall</div><BandBadge val={a.overall} large/></div>
-                          <div style={{fontSize:18,color:C.brand,transition:"transform .2s",transform:isOpen?"rotate(90deg)":""}}>›</div>
+                          <div style={{display:"flex",flexDirection:"column",gap:6,alignItems:"center"}}>
+                            <button onClick={e=>{ e.stopPropagation(); const parseScore=s=>{const[c,t]=(s||"0/0").split("/").map(Number);return{correct:isNaN(c)?0:c,total:isNaN(t)?40:t};};exportResultsPDF({candidateInfo:profile.candidate||{name:profile.email,email:profile.email,id:""},lBand:a.listeningBand,rBand:a.readingBand,wBand:a.writingBand,overall:a.overall,L:parseScore(a.listeningScore),R:parseScore(a.readingScore),W:{aiFeedback:a.writingFeedback||{},aiDetection:a.writingAiDetection||null,texts:a.writingTexts||{}},suiteName:a.suiteName||null,booking:a.speakingBooking||null}); }} style={{background:"linear-gradient(135deg,#064E3B,#059669)",color:"#fff",border:"none",borderRadius:7,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>📄 PDF</button>
+                            <div style={{fontSize:18,color:C.brand,transition:"transform .2s",transform:isOpen?"rotate(90deg)":""}}>›</div>
+                          </div>
                         </div>
                       );
                     })()}
