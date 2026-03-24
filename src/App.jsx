@@ -3517,7 +3517,74 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
   const [assignSuiteId, setAssignSuiteId] = useState("");
   const [assignMsg, setAssignMsg] = useState("");
   const [expandedAttempt, setExpandedAttempt] = useState(null);
-  const [speakingInputs, setSpeakingInputs] = useState({});  // {participantId: bandValue}
+  const [speakingInputs, setSpeakingInputs] = useState({});  // {attemptKey: bandValue}
+  const [recheckStates, setRecheckStates]   = useState({});  // {attemptKey: {loading, taskLoading, msg, error}}
+
+  // Re-check a single attempt's writing with AI
+  const handleRecheckWriting = async (a) => {
+    const key = a.id||a.timestamp;
+    const atx = a.writingTexts||{};
+    if(!atx[0]&&!atx[1]){ setRecheckStates(s=>({...s,[key]:{msg:"No writing text found for this attempt.",error:true}})); return; }
+    setRecheckStates(s=>({...s,[key]:{loading:true,taskLoading:{0:!!atx[0],1:!!atx[1]},msg:"",error:false}}));
+
+    // Try to find task prompts from the assigned test suite
+    const db0   = loadDB();
+    const suite = (db0.testSuites||[]).find(s=>s.id===a.suiteId);
+    const wTest1 = suite ? (db0.tests||[]).find(t=>t.id===suite.writingTask1Id) : null;
+    const wTest2 = suite ? (db0.tests||[]).find(t=>t.id===suite.writingTask2Id) : null;
+    const getTaskMeta = (ti) => ({
+      task:`Task ${ti+1}`,
+      prompt: ti===0
+        ? (wTest1?.passages?.[0]?.text||wTest1?.prompt||wTest1?.title||"IELTS Writing Task 1")
+        : (wTest2?.passages?.[0]?.text||wTest2?.prompt||wTest2?.title||"IELTS Writing Task 2"),
+    });
+
+    const newFb  = {...(a.writingFeedback||{})};
+    const newDet = {...(a.writingAiDetection||{})};
+    let hasError = false;
+
+    for(const ti of [0,1]){
+      const txt = atx[ti];
+      if(!txt) continue;
+      const fb = await runAICheck(txt, getTaskMeta(ti));
+      if(fb._error) hasError = true;
+      newFb[ti]  = fb;
+      if(fb.aiDetection) newDet[`task${ti+1}`] = fb.aiDetection;
+      setRecheckStates(s=>({...s,[key]:{...s[key],taskLoading:{...s[key]?.taskLoading,[ti]:false}}}));
+    }
+
+    // Compute new writing band (average of task bands)
+    const bands = [newFb[0]?.band, newFb[1]?.band].filter(b=>b!=null&&!isNaN(b));
+    const newWBand = bands.length ? Math.round(bands.reduce((x,b)=>x+b,0)/bands.length*2)/2 : a.writingBand;
+
+    // Recalculate overall
+    const lB = a.listeningBand??null, rB = a.readingBand??null, sB = a.speakingBand??null;
+    const newOverall = overallBand([lB,rB,newWBand,sB].filter(b=>b!=null));
+
+    // Persist to _db + scoreOverrides
+    const patch = {writingFeedback:newFb,writingAiDetection:newDet,writingBand:newWBand,overall:newOverall};
+    const updatedPts = (_db.participants||[]).map(p=>
+      (p.id&&p.id===a.id)||(p.timestamp&&p.timestamp===a.timestamp) ? {...p,...patch} : p
+    );
+    const overrides = {...(_db.scoreOverrides||{})};
+    overrides[key] = {...(overrides[key]||{}),...patch};
+    _db = {..._db,participants:updatedPts,scoreOverrides:overrides};
+    try{localStorage.setItem(DB_KEY,JSON.stringify(_db));}catch{}
+    await _flushConfig(_db);
+
+    // Propagate to parent so UI updates immediately
+    const updatedAttempts = (profile.attempts||[]).map(att=>
+      (att===a||att.timestamp===a.timestamp) ? {...att,...patch} : att
+    );
+    onUpdateProfile?.({...profile,attempts:updatedAttempts});
+
+    setRecheckStates(s=>({...s,[key]:{
+      loading:false,taskLoading:{0:false,1:false},
+      msg: hasError ? "⚠ Some tasks could not be evaluated — check your OpenAI API key." : "✓ Writing re-evaluated and saved!",
+      error: hasError,
+    }}));
+    setTimeout(()=>setRecheckStates(s=>({...s,[key]:{...s[key],msg:""}})),5000);
+  };
 
   const candidateEmail = profile.email||"";
   const allAttempts    = profile.attempts||[];
@@ -3818,39 +3885,112 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                             )}
 
                             {/* WRITING */}
-                            {histTab==="writing"&&(
+                            {histTab==="writing"&&(()=>{
+                              const rKey = a.id||a.timestamp;
+                              const rs   = recheckStates[rKey]||{};
+                              const hasText = !!(atx[0]||atx[1]);
+                              return (
                               <div>
-                                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
-                                  <BandBadge val={a.writingBand} large pending={a.writingBand==null&&a.writingTexts!=null}/>
-                                  <div style={{fontWeight:700,fontSize:13,color:C.s900}}>Writing Score</div>
+                                {/* Header row: band + recheck button */}
+                                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+                                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                                    <BandBadge val={a.writingBand} large pending={a.writingBand==null&&a.writingTexts!=null}/>
+                                    <div>
+                                      <div style={{fontWeight:700,fontSize:13,color:C.s900}}>Writing Score</div>
+                                      {a.writingBand==null&&hasText&&<div style={{fontSize:11,color:"#D97706",fontWeight:600,marginTop:2}}>⚠ Not yet evaluated</div>}
+                                    </div>
+                                  </div>
+                                  {hasText&&(
+                                    <button
+                                      onClick={()=>handleRecheckWriting(a)}
+                                      disabled={rs.loading}
+                                      style={{display:"flex",alignItems:"center",gap:7,padding:"9px 18px",borderRadius:9,border:"none",
+                                        background:rs.loading?"#94A3B8":C.brand,color:"#fff",fontSize:12,fontWeight:700,cursor:rs.loading?"not-allowed":"pointer",
+                                        boxShadow:rs.loading?"none":`0 2px 8px ${C.brand}40`,transition:"all .15s"}}>
+                                      {rs.loading?(
+                                        <><span style={{width:12,height:12,border:"2px solid rgba(255,255,255,.3)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/>Evaluating…</>
+                                      ):"🔄 Re-check with AI"}
+                                    </button>
+                                  )}
                                 </div>
+
+                                {/* Status message */}
+                                {rs.msg&&(
+                                  <div style={{marginBottom:14,padding:"10px 14px",borderRadius:9,fontSize:12,fontWeight:600,
+                                    background:rs.error?"#FEF2F2":"#F0FDF4",color:rs.error?"#DC2626":"#16A34A",
+                                    border:`1.5px solid ${rs.error?"#FCA5A5":"#86EFAC"}`}}>
+                                    {rs.msg}
+                                  </div>
+                                )}
+
+                                {/* No text submitted at all */}
+                                {!hasText&&(
+                                  <div style={{padding:"20px",background:C.s100,borderRadius:10,textAlign:"center",color:C.s400,fontSize:13}}>
+                                    No writing responses submitted for this attempt.
+                                  </div>
+                                )}
                                 {[0,1].map(ti=>{
-                                  const det = a.writingAiDetection?.[`task${ti+1}`];
+                                  const det = (a.writingAiDetection||{})[`task${ti+1}`];
                                   const riskColor = !det?null:det.risk<=25?"#16A34A":det.risk<=55?"#D97706":det.risk<=80?"#EA580C":"#DC2626";
                                   const riskBg    = !det?null:det.risk<=25?"#F0FDF4":det.risk<=55?"#FFFBEB":det.risk<=80?"#FFF7ED":"#FEF2F2";
+                                  const taskLoading = rs.taskLoading?.[ti];
                                   return (
-                                    <div key={ti} style={{marginBottom:24}}>
-                                      <div style={{fontWeight:700,fontSize:13,color:C.s900,marginBottom:8}}>Task {ti+1}</div>
+                                    <div key={ti} style={{marginBottom:24,position:"relative",borderRadius:10,
+                                      border:`1.5px solid ${taskLoading?C.brand:C.s200}`,padding:14,
+                                      background:taskLoading?"rgba(17,205,135,.03)":"#fff",transition:"all .2s"}}>
+                                      {/* Task loading overlay */}
+                                      {taskLoading&&(
+                                        <div style={{position:"absolute",inset:0,background:"rgba(255,255,255,.75)",borderRadius:10,
+                                          display:"flex",alignItems:"center",justifyContent:"center",gap:10,zIndex:2,backdropFilter:"blur(2px)"}}>
+                                          <span style={{width:18,height:18,border:"3px solid rgba(17,205,135,.2)",borderTopColor:C.brand,borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/>
+                                          <span style={{fontSize:12,fontWeight:700,color:C.brand}}>AI evaluating Task {ti+1}…</span>
+                                        </div>
+                                      )}
+                                      <div style={{display:"flex",alignItems:"center",gap:8,fontWeight:700,fontSize:13,color:C.s900,marginBottom:8}}>
+                                        <span style={{background:C.brand,color:"#fff",borderRadius:6,padding:"2px 9px",fontSize:11,fontWeight:800}}>Task {ti+1}</span>
+                                        {afb[ti]?.band!=null&&<BandBadge val={afb[ti].band}/>}
+                                      </div>
                                       {atx[ti]?(
                                         <div style={{background:C.s100,borderRadius:8,padding:12,marginBottom:10,maxHeight:180,overflow:"auto"}}>
                                           <div style={{fontSize:10,color:C.s400,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>Response ({countWords(atx[ti]||"")} words)</div>
                                           <p style={{fontSize:12,lineHeight:1.8,color:C.s900,whiteSpace:"pre-wrap",margin:0}}>{atx[ti]}</p>
                                         </div>
                                       ):<div style={{color:C.s400,fontSize:12,marginBottom:10,fontStyle:"italic"}}>No response submitted</div>}
-                                      {afb[ti]&&(
+                                      {(()=>{const fb=a.writingFeedback?.[ti]; return fb&&(
                                         <div>
-                                          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:8}}>
-                                            {[["Overall",afb[ti].band],["Task",(afb[ti].taskAchievement?.band??afb[ti].tr)],["Cohesion",(afb[ti].coherenceCohesion?.band??afb[ti].cc)],["Lexical",(afb[ti].lexicalResource?.band??afb[ti].lr)],["Grammar",(afb[ti].grammaticalRange?.band??afb[ti].gra)]].map(([lbl,val])=>(
+                                          {/* 5-criteria band grid */}
+                                          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:10}}>
+                                            {[["Overall",fb.band],["Task",(fb.taskAchievement?.band??fb.tr)],["Cohesion",(fb.coherenceCohesion?.band??fb.cc)],["Lexical",(fb.lexicalResource?.band??fb.lr)],["Grammar",(fb.grammaticalRange?.band??fb.gra)]].map(([lbl,val])=>(
                                               <div key={lbl} style={{background:bandBg(val||5),borderRadius:6,padding:"7px 6px",textAlign:"center"}}>
                                                 <div style={{fontSize:8,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>{lbl}</div>
-                                                <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:800,fontSize:16,color:bandColor(val||5)}}>{val||"—"}</div>
+                                                <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:800,fontSize:16,color:bandColor(val||5)}}>{val!=null?val:"—"}</div>
                                               </div>
                                             ))}
                                           </div>
-                                          {afb[ti].summary&&<p style={{fontSize:12,lineHeight:1.7,color:C.s800,background:C.s100,padding:10,borderRadius:8,margin:"6px 0 8px"}}>{afb[ti].summary}</p>}
-                                          {afb[ti].keyTip&&<div style={{background:C.brandL,borderRadius:7,padding:"8px 12px",fontSize:11,color:C.brand,fontWeight:500,marginBottom:10}}>💡 {afb[ti].keyTip}</div>}
+                                          {/* Summary */}
+                                          {fb.summary&&<p style={{fontSize:12,lineHeight:1.7,color:C.s800,background:C.s100,padding:10,borderRadius:8,margin:"0 0 8px"}}>{fb.summary}</p>}
+                                          {/* Strengths */}
+                                          {fb.strengths?.length>0&&(
+                                            <div style={{marginBottom:8}}>
+                                              <div style={{fontSize:10,fontWeight:800,color:"#16A34A",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:5}}>✅ Strengths</div>
+                                              <ul style={{margin:0,paddingLeft:16}}>
+                                                {fb.strengths.map((s,si)=><li key={si} style={{fontSize:11,color:C.s800,lineHeight:1.6,marginBottom:2}}>{s}</li>)}
+                                              </ul>
+                                            </div>
+                                          )}
+                                          {/* Improvements */}
+                                          {fb.improvements?.length>0&&(
+                                            <div style={{marginBottom:8}}>
+                                              <div style={{fontSize:10,fontWeight:800,color:"#D97706",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:5}}>⚠ Areas to Improve</div>
+                                              <ul style={{margin:0,paddingLeft:16}}>
+                                                {fb.improvements.map((s,si)=><li key={si} style={{fontSize:11,color:C.s800,lineHeight:1.6,marginBottom:2}}>{s}</li>)}
+                                              </ul>
+                                            </div>
+                                          )}
+                                          {/* Key tip */}
+                                          {fb.keyTip&&<div style={{background:C.brandL,borderRadius:7,padding:"8px 12px",fontSize:11,color:C.brand,fontWeight:500,marginBottom:6}}>💡 {fb.keyTip}</div>}
                                         </div>
-                                      )}
+                                      );})()}
                                       {/* AI Detection for this task */}
                                       {det&&(
                                         <div style={{borderRadius:10,border:`2px solid ${riskColor}`,background:riskBg,padding:14}}>
@@ -3876,7 +4016,8 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                   );
                                 })}
                               </div>
-                            )}
+                              );
+                            })()}
 
                             {/* SPEAKING */}
                             {histTab==="speaking"&&(()=>{
