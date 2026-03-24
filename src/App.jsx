@@ -3716,9 +3716,12 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
           {allAttempts.length===0?<EmptyState icon="📄" text="No attempts yet."/>:(
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
               {allAttempts.map((a,i)=>{
-                const isOpen = expandedAttempt===i;
-                const afb = a.writingFeedback||{};
-                const atx = a.writingTexts||{};
+                const isOpen   = expandedAttempt===i;
+                const afb      = a.writingFeedback||{};
+                const atx      = a.writingTexts||{};
+                const rKey     = a.id||a.timestamp;
+                const rs       = recheckStates[rKey]||{};
+                const hasText  = !!(atx[0]||atx[1]);
                 return (
                   <div key={a.id||i} style={{...cardStyle({overflow:"hidden",border:`1px solid ${isOpen?C.brand:C.s200}`})}}>
                     {/* Row header — always visible */}
@@ -3885,11 +3888,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                             )}
 
                             {/* WRITING */}
-                            {histTab==="writing"&&(()=>{
-                              const rKey = a.id||a.timestamp;
-                              const rs   = recheckStates[rKey]||{};
-                              const hasText = !!(atx[0]||atx[1]);
-                              return (
+                            {histTab==="writing"&&(
                               <div>
                                 {/* Header row: band + recheck button */}
                                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:16,flexWrap:"wrap"}}>
@@ -4016,8 +4015,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                   );
                                 })}
                               </div>
-                              );
-                            })()}
+                            )}
 
                             {/* SPEAKING */}
                             {histTab==="speaking"&&(()=>{
