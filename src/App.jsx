@@ -4020,27 +4020,34 @@ function TestSuiteManager() {
   const [creating, setCreating] = useState(false);
   const [editId, setEditId]   = useState(null);
   const [name, setName]       = useState("");
-  const [rId, setRId]         = useState("");
-  const [wId, setWId]         = useState("");
-  const [lId, setLId]         = useState("");
+  const [rId,  setRId]  = useState("");
+  const [w1Id, setW1Id] = useState("");
+  const [w2Id, setW2Id] = useState("");
+  const [lId,  setLId]  = useState("");
 
   const refresh = () => { const db=loadDB(); setSuites(db.testSuites||[]); setAllSections(db.tests||[]); };
   useEffect(()=>{ refresh(); },[]);
 
-  const rSecs = allSections.filter(s=>s.type==="Reading");
-  const wSecs = allSections.filter(s=>s.type==="Writing");
-  const lSecs = allSections.filter(s=>s.type==="Listening");
+  const rSecs  = allSections.filter(s=>s.type==="Reading");
+  const w1Secs = allSections.filter(s=>s.type==="Writing"&&(s.taskType==="task1"||(!s.taskType&&s.task1Prompt)));
+  const w2Secs = allSections.filter(s=>s.type==="Writing"&&(s.taskType==="task2"||(!s.taskType&&s.task2Prompt)));
+  const lSecs  = allSections.filter(s=>s.type==="Listening");
 
-  const openCreate = () => { setName(""); setRId(""); setWId(""); setLId(""); setEditId(null); setCreating(true); };
-  const openEdit   = (s) => { setName(s.name); setRId(s.readingId||""); setWId(s.writingId||""); setLId(s.listeningId||""); setEditId(s.id); setCreating(true); };
+  const openCreate = () => { setName(""); setRId(""); setW1Id(""); setW2Id(""); setLId(""); setEditId(null); setCreating(true); };
+  const openEdit   = (s) => {
+    setName(s.name); setRId(s.readingId||"");
+    setW1Id(s.writing1Id||s.writingId||""); // backward compat
+    setW2Id(s.writing2Id||"");
+    setLId(s.listeningId||""); setEditId(s.id); setCreating(true);
+  };
 
   const saveSuite = () => {
     if(!name.trim()) return;
     let updated;
     if(editId) {
-      updated = suites.map(s=>s.id===editId?{...s,name:name.trim(),readingId:rId||null,writingId:wId||null,listeningId:lId||null}:s);
+      updated = suites.map(s=>s.id===editId?{...s,name:name.trim(),readingId:rId||null,writing1Id:w1Id||null,writing2Id:w2Id||null,listeningId:lId||null}:s);
     } else {
-      const ns = {id:genId("SUITE"),name:name.trim(),status:"draft",readingId:rId||null,writingId:wId||null,listeningId:lId||null,createdAt:new Date().toLocaleDateString("en-GB")};
+      const ns = {id:genId("SUITE"),name:name.trim(),status:"draft",readingId:rId||null,writing1Id:w1Id||null,writing2Id:w2Id||null,listeningId:lId||null,createdAt:new Date().toLocaleDateString("en-GB")};
       updated = [...suites, ns];
     }
     setSuites(updated); dbSave("testSuites",updated);
@@ -4074,12 +4081,17 @@ function TestSuiteManager() {
             <label style={labelStyle}>Suite Name *</label>
             <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. IELTS Academic Practice Test 3" style={inputStyle} autoFocus/>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
-            {[["📖 Reading",rSecs,rId,setRId],["✍️ Writing",wSecs,wId,setWId],["🎧 Listening",lSecs,lId,setLId]].map(([lbl,opts,val,set])=>(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+            {[
+              ["📖 Reading",rSecs,rId,setRId,"built-in"],
+              ["✍️ Writing Task 1",w1Secs,w1Id,setW1Id,"built-in"],
+              ["✍️ Writing Task 2",w2Secs,w2Id,setW2Id,"built-in"],
+              ["🎧 Listening",lSecs,lId,setLId,"built-in"],
+            ].map(([lbl,opts,val,set,ph])=>(
               <div key={lbl}>
                 <label style={labelStyle}>{lbl}</label>
                 <select value={val} onChange={e=>set(e.target.value)} style={{...inputStyle,cursor:"pointer"}}>
-                  <option value="">— use built-in —</option>
+                  <option value="">— use {ph} —</option>
                   {opts.map(s=><option key={s.id} value={s.id}>{s.title}</option>)}
                 </select>
               </div>
@@ -4107,7 +4119,8 @@ function TestSuiteManager() {
                   </div>
                   <div style={{display:"flex",gap:20,fontSize:12,color:C.s600,flexWrap:"wrap"}}>
                     <span>📖 {secName(s.readingId)}</span>
-                    <span>✍️ {secName(s.writingId)}</span>
+                    <span>✍️ T1: {secName(s.writing1Id||s.writingId)}</span>
+                    <span>✍️ T2: {secName(s.writing2Id)}</span>
                     <span>🎧 {secName(s.listeningId)}</span>
                     <span style={{color:C.s400}}>Created {s.createdAt}</span>
                   </div>
@@ -4917,11 +4930,14 @@ function AddTestManager() {
   const [rTitle, setRTitle]       = useState("");
   const [rPassages, setRPassages] = useState([newPassage(0)]);
 
-  // Writing state
-  const [wTitle, setWTitle]       = useState("");
-  const [wTask1Prompt, setWTask1Prompt] = useState("");
-  const [wTask1Image, setWTask1Image]   = useState(null);
-  const [wTask2Prompt, setWTask2Prompt] = useState("");
+  // Writing state — Task 1 and Task 2 stored separately
+  const [wT1Title,  setWT1Title]  = useState("");
+  const [wT1Prompt, setWT1Prompt] = useState("");
+  const [wT1Image,  setWT1Image]  = useState(null);
+  const [wT1Saved,  setWT1Saved]  = useState(false);
+  const [wT2Title,  setWT2Title]  = useState("");
+  const [wT2Prompt, setWT2Prompt] = useState("");
+  const [wT2Saved,  setWT2Saved]  = useState(false);
 
   // Listening: multi-section + audio upload
   const [lTitle, setLTitle]             = useState("");
@@ -4986,10 +5002,17 @@ function AddTestManager() {
     doSave({id:genId("TEST"),type:"Reading",title:rTitle,passages:rPassages.map(p=>({...p})),createdAt:new Date().toLocaleDateString("en-GB")});
     setRTitle(""); setRPassages([newPassage(0)]);
   };
-  const saveWriting = () => {
-    if(!wTask1Prompt.trim()) return;
-    doSave({id:genId("TEST"),type:"Writing",title:wTitle||"Custom Writing Tasks",task1Prompt:wTask1Prompt,task1Image:wTask1Image,task2Prompt:wTask2Prompt,createdAt:new Date().toLocaleDateString("en-GB")});
-    setWTitle(""); setWTask1Prompt(""); setWTask1Image(null); setWTask2Prompt("");
+  const saveWritingTask1 = () => {
+    if(!wT1Prompt.trim()) return;
+    doSave({id:genId("TEST"),type:"Writing",taskType:"task1",title:wT1Title||"Writing Task 1",task1Prompt:wT1Prompt,task1Image:wT1Image,createdAt:new Date().toLocaleDateString("en-GB")});
+    setWT1Title(""); setWT1Prompt(""); setWT1Image(null);
+    setWT1Saved(true); setTimeout(()=>setWT1Saved(false),2500);
+  };
+  const saveWritingTask2 = () => {
+    if(!wT2Prompt.trim()) return;
+    doSave({id:genId("TEST"),type:"Writing",taskType:"task2",title:wT2Title||"Writing Task 2",task2Prompt:wT2Prompt,createdAt:new Date().toLocaleDateString("en-GB")});
+    setWT2Title(""); setWT2Prompt("");
+    setWT2Saved(true); setTimeout(()=>setWT2Saved(false),2500);
   };
   const uploadListeningAudio = async e => {
     const file = e.target.files[0]; if(!file) return;
@@ -5124,56 +5147,92 @@ function AddTestManager() {
 
       {/* ── WRITING ── */}
       {activeType==="Writing"&&(
-        <div style={{...cardStyle({padding:28})}}>
-          <div style={{fontWeight:800,color:C.s900,fontSize:16,marginBottom:6}}>New Writing Section</div>
-          <p style={{fontSize:13,color:C.s400,marginBottom:20}}>The latest saved writing section is used automatically when no suite is assigned.</p>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
 
-          <div style={{marginBottom:18}}>
-            <label style={labelStyle}>Section Name</label>
-            <input value={wTitle} onChange={e=>setWTitle(e.target.value)}
-              placeholder="e.g. Cambridge 18 Test 1 Writing" style={inputStyle}/>
-          </div>
-
-          <div style={{...cardStyle({padding:20,borderLeft:`3px solid ${C.brand}`,marginBottom:16})}}>
-            <div style={{...tagStyle(),marginBottom:10}}>Task 1</div>
-            <div style={{marginBottom:14}}>
-              <label style={labelStyle}>Task 1 Prompt *</label>
-              <textarea value={wTask1Prompt} onChange={e=>setWTask1Prompt(e.target.value)}
-                placeholder="The chart below shows… Summarise the information by selecting and reporting the main features…"
-                rows={4} style={{...inputStyle,resize:"vertical",lineHeight:1.75,borderRadius:10}}/>
+          {/* ── Task 1 Panel ── */}
+          <div style={{...cardStyle({padding:24,borderTop:`4px solid ${C.brand}`})}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+              <span style={{...tagStyle(),fontSize:12}}>Task 1</span>
+              <span style={{fontSize:14,fontWeight:800,color:C.s900}}>Academic Writing Task 1</span>
             </div>
-            <div>
-              <label style={labelStyle}>Task 1 Image / Chart</label>
-              {wTask1Image?(
+            <p style={{fontSize:12,color:C.s400,marginBottom:18,lineHeight:1.6}}>
+              Describe a chart, graph, map or diagram. Min 150 words.<br/>
+              Each Task 1 is saved separately and can be mixed with any Task 2.
+            </p>
+
+            <div style={{marginBottom:14}}>
+              <label style={labelStyle}>Task 1 Name</label>
+              <input value={wT1Title} onChange={e=>setWT1Title(e.target.value)}
+                placeholder="e.g. Cambridge 18 T1 – Bar Chart" style={inputStyle}/>
+            </div>
+
+            <div style={{marginBottom:14}}>
+              <label style={labelStyle}>Prompt *</label>
+              <textarea value={wT1Prompt} onChange={e=>setWT1Prompt(e.target.value)}
+                placeholder="The chart below shows… Summarise the information by selecting and reporting the main features and make comparisons where relevant. Write at least 150 words."
+                rows={5} style={{...inputStyle,resize:"vertical",lineHeight:1.75,borderRadius:10}}/>
+            </div>
+
+            <div style={{marginBottom:18}}>
+              <label style={labelStyle}>Chart / Graph / Diagram Image</label>
+              {wT1Image?(
                 <div style={{position:"relative",display:"inline-block",maxWidth:"100%"}}>
-                  <img src={wTask1Image} alt="Task 1" style={{maxWidth:"100%",maxHeight:240,borderRadius:10,border:`1px solid ${C.s200}`,display:"block"}}/>
-                  <button onClick={()=>setWTask1Image(null)} style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.65)",color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",fontSize:12,cursor:"pointer",fontWeight:700}}>✕ Remove</button>
+                  <img src={wT1Image} alt="Task 1" style={{maxWidth:"100%",maxHeight:200,borderRadius:10,border:`1px solid ${C.s200}`,display:"block"}}/>
+                  <button onClick={()=>setWT1Image(null)} style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.65)",color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",fontSize:12,cursor:"pointer",fontWeight:700}}>✕</button>
                 </div>
               ):(
-                <label style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,border:`2px dashed ${C.brand}40`,borderRadius:12,padding:"28px 20px",cursor:"pointer",background:C.brandL}}>
-                  <span style={{fontSize:32}}>🖼️</span>
-                  <span style={{fontSize:13,color:C.s600,fontWeight:600}}>Click to upload chart / graph / diagram</span>
-                  <span style={{fontSize:11,color:C.s400}}>PNG, JPG, GIF</span>
-                  <input type="file" accept="image/*" onChange={handleImageUpload} style={{display:"none"}}/>
+                <label style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,border:`2px dashed ${C.brand}40`,borderRadius:12,padding:"22px 16px",cursor:"pointer",background:C.brandL}}>
+                  <span style={{fontSize:28}}>🖼️</span>
+                  <span style={{fontSize:12,color:C.s600,fontWeight:600}}>Upload chart / graph / diagram</span>
+                  <span style={{fontSize:11,color:C.s400}}>PNG · JPG · GIF</span>
+                  <input type="file" accept="image/*" onChange={e=>{
+                    const f=e.target.files?.[0]; if(!f) return;
+                    const r=new FileReader(); r.onload=ev=>setWT1Image(ev.target.result); r.readAsDataURL(f);
+                  }} style={{display:"none"}}/>
                 </label>
               )}
             </div>
+
+            <div style={{display:"flex",gap:10,alignItems:"center"}}>
+              <button onClick={saveWritingTask1} disabled={!wT1Prompt.trim()} style={btnStyle("primary",!wT1Prompt.trim())}>
+                💾 Save Task 1
+              </button>
+              {wT1Saved&&<span style={{color:C.teal,fontWeight:700,fontSize:13}}>✓ Saved!</span>}
+            </div>
           </div>
 
-          <div style={{...cardStyle({padding:20,borderLeft:`3px solid ${C.violet}`,marginBottom:20})}}>
-            <div style={{...tagStyle(C.violet),marginBottom:10}}>Task 2</div>
-            <label style={labelStyle}>Task 2 Prompt</label>
-            <textarea value={wTask2Prompt} onChange={e=>setWTask2Prompt(e.target.value)}
-              placeholder="Some people believe that… Discuss both views and give your own opinion. Write at least 250 words."
-              rows={4} style={{...inputStyle,resize:"vertical",lineHeight:1.75,borderRadius:10}}/>
+          {/* ── Task 2 Panel ── */}
+          <div style={{...cardStyle({padding:24,borderTop:`4px solid ${C.violet}`})}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+              <span style={{...tagStyle(C.violet),fontSize:12}}>Task 2</span>
+              <span style={{fontSize:14,fontWeight:800,color:C.s900}}>Academic Writing Task 2</span>
+            </div>
+            <p style={{fontSize:12,color:C.s400,marginBottom:18,lineHeight:1.6}}>
+              Essay / discussion / argument question. Min 250 words.<br/>
+              Each Task 2 is saved separately and can be mixed with any Task 1.
+            </p>
+
+            <div style={{marginBottom:14}}>
+              <label style={labelStyle}>Task 2 Name</label>
+              <input value={wT2Title} onChange={e=>setWT2Title(e.target.value)}
+                placeholder="e.g. Cambridge 18 T2 – Education Essay" style={inputStyle}/>
+            </div>
+
+            <div style={{marginBottom:18}}>
+              <label style={labelStyle}>Prompt *</label>
+              <textarea value={wT2Prompt} onChange={e=>setWT2Prompt(e.target.value)}
+                placeholder="Some people believe that… Others, however, think that…&#10;&#10;Discuss both views and give your own opinion.&#10;Write at least 250 words."
+                rows={8} style={{...inputStyle,resize:"vertical",lineHeight:1.75,borderRadius:10}}/>
+            </div>
+
+            <div style={{display:"flex",gap:10,alignItems:"center"}}>
+              <button onClick={saveWritingTask2} disabled={!wT2Prompt.trim()} style={btnStyle("secondary",!wT2Prompt.trim())}>
+                💾 Save Task 2
+              </button>
+              {wT2Saved&&<span style={{color:C.teal,fontWeight:700,fontSize:13}}>✓ Saved!</span>}
+            </div>
           </div>
 
-          <div style={{display:"flex",gap:14,alignItems:"center"}}>
-            <button onClick={saveWriting} disabled={!wTask1Prompt.trim()} style={btnStyle("primary",!wTask1Prompt.trim())}>
-              💾 Save Writing Section
-            </button>
-            {saved&&<span style={{color:C.teal,fontWeight:700,fontSize:14}}>✓ Saved!</span>}
-          </div>
         </div>
       )}
 
@@ -5316,10 +5375,28 @@ function resolveTestSuite(email) {
 
 function buildSuiteData(suite, db) {
   const tests = db.tests||[];
+  // Merge Task 1 + Task 2 into a single writingData object for WritingTest
+  const task1 = suite.writing1Id ? tests.find(t=>t.id===suite.writing1Id)||null : null;
+  const task2 = suite.writing2Id ? tests.find(t=>t.id===suite.writing2Id)||null : null;
+  // Backward compat: old suites with writingId that has both prompts in one object
+  const legacyW = suite.writingId  ? tests.find(t=>t.id===suite.writingId)||null  : null;
+  let writingData = null;
+  if(task1||task2) {
+    writingData = {
+      id: (task1?.id||"")+"+"+(task2?.id||""),
+      type:"Writing",
+      title: [task1?.title,task2?.title].filter(Boolean).join(" · ") || "Writing",
+      task1Prompt: task1?.task1Prompt||null,
+      task1Image:  task1?.task1Image||null,
+      task2Prompt: task2?.task2Prompt||null,
+    };
+  } else if(legacyW) {
+    writingData = legacyW;
+  }
   return {
     ...suite,
     readingData:   suite.readingId   ? tests.find(t=>t.id===suite.readingId)||null   : null,
-    writingData:   suite.writingId   ? tests.find(t=>t.id===suite.writingId)||null   : null,
+    writingData,
     listeningData: suite.listeningId ? tests.find(t=>t.id===suite.listeningId)||null : null,
   };
 }
