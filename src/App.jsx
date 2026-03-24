@@ -3541,17 +3541,18 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
 
     const newFb  = {...(a.writingFeedback||{})};
     const newDet = {...(a.writingAiDetection||{})};
-    let hasError = false;
+    const errors = [];
 
     for(const ti of [0,1]){
       const txt = atx[ti];
       if(!txt) continue;
       const fb = await runAICheck(txt, getTaskMeta(ti));
-      if(fb._error) hasError = true;
+      if(fb._error) errors.push(`Task ${ti+1}: ${fb._error}`);
       newFb[ti]  = fb;
       if(fb.aiDetection) newDet[`task${ti+1}`] = fb.aiDetection;
       setRecheckStates(s=>({...s,[key]:{...s[key],taskLoading:{...s[key]?.taskLoading,[ti]:false}}}));
     }
+    const hasError = errors.length > 0;
 
     // Compute new writing band (average of task bands)
     const bands = [newFb[0]?.band, newFb[1]?.band].filter(b=>b!=null&&!isNaN(b));
@@ -3580,10 +3581,10 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
 
     setRecheckStates(s=>({...s,[key]:{
       loading:false,taskLoading:{0:false,1:false},
-      msg: hasError ? "⚠ Some tasks could not be evaluated — check your OpenAI API key." : "✓ Writing re-evaluated and saved!",
+      msg: hasError ? `⚠ ${errors.join(" | ")}` : "✓ Writing re-evaluated and saved!",
       error: hasError,
     }}));
-    setTimeout(()=>setRecheckStates(s=>({...s,[key]:{...s[key],msg:""}})),5000);
+    if(!hasError) setTimeout(()=>setRecheckStates(s=>({...s,[key]:{...s[key],msg:""}})),5000);
   };
 
   const candidateEmail = profile.email||"";
