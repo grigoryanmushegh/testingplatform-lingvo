@@ -721,7 +721,7 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
     const c = (q.correct||"").trim().toLowerCase();
     if(!a||!c) return false;
     if(q.type==="yesno"||q.type==="truefalse") return a===c;
-    if(TEXT_INPUT_TYPES.has(q.type)||q.type==="short"||q.type==="fillblank")
+    if(TEXT_INPUT_TYPES.has(q.type)||q.type==="short"||q.type==="fillblank"||q.type==="form_table")
       return a===c || a.includes(c) || c.includes(a);
     // option-based (mcq, matching)
     if(raw && typeof raw==="object" && typeof q.correctIdx==="number") return raw.idx===q.correctIdx;
@@ -847,7 +847,7 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
             </div>
 
             {(()=>{
-              // Group consecutive 'matching' questions; render all others individually
+              // Group consecutive 'matching' and 'form_table' questions; render all others individually
               const rendered=[];
               let i=0;
               while(i<sec.questions.length){
@@ -856,6 +856,11 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                   const grp=[];
                   while(i<sec.questions.length&&sec.questions[i].type==="matching"){grp.push(sec.questions[i]);i++;}
                   rendered.push(<MatchingGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted}
+                    scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
+                } else if(q.type==="form_table"){
+                  const grp=[];
+                  while(i<sec.questions.length&&sec.questions[i].type==="form_table"){grp.push(sec.questions[i]);i++;}
+                  rendered.push(<FormTableGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted}
                     scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
                 } else {
                   rendered.push(<ListeningQ key={q.id} q={q} answer={answers[q.id]} submitted={submitted}
@@ -984,6 +989,68 @@ function ListeningQ({ q, answer, submitted, correct, onChange }) {
       )}
     </div>
     </>
+  );
+}
+
+// ── FORM TABLE GROUP (visual table for form/table completion) ──────────────────
+function FormTableGroup({ questions, answers, submitted, scoreQ, onChange }) {
+  const leader = questions[0];
+  return (
+    <div style={{marginBottom:16}}>
+      {leader.instructions&&<TaskInstructionBlock instructions={leader.instructions}/>}
+      {(leader.tableTitle||leader.tableSubtitle)&&(
+        <div style={{textAlign:"center",marginBottom:12}}>
+          {leader.tableTitle&&<div style={{fontWeight:800,fontSize:15,color:C.s900,marginBottom:2}}>{leader.tableTitle}</div>}
+          {leader.tableSubtitle&&<div style={{fontWeight:700,fontSize:13,color:C.s700}}>{leader.tableSubtitle}</div>}
+        </div>
+      )}
+      <div style={{border:`1.5px solid ${C.s300}`,borderRadius:10,overflow:"hidden"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <tbody>
+            {questions.map((q,qi)=>{
+              const ans = answers[q.id]||"";
+              const correct = submitted?scoreQ(q,ans):null;
+              const bc = submitted?(correct===true?C.teal:ans?C.rose:C.s200):C.s200;
+              return (
+                <tr key={q.id} style={{borderBottom:qi<questions.length-1?`1px solid ${C.s200}`:"none"}}>
+                  <td style={{
+                    padding:"12px 18px",fontWeight:600,fontSize:13,color:C.s800,
+                    borderRight:`1.5px solid ${C.s300}`,width:"40%",background:"#FAFBFC",
+                    verticalAlign:"middle",
+                  }}>
+                    {q.rowLabel||"—"}
+                  </td>
+                  <td style={{padding:"10px 18px",verticalAlign:"middle"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                      {q.rowBefore&&<span style={{fontSize:13,color:C.s900}}>{q.rowBefore}</span>}
+                      <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:4,padding:"1px 5px",flexShrink:0}}>({q.id})</span>
+                      <input
+                        value={ans}
+                        onChange={e=>!submitted&&onChange(q.id,e.target.value)}
+                        disabled={submitted}
+                        placeholder="…"
+                        style={{
+                          border:`1.5px solid ${bc}`,borderRadius:6,padding:"5px 9px",
+                          fontSize:13,width:130,outline:"none",
+                          background:submitted?(correct?C.tealL:ans?C.roseL:"#fff"):"#fff",
+                          color:C.s900,
+                        }}
+                      />
+                      {q.rowAfter&&<span style={{fontSize:13,color:C.s900}}>{q.rowAfter}</span>}
+                      {submitted&&ans&&(
+                        <span style={{fontSize:11,fontWeight:700,color:correct?C.teal:C.rose}}>
+                          {correct?"✓":(q.correct?`✗ "${q.correct}"`:"⚠")}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -4582,6 +4649,7 @@ const LISTENING_Q_TYPES = [
   ["mcq","Multiple Choice"],["matching","Matching"],
   ["truefalse","True / False / Not Given"],["yesno","Yes / No / Not Given"],
   ["diagram_label","Plan / Map / Diagram Labeling"],["form_completion","Form Completion"],
+  ["form_table","Form / Table Completion (Visual Table)"],
   ["note_completion","Note Completion"],["table_completion","Table Completion"],
   ["flowchart_completion","Flow-chart Completion"],["summary_completion","Summary Completion"],
   ["sentence_completion","Sentence Completion"],["short_answer","Short Answer Questions"],
@@ -4632,11 +4700,14 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1}) {
         const isYN  = q.type==="yesno";
         const fixedChoices  = isTF?["TRUE","FALSE","NOT GIVEN"]:isYN?["YES","NO","NOT GIVEN"]:null;
         const isHeadings    = q.type==="matching_headings";
+        const isFormTable       = q.type==="form_table";
+        const isFormTableLeader = isFormTable && (qi===0 || questions[qi-1]?.type!=="form_table");
+        const isFormTableFollow = isFormTable && !isFormTableLeader;
 
         return (
           <div key={q.id} style={{...cardStyle({padding:16,marginBottom:10,
-            borderLeft:`3px solid ${isGroupFollow?C.s300:C.brand}`,
-            background:isGroupFollow?"#FAFAFA":"#fff"})}}>
+            borderLeft:`3px solid ${(isGroupFollow||isFormTableFollow)?C.s300:C.brand}`,
+            background:(isGroupFollow||isFormTableFollow)?"#FAFAFA":"#fff"})}}>
             {/* Header row */}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
               <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
@@ -4668,15 +4739,61 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1}) {
                   {qTypes.map(([v,l])=><option key={v} value={v}>{l}</option>)}
                 </select>
               </div>
-              <div>
-                <label style={labelStyle}>
-                  {isGroupMatch ? (isHeadings?"Paragraph / Item Label":"Statement / Item") : "Question / Stem Text"}
-                </label>
-                <input value={q.text} onChange={e=>qbUpdateQ(setQuestions,q.id,"text",e.target.value)}
-                  placeholder={isGroupMatch?(isHeadings?"e.g. Paragraph A":"e.g. Paragraph A discusses…"):"Enter question or stem…"}
-                  style={inputStyle}/>
-              </div>
+              {!isFormTable&&(
+                <div>
+                  <label style={labelStyle}>
+                    {isGroupMatch ? (isHeadings?"Paragraph / Item Label":"Statement / Item") : "Question / Stem Text"}
+                  </label>
+                  <input value={q.text} onChange={e=>qbUpdateQ(setQuestions,q.id,"text",e.target.value)}
+                    placeholder={isGroupMatch?(isHeadings?"e.g. Paragraph A":"e.g. Paragraph A discusses…"):"Enter question or stem…"}
+                    style={inputStyle}/>
+                </div>
+              )}
+              {isFormTable&&(
+                <div>
+                  <label style={labelStyle}>Row Label <span style={{color:C.s400,fontWeight:400}}>(left cell — e.g. "Name", "Address")</span></label>
+                  <input value={q.rowLabel||""} onChange={e=>qbUpdateQ(setQuestions,q.id,"rowLabel",e.target.value)}
+                    placeholder="e.g. Name" style={inputStyle}/>
+                </div>
+              )}
             </div>
+
+            {/* Form Table extra fields */}
+            {isFormTable&&(
+              <div style={{marginBottom:10}}>
+                {isFormTableLeader&&(
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10,background:"#F0FDF4",borderRadius:8,padding:"12px 14px",border:"1px dashed #86EFAC"}}>
+                    <div>
+                      <label style={{...labelStyle,color:"#15803D"}}>Table Title <span style={{color:C.s400,fontWeight:400}}>(e.g. "Global Internet")</span></label>
+                      <input value={q.tableTitle||""} onChange={e=>qbUpdateQ(setQuestions,q.id,"tableTitle",e.target.value)}
+                        placeholder="e.g. Global Internet" style={inputStyle}/>
+                    </div>
+                    <div>
+                      <label style={{...labelStyle,color:"#15803D"}}>Table Subtitle <span style={{color:C.s400,fontWeight:400}}>(e.g. "New customer form")</span></label>
+                      <input value={q.tableSubtitle||""} onChange={e=>qbUpdateQ(setQuestions,q.id,"tableSubtitle",e.target.value)}
+                        placeholder="e.g. New customer form" style={inputStyle}/>
+                    </div>
+                  </div>
+                )}
+                {isFormTableFollow&&(
+                  <div style={{fontSize:11,color:C.s500,background:"#F8FAFC",borderRadius:6,padding:"6px 12px",marginBottom:10,border:`1px solid ${C.s200}`}}>
+                    ↳ Continues the same table as the row above
+                  </div>
+                )}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div>
+                    <label style={labelStyle}>Text Before Blank <span style={{color:C.s400,fontWeight:400}}>(right cell text before input)</span></label>
+                    <input value={q.rowBefore||""} onChange={e=>qbUpdateQ(setQuestions,q.id,"rowBefore",e.target.value)}
+                      placeholder={`e.g. "James " or "(2) " or leave blank`} style={inputStyle}/>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Text After Blank <span style={{color:C.s400,fontWeight:400}}>(right cell text after input)</span></label>
+                    <input value={q.rowAfter||""} onChange={e=>qbUpdateQ(setQuestions,q.id,"rowAfter",e.target.value)}
+                      placeholder={`e.g. " Melrose Drive" or leave blank`} style={inputStyle}/>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Task Instructions — shown on every question, optional */}
             {(!isGroupFollow)&&(
