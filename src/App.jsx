@@ -4732,7 +4732,9 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
                 {onMoveQuestion&&otherSections.length>0&&(
                   <select defaultValue="" onChange={e=>{
                     if(!e.target.value) return;
-                    onMoveQuestion(q.id, e.target.value);
+                    // e.target.value is a string; find the actual section object to get the real id
+                    const target = otherSections.find(s=>String(s.id)===e.target.value);
+                    if(target) onMoveQuestion(q.id, target.id);
                     e.target.value="";
                   }} style={{...inputStyle,fontSize:11,padding:"3px 8px",cursor:"pointer",color:C.brand,borderColor:C.brand,background:C.brandL,fontWeight:700}}>
                     <option value="">↗ Move to…</option>
