@@ -5143,6 +5143,15 @@ function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qS
                   <audio controls src={section.audioUrl} style={{flex:1,height:32,minWidth:0}}/>
                   <button onClick={()=>onUpdate("audioUrl",null)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:7,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700,flexShrink:0}}>✕ Remove</button>
                 </div>
+                {/* Warn if URL is a local blob/data URL — won't work for students */}
+                {(section.audioUrl.startsWith("blob:")||section.audioUrl.startsWith("data:"))?(
+                  <div style={{background:"#FEF3C7",border:"1px solid #FCD34D",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#92400E",display:"flex",gap:8,alignItems:"center"}}>
+                    ⚠️ <strong>This audio is stored locally only</strong> — students on other devices won't hear it.
+                    Please click <strong>✕ Remove</strong> above and re-upload the file so it saves to cloud storage.
+                  </div>
+                ):(
+                  <div style={{fontSize:11,color:C.teal,fontWeight:600,marginTop:4}}>✓ Saved to cloud — accessible to all students</div>
+                )}
               </div>
             ):(
               <AudioUploader onUrl={url=>onUpdate("audioUrl",url)}/>
