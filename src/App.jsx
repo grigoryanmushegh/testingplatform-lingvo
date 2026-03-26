@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 // ── FONTS: Montserrat everywhere ──────────────────────────────────────────────
 (() => {
@@ -5933,5 +5934,6 @@ export default function App() {
         </>
       )}
     </div>
+    <SpeedInsights />
   );
 }
