@@ -692,8 +692,10 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
-  // Reset audio seek tracker when section changes
-  useEffect(()=>{ lastTimeRef.current = 0; }, [secIdx]);
+  // In per-section mode, reset audio seek tracker when section changes so students can't rewind
+  // In single mode, we keep playing from wherever the audio currently is
+  const isSingleAudio = testData?.audioMode === "single";
+  useEffect(()=>{ if(!isSingleAudio) lastTimeRef.current = 0; }, [secIdx, isSingleAudio]);
 
   if(!ready) return <PreTestScreen icon="🎧" label="Listening Test" onStart={()=>setReady(true)}/>;
   // Build sections — supports new multi-section format, old flat questions array, or built-in
@@ -779,30 +781,59 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
             <div style={{color:"rgba(255,255,255,.4)",fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:10}}>
               Audio Recording
             </div>
-            {sec.audioUrl?(
-              <div>
-                <div style={{background:"rgba(255,255,255,.05)",borderRadius:12,padding:14,border:"1px solid rgba(255,255,255,.1)"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-                    <span style={{fontSize:16}}>🎵</span>
-                    <span style={{color:"rgba(255,255,255,.7)",fontSize:12,fontWeight:600}}>{sec.label}</span>
+            {isSingleAudio?(
+              /* ── Single continuous audio — same element across all sections ── */
+              testData.audioUrl?(
+                <div>
+                  <div style={{background:"rgba(255,255,255,.05)",borderRadius:12,padding:14,border:"1px solid rgba(255,255,255,.1)"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                      <span style={{fontSize:16}}>🎵</span>
+                      <span style={{color:"rgba(255,255,255,.7)",fontSize:12,fontWeight:600}}>Full Test Audio</span>
+                    </div>
+                    <audio ref={audioRef} controls autoPlay src={testData.audioUrl} style={{width:"100%",height:36}}
+                      controlsList="nodownload noplaybackrate" preload="auto"
+                      onTimeUpdate={e=>{ lastTimeRef.current = e.target.currentTime; }}
+                      onSeeking={e=>{ e.target.currentTime = lastTimeRef.current; }}
+                      onPause={e=>{ if(!submitted && phase==="main") e.target.play().catch(()=>{}); }}/>
                   </div>
-                  <audio ref={audioRef} controls autoPlay src={sec.audioUrl} style={{width:"100%",height:36}}
-                    controlsList="nodownload noplaybackrate" preload="auto"
-                    onTimeUpdate={e=>{ lastTimeRef.current = e.target.currentTime; }}
-                    onSeeking={e=>{ e.target.currentTime = lastTimeRef.current; }}
-                    onPause={e=>{ if(!submitted && phase==="main") e.target.play().catch(()=>{}); }}
-                    onEnded={()=>{ if(secIdx < sections.length-1) setTimeout(()=>setSecIdx(i=>i+1), 800); }}/>
+                  <div style={{marginTop:8,padding:"6px 10px",background:"rgba(13,148,136,.12)",border:"1px solid rgba(13,148,136,.25)",borderRadius:7}}>
+                    <p style={{color:"rgba(100,255,220,.8)",fontSize:11,lineHeight:1.5}}>🎧 One continuous recording for all sections — do not pause.</p>
+                  </div>
                 </div>
-                <div style={{marginTop:8,padding:"6px 10px",background:"rgba(13,148,136,.12)",border:"1px solid rgba(13,148,136,.25)",borderRadius:7}}>
-                  <p style={{color:"rgba(100,255,220,.8)",fontSize:11,lineHeight:1.5}}>▶ Press play to start. Audio changes with each section.</p>
+              ):(
+                <div style={{background:"rgba(255,255,255,.05)",borderRadius:12,padding:"20px 14px",border:"1px solid rgba(255,255,255,.1)",textAlign:"center"}}>
+                  <div style={{fontSize:28,marginBottom:8}}>🎵</div>
+                  <div style={{color:"rgba(255,255,255,.5)",fontSize:12}}>No audio uploaded for this test.</div>
+                  <div style={{color:"rgba(255,255,255,.3)",fontSize:11,marginTop:4}}>Admin can upload audio in the Test Builder.</div>
                 </div>
-              </div>
+              )
             ):(
-              <div style={{background:"rgba(255,255,255,.05)",borderRadius:12,padding:"20px 14px",border:"1px solid rgba(255,255,255,.1)",textAlign:"center"}}>
-                <div style={{fontSize:28,marginBottom:8}}>🎵</div>
-                <div style={{color:"rgba(255,255,255,.5)",fontSize:12}}>No audio uploaded for this section.</div>
-                <div style={{color:"rgba(255,255,255,.3)",fontSize:11,marginTop:4}}>Admin can upload audio in the Section Builder.</div>
-              </div>
+              /* ── Per-section audio — changes with each section ── */
+              sec.audioUrl?(
+                <div>
+                  <div style={{background:"rgba(255,255,255,.05)",borderRadius:12,padding:14,border:"1px solid rgba(255,255,255,.1)"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                      <span style={{fontSize:16}}>🎵</span>
+                      <span style={{color:"rgba(255,255,255,.7)",fontSize:12,fontWeight:600}}>{sec.label}</span>
+                    </div>
+                    <audio ref={audioRef} controls autoPlay src={sec.audioUrl} style={{width:"100%",height:36}}
+                      controlsList="nodownload noplaybackrate" preload="auto"
+                      onTimeUpdate={e=>{ lastTimeRef.current = e.target.currentTime; }}
+                      onSeeking={e=>{ e.target.currentTime = lastTimeRef.current; }}
+                      onPause={e=>{ if(!submitted && phase==="main") e.target.play().catch(()=>{}); }}
+                      onEnded={()=>{ if(secIdx < sections.length-1) setTimeout(()=>setSecIdx(i=>i+1), 800); }}/>
+                  </div>
+                  <div style={{marginTop:8,padding:"6px 10px",background:"rgba(13,148,136,.12)",border:"1px solid rgba(13,148,136,.25)",borderRadius:7}}>
+                    <p style={{color:"rgba(100,255,220,.8)",fontSize:11,lineHeight:1.5}}>▶ Press play to start. Audio changes with each section.</p>
+                  </div>
+                </div>
+              ):(
+                <div style={{background:"rgba(255,255,255,.05)",borderRadius:12,padding:"20px 14px",border:"1px solid rgba(255,255,255,.1)",textAlign:"center"}}>
+                  <div style={{fontSize:28,marginBottom:8}}>🎵</div>
+                  <div style={{color:"rgba(255,255,255,.5)",fontSize:12}}>No audio uploaded for this section.</div>
+                  <div style={{color:"rgba(255,255,255,.3)",fontSize:11,marginTop:4}}>Admin can upload audio in the Section Builder.</div>
+                </div>
+              )
             )}
           </div>
 
@@ -5107,7 +5138,7 @@ function AudioUploader({ onUrl }) {
 }
 
 // ── SECTION CARD (top-level to avoid remount / focus loss) ───────────────────
-function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qStart=1, allSections=[], onMoveQuestion }) {
+function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qStart=1, allSections=[], onMoveQuestion, hideAudio=false }) {
   const colors = [C.brand, C.teal, C.violet, C.amber];
   const bgs    = [C.brandL, C.tealL, "#E6FAF4", C.amberL];
   const col = colors[idx]||C.brand, bg = bgs[idx]||C.brandL;
@@ -5135,29 +5166,31 @@ function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qS
               placeholder={`e.g. Questions ${idx*10+1}–${(idx+1)*10}: Complete notes using NO MORE THAN THREE WORDS`}
               style={inputStyle}/>
           </div>
-          <div style={{marginBottom:14}}>
-            <label style={labelStyle}>Audio File <span style={{color:C.s400,fontWeight:400}}>(played during test)</span></label>
-            {section.audioUrl?(
-              <div>
-                <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.tealL,border:`1.5px solid ${C.teal}40`,borderRadius:10,marginBottom:6}}>
-                  <span style={{fontSize:18}}>🎵</span>
-                  <audio controls src={section.audioUrl} style={{flex:1,height:32,minWidth:0}}/>
-                  <button onClick={()=>onUpdate("audioUrl",null)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:7,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700,flexShrink:0}}>✕ Remove</button>
-                </div>
-                {/* Warn if URL is a local blob/data URL — won't work for students */}
-                {(section.audioUrl.startsWith("blob:")||section.audioUrl.startsWith("data:"))?(
-                  <div style={{background:"#FEF3C7",border:"1px solid #FCD34D",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#92400E",display:"flex",gap:8,alignItems:"center"}}>
-                    ⚠️ <strong>This audio is stored locally only</strong> — students on other devices won't hear it.
-                    Please click <strong>✕ Remove</strong> above and re-upload the file so it saves to cloud storage.
+          {!hideAudio&&(
+            <div style={{marginBottom:14}}>
+              <label style={labelStyle}>Audio File <span style={{color:C.s400,fontWeight:400}}>(played during test)</span></label>
+              {section.audioUrl?(
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.tealL,border:`1.5px solid ${C.teal}40`,borderRadius:10,marginBottom:6}}>
+                    <span style={{fontSize:18}}>🎵</span>
+                    <audio controls src={section.audioUrl} style={{flex:1,height:32,minWidth:0}}/>
+                    <button onClick={()=>onUpdate("audioUrl",null)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:7,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700,flexShrink:0}}>✕ Remove</button>
                   </div>
-                ):(
-                  <div style={{fontSize:11,color:C.teal,fontWeight:600,marginTop:4}}>✓ Saved to cloud — accessible to all students</div>
-                )}
-              </div>
-            ):(
-              <AudioUploader onUrl={url=>onUpdate("audioUrl",url)}/>
-            )}
-          </div>
+                  {/* Warn if URL is a local blob/data URL — won't work for students */}
+                  {(section.audioUrl.startsWith("blob:")||section.audioUrl.startsWith("data:"))?(
+                    <div style={{background:"#FEF3C7",border:"1px solid #FCD34D",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#92400E",display:"flex",gap:8,alignItems:"center"}}>
+                      ⚠️ <strong>This audio is stored locally only</strong> — students on other devices won't hear it.
+                      Please click <strong>✕ Remove</strong> above and re-upload the file so it saves to cloud storage.
+                    </div>
+                  ):(
+                    <div style={{fontSize:11,color:C.teal,fontWeight:600,marginTop:4}}>✓ Saved to cloud — accessible to all students</div>
+                  )}
+                </div>
+              ):(
+                <AudioUploader onUrl={url=>onUpdate("audioUrl",url)}/>
+              )}
+            </div>
+          )}
           <div style={{marginBottom:14}}>
             <label style={labelStyle}>Audio Script <span style={{color:C.s400,fontWeight:400}}>(admin reference — not shown to candidates)</span></label>
             <textarea value={section.script} onChange={e=>onUpdate("script",e.target.value)}
@@ -5203,6 +5236,7 @@ function AddTestManager() {
   const [lSections, setLSections]       = useState([newSection(0)]);
   const [lAudioUrl, setLAudioUrl]       = useState(()=>loadDB().listeningAudioUrl||"");
   const [lAudioUploading, setLAudioUploading] = useState(false);
+  const [lAudioMode, setLAudioMode]     = useState("per_section"); // "single" | "per_section"
 
   const handleImageUpload = e => {
     const file = e.target.files[0]; if(!file) return;
@@ -5263,6 +5297,7 @@ function AddTestManager() {
       setLTitle(t.title||"");
       setLSections(t.sections?.length ? t.sections : [newSection(0)]);
       setLAudioUrl(t.audioUrl||"");  // restore global audio URL
+      setLAudioMode(t.audioMode||"per_section");
     }
     // Scroll to top of builder
     window.scrollTo({top:0,behavior:"smooth"});
@@ -5318,7 +5353,7 @@ function AddTestManager() {
     if(!lTitle.trim()) return;
     // Save audio URL to global config
     const db = loadDB(); if(lAudioUrl) db.listeningAudioUrl = lAudioUrl; saveDB(db);
-    doSave({id:genId("TEST"),type:"Listening",title:lTitle,sections:lSections.map(s=>({...s})),audioUrl:lAudioUrl||null,createdAt:new Date().toLocaleDateString("en-GB")});
+    doSave({id:genId("TEST"),type:"Listening",title:lTitle,sections:lSections.map(s=>({...s})),audioUrl:lAudioUrl||null,audioMode:lAudioMode,createdAt:new Date().toLocaleDateString("en-GB")});
     setLTitle(""); setLSections([newSection(0)]);
   };
   const deleteTest = id => { const u=tests.filter(t=>t.id!==id); setTests(u); dbSave("tests",u); };
@@ -5523,22 +5558,54 @@ function AddTestManager() {
             </div>
           </div>
 
-          {/* Listening Audio Upload */}
-          <div style={{...cardStyle({padding:16,marginBottom:16,borderLeft:`4px solid ${C.amber}`})}}>
-            <div style={{fontWeight:700,fontSize:13,color:C.s900,marginBottom:3}}>🎧 Listening Audio File</div>
-            <div style={{fontSize:11,color:C.s400,marginBottom:10}}>Upload one MP3/WAV recording that plays for all candidates during this test. Shared across all sessions.</div>
-            {lAudioUrl?(
-              <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                <audio controls src={lAudioUrl} style={{flex:1,minWidth:200,height:34}}/>
-                <button onClick={removeListeningAudio} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:8,padding:"5px 12px",fontSize:11,cursor:"pointer",fontWeight:700}}>✕ Remove</button>
-              </div>
-            ):(
-              <label style={{display:"inline-flex",alignItems:"center",gap:8,background:C.s100,border:`1.5px dashed ${C.s200}`,borderRadius:10,padding:"9px 18px",cursor:"pointer",fontSize:12,color:C.s600,fontWeight:600}}>
-                {lAudioUploading?"Uploading…":"⬆ Upload Audio (MP3/WAV/M4A)"}
-                <input type="file" accept="audio/*" onChange={uploadListeningAudio} style={{display:"none"}} disabled={lAudioUploading}/>
-              </label>
-            )}
+          {/* Audio Mode Toggle */}
+          <div style={{...cardStyle({padding:16,marginBottom:16,borderLeft:`4px solid ${C.teal}`})}}>
+            <div style={{fontWeight:700,fontSize:13,color:C.s900,marginBottom:10}}>🎵 Audio Mode</div>
+            <div style={{display:"flex",gap:10}}>
+              {[
+                {mode:"per_section",label:"🔊 Separate audio per section",desc:"Each section plays its own audio file"},
+                {mode:"single",     label:"🎧 One continuous audio",       desc:"One file plays straight through all sections"},
+              ].map(({mode,label,desc})=>(
+                <button key={mode} onClick={()=>setLAudioMode(mode)} style={{
+                  flex:1,padding:"10px 14px",border:`2px solid ${lAudioMode===mode?C.teal:C.s200}`,
+                  borderRadius:10,cursor:"pointer",textAlign:"left",
+                  background:lAudioMode===mode?C.tealL:C.surface,
+                  transition:"all .15s",
+                }}>
+                  <div style={{fontWeight:700,fontSize:12,color:lAudioMode===mode?C.teal:C.s600,marginBottom:2}}>{label}</div>
+                  <div style={{fontSize:11,color:C.s400}}>{desc}</div>
+                </button>
+              ))}
+            </div>
           </div>
+
+          {/* Global Audio Upload — only shown in single mode */}
+          {lAudioMode==="single"&&(
+            <div style={{...cardStyle({padding:16,marginBottom:16,borderLeft:`4px solid ${C.amber}`})}}>
+              <div style={{fontWeight:700,fontSize:13,color:C.s900,marginBottom:3}}>🎧 Full Test Audio File</div>
+              <div style={{fontSize:11,color:C.s400,marginBottom:10}}>Upload one MP3/WAV/M4A recording that plays continuously across all sections without resetting.</div>
+              {lAudioUrl?(
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                    <audio controls src={lAudioUrl} style={{flex:1,minWidth:200,height:34}}/>
+                    <button onClick={removeListeningAudio} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:8,padding:"5px 12px",fontSize:11,cursor:"pointer",fontWeight:700}}>✕ Remove</button>
+                  </div>
+                  {(lAudioUrl.startsWith("blob:")||lAudioUrl.startsWith("data:"))?(
+                    <div style={{background:"#FEF3C7",border:"1px solid #FCD34D",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#92400E",marginTop:8,display:"flex",gap:8}}>
+                      ⚠️ <strong>Local file only</strong> — remove and re-upload so it saves to cloud storage.
+                    </div>
+                  ):(
+                    <div style={{fontSize:11,color:C.teal,fontWeight:600,marginTop:4}}>✓ Saved to cloud — accessible to all students</div>
+                  )}
+                </div>
+              ):(
+                <label style={{display:"inline-flex",alignItems:"center",gap:8,background:C.s100,border:`1.5px dashed ${C.s200}`,borderRadius:10,padding:"9px 18px",cursor:"pointer",fontSize:12,color:C.s600,fontWeight:600}}>
+                  {lAudioUploading?"Uploading…":"⬆ Upload Audio (MP3/WAV/M4A)"}
+                  <input type="file" accept="audio/*" onChange={uploadListeningAudio} style={{display:"none"}} disabled={lAudioUploading}/>
+                </label>
+              )}
+            </div>
+          )}
 
           {lSections.map((s,i)=>{
             const qStart=lSections.slice(0,i).reduce((sum,ss)=>sum+(ss.questions||[]).length,0)+1;
@@ -5548,7 +5615,8 @@ function AddTestManager() {
               setQuestions={setSectionQ(s.id)}
               qStart={qStart}
               allSections={lSections}
-              onMoveQuestion={(qId,toId)=>moveQuestion(qId,s.id,toId)}/>;
+              onMoveQuestion={(qId,toId)=>moveQuestion(qId,s.id,toId)}
+              hideAudio={lAudioMode==="single"}/>;
           })}
 
           <div style={{display:"flex",gap:12,alignItems:"center",marginTop:8,marginBottom:8}}>
