@@ -4682,8 +4682,9 @@ const qbSyncFollowers = (setter,leaderIdx) => setter(qs=>{
   return out;
 });
 
-function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1}) {
+function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, allSections=[], currentSectionId=null, onMoveQuestion=null}) {
   const qTypes = mode==="listening" ? LISTENING_Q_TYPES : READING_Q_TYPES;
+  const otherSections = allSections.filter(s=>s.id!==currentSectionId);
   return (
     <div>
       {questions.map((q,qi)=>{
@@ -4727,7 +4728,22 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1}) {
                   </span>
                 )}
               </div>
-              <button onClick={()=>qbRemoveQ(setQuestions,q.id)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:6,padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>✕ Remove</button>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                {onMoveQuestion&&otherSections.length>0&&(
+                  <select defaultValue="" onChange={e=>{
+                    if(!e.target.value) return;
+                    onMoveQuestion(q.id, e.target.value);
+                    e.target.value="";
+                  }} style={{...inputStyle,fontSize:11,padding:"3px 8px",cursor:"pointer",color:C.brand,borderColor:C.brand,background:C.brandL,fontWeight:700}}>
+                    <option value="">↗ Move to…</option>
+                    {otherSections.map((s,si)=>{
+                      const sLabel = s.title ? `Section ${allSections.findIndex(x=>x.id===s.id)+1}: ${s.title}` : `Section ${allSections.findIndex(x=>x.id===s.id)+1}`;
+                      return <option key={s.id} value={s.id}>{sLabel}</option>;
+                    })}
+                  </select>
+                )}
+                <button onClick={()=>qbRemoveQ(setQuestions,q.id)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:6,padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>✕ Remove</button>
+              </div>
             </div>
 
             {/* Type + Question Text */}
@@ -5082,7 +5098,7 @@ function AudioUploader({ onUrl }) {
 }
 
 // ── SECTION CARD (top-level to avoid remount / focus loss) ───────────────────
-function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qStart=1 }) {
+function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qStart=1, allSections=[], onMoveQuestion }) {
   const colors = [C.brand, C.teal, C.violet, C.amber];
   const bgs    = [C.brandL, C.tealL, "#E6FAF4", C.amberL];
   const col = colors[idx]||C.brand, bg = bgs[idx]||C.brandL;
@@ -5132,7 +5148,8 @@ function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qS
           </div>
           <div>
             <label style={labelStyle}>Questions</label>
-            <QuestionBuilder questions={section.questions} setQuestions={setQuestions} mode="listening" qStart={qStart}/>
+            <QuestionBuilder questions={section.questions} setQuestions={setQuestions} mode="listening" qStart={qStart}
+              allSections={allSections} currentSectionId={section.id} onMoveQuestion={onMoveQuestion}/>
           </div>
         </div>
       )}
@@ -5187,6 +5204,19 @@ function AddTestManager() {
   const deleteSection  = (id)     => setLSections(ss=>ss.filter(s=>s.id!==id));
   const setSectionQ    = (id)     => upd => setLSections(ss=>ss.map(s=>s.id===id?{...s,questions:typeof upd==="function"?upd(s.questions):upd}:s));
   const addSection     = ()       => { if(lSections.length<4) setLSections(ss=>[...ss,newSection(ss.length)]); };
+  // Move a question from one section to another
+  const moveQuestion   = (qId, fromSectionId, toSectionId) => {
+    setLSections(ss=>{
+      const fromSec = ss.find(s=>s.id===fromSectionId);
+      const q = (fromSec?.questions||[]).find(q=>q.id===qId);
+      if(!q) return ss;
+      return ss.map(s=>{
+        if(s.id===fromSectionId) return {...s, questions:s.questions.filter(q=>q.id!==qId)};
+        if(s.id===toSectionId)   return {...s, questions:[...s.questions, q]};
+        return s;
+      });
+    });
+  };
 
   const doSave = t => {
     let updated;
@@ -5497,7 +5527,9 @@ function AddTestManager() {
               onUpdate={(k,v)=>updateSection(s.id,k,v)}
               onDelete={()=>deleteSection(s.id)}
               setQuestions={setSectionQ(s.id)}
-              qStart={qStart}/>;
+              qStart={qStart}
+              allSections={lSections}
+              onMoveQuestion={(qId,toId)=>moveQuestion(qId,s.id,toId)}/>;
           })}
 
           <div style={{display:"flex",gap:12,alignItems:"center",marginTop:8,marginBottom:8}}>
