@@ -5933,7 +5933,7 @@ export default function App() {
           )}
         </>
       )}
+      <SpeedInsights />
     </div>
-    <SpeedInsights />
   );
 }
