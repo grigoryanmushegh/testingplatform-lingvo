@@ -1127,13 +1127,15 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
 
   const scoreQ = (q,a) => {
     if(!a) return false;
+    // Case-insensitive: always lowercase both sides before comparing
     const av = rawText(a).trim().toLowerCase();
     const cv = (q.correct||"").trim().toLowerCase();
     if(!cv) return false;
     if(q.type==="yesno"||q.type==="truefalse") return av===cv;
-    if(TEXT_INPUT_TYPES.has(q.type)||q.type==="fillblank"||q.type==="short_answer")
+    // All text-input types — substring match, case-insensitive
+    if(TEXT_INPUT_TYPES.has(q.type)||q.type==="fillblank"||q.type==="short_answer"||q.type==="short"||q.type==="form_table")
       return av===cv || av.includes(cv) || cv.includes(av);
-    // option-based: full text match first, then letter prefix
+    // Option-based: full text match first, then letter prefix
     if(av===cv) return true;
     const al=av.replace(/[^a-h]/g,"")[0], cl=cv.replace(/[^a-h]/g,"")[0];
     return !!(al&&cl&&al===cl);
@@ -3179,11 +3181,15 @@ function AdminDashboard({ onExit }) {
       let n=0;
       qs.forEach(q=>{
         const raw=ans[q.id];
+        // Case-insensitive: always lowercase both sides before comparing
         const a=(raw&&typeof raw==="object"?raw.text:(raw||"")).trim().toLowerCase();
         const c=(q.correct||"").trim().toLowerCase();
         if(!a||!c) return;
         if(q.type==="yesno"||q.type==="truefalse"){if(a===c)n++;return;}
-        if(TEXT_INPUT_TYPES.has(q.type)||q.type==="short"||q.type==="fillblank"){if(a===c||a.includes(c)||c.includes(a)){n++;return;}}
+        // All text-input types — substring match, case-insensitive
+        if(TEXT_INPUT_TYPES.has(q.type)||q.type==="short"||q.type==="short_answer"||q.type==="fillblank"||q.type==="form_table"){
+          if(a===c||a.includes(c)||c.includes(a)){n++;return;}
+        }
         if(raw&&typeof raw==="object"&&typeof q.correctIdx==="number"){if(raw.idx===q.correctIdx){n++;return;}}
         if(a===c){n++;return;}
         const al=a.replace(/[^a-h]/g,"")[0],cl=c.replace(/[^a-h]/g,"")[0];
