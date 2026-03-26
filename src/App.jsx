@@ -859,7 +859,10 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                     scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
                 } else if(q.type==="form_table"){
                   const grp=[];
-                  while(i<sec.questions.length&&sec.questions[i].type==="form_table"){grp.push(sec.questions[i]);i++;}
+                  grp.push(sec.questions[i]); i++;
+                  while(i<sec.questions.length && sec.questions[i].type==="form_table" && !sec.questions[i].newTable){
+                    grp.push(sec.questions[i]); i++;
+                  }
                   rendered.push(<FormTableGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted}
                     scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
                 } else {
@@ -4701,7 +4704,7 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1}) {
         const fixedChoices  = isTF?["TRUE","FALSE","NOT GIVEN"]:isYN?["YES","NO","NOT GIVEN"]:null;
         const isHeadings    = q.type==="matching_headings";
         const isFormTable       = q.type==="form_table";
-        const isFormTableLeader = isFormTable && (qi===0 || questions[qi-1]?.type!=="form_table");
+        const isFormTableLeader = isFormTable && (qi===0 || questions[qi-1]?.type!=="form_table" || q.newTable===true);
         const isFormTableFollow = isFormTable && !isFormTableLeader;
 
         return (
@@ -4775,9 +4778,20 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1}) {
                     </div>
                   </div>
                 )}
-                {isFormTableFollow&&(
-                  <div style={{fontSize:11,color:C.s500,background:"#F8FAFC",borderRadius:6,padding:"6px 12px",marginBottom:10,border:`1px solid ${C.s200}`}}>
-                    ↳ Continues the same table as the row above
+                {isFormTable&&!isFormTableLeader&&(
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#F8FAFC",borderRadius:6,padding:"8px 12px",marginBottom:10,border:`1px solid ${C.s200}`}}>
+                    <span style={{fontSize:11,color:C.s500}}>↳ Continues the same table as the row above</span>
+                    <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:11,fontWeight:700,color:"#15803D"}}>
+                      <input type="checkbox" checked={!!q.newTable}
+                        onChange={e=>qbUpdateQ(setQuestions,q.id,"newTable",e.target.checked)}
+                        style={{width:14,height:14,cursor:"pointer"}}/>
+                      Start new table here
+                    </label>
+                  </div>
+                )}
+                {isFormTableLeader&&q.newTable&&(
+                  <div style={{fontSize:11,color:"#15803D",background:"#F0FDF4",borderRadius:6,padding:"6px 12px",marginBottom:10,border:"1px solid #86EFAC",fontWeight:600}}>
+                    ✓ This row starts a new table
                   </div>
                 )}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
