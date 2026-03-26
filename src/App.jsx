@@ -72,7 +72,7 @@ let   _flushTmr = null;
 const _flushConfig = async db => {
   if(!supabase) return false;
   try {
-    const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{}};
+    const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||""};
     const {error} = await supabase.from("ielts_store").upsert({id:"main",data:cfg,updated_at:new Date().toISOString()});
     if(error){ console.warn("[DB] config write error:",error.message); return false; }
     return true;
@@ -5261,6 +5261,7 @@ function AddTestManager() {
     } else if(t.type==="Listening") {
       setLTitle(t.title||"");
       setLSections(t.sections?.length ? t.sections : [newSection(0)]);
+      setLAudioUrl(t.audioUrl||"");  // restore global audio URL
     }
     // Scroll to top of builder
     window.scrollTo({top:0,behavior:"smooth"});
