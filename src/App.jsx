@@ -72,7 +72,9 @@ let   _flushTmr = null;
 const _flushConfig = async db => {
   if(!supabase) return false;
   try {
-    const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||""};
+    // Include participants in ielts_store so Safari/other browsers can read them
+    // (participants table SELECT may be blocked by RLS — ielts_store is always readable)
+    const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||"",participants:db.participants||[]};
     const {error} = await supabase.from("ielts_store").upsert({id:"main",data:cfg,updated_at:new Date().toISOString()});
     if(error){ console.warn("[DB] config write error:",error.message); return false; }
     return true;
@@ -121,22 +123,22 @@ const dbSaveNow = async (col,items) => { _db[col]=items; await saveDBNow(_db); }
 export async function reloadDB() {
   if(supabase){
     try{
-      // Load config (admin data)
+      // Load config + participants from ielts_store (always accessible, no RLS issues)
       const {data:cfg} = await supabase.from("ielts_store").select("data").eq("id","main").single();
       const base = cfg?.data || {};
-      // Load participants (student data)
+      // Also try participants table (may be blocked by RLS in some setups — use as supplement)
       const pts = await _loadParticipants();
-      // Merge: participants table rows + any legacy rows still in ielts_store, deduplicate by id
+      // Merge: participants table rows + ielts_store.participants, deduplicate by id
       const merged = [...(pts||[]), ...(base.participants||[])];
       const seen = new Set();
       const deduped = merged.filter(p=>{ const k=p.id||p.email||JSON.stringify(p); if(seen.has(k)) return false; seen.add(k); return true; });
-      // Apply scoreOverrides (written by Recalculate All Bands) on top of participant data
+      // Apply scoreOverrides on top of participant data
       const overrides = base.scoreOverrides||{};
       const withOverrides = deduped.map(p=> overrides[p.id] ? {...p,...overrides[p.id]} : p);
       _db = {..._emptyDB(), ...base, participants: withOverrides};
       localStorage.setItem(DB_KEY,JSON.stringify(_db));
       return;
-    }catch{}
+    }catch(e){ console.warn("[DB] reloadDB error:",e); }
   }
   try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
 }
@@ -3287,8 +3289,10 @@ function AdminDashboard({ onExit }) {
         else uploaded++;
       }catch{ skipped++; }
     }
-    // Also sync config (tests, suites, etc) from local
-    await _flushConfig(_db);
+    // Load ALL participants from participants table into _db, then flush to ielts_store
+    const allPts = await _loadParticipants();
+    if(allPts&&allPts.length) _db.participants = allPts;
+    await _flushConfig(_db); // now writes participants into ielts_store too
     await reloadDB(); setDb({...loadDB()});
     setSyncMsg(`✓ Synced ${uploaded} records to cloud${skipped?` (${skipped} already existed)`:""}.`);
     setSyncing(false);
