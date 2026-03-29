@@ -59,8 +59,9 @@ gs.textContent = `
 document.head.appendChild(gs);
 
 // ── SUPABASE + STORAGE ────────────────────────────────────────────────────────
-const _SURL = import.meta.env.VITE_SUPABASE_URL  || "";
-const _SKEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+// Anon key is safe to expose (public read/write only, no admin privileges)
+const _SURL = import.meta.env.VITE_SUPABASE_URL  || "https://ymbncyrgrgtkejeuxmfb.supabase.co";
+const _SKEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltYm5jeXJncmd0a2VqZXV4bWZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MDA1NDksImV4cCI6MjA4OTQ3NjU0OX0.vCwQBV-WJ2yHJIHLWZcbt37odQnKu5P3JiATk8oHc3g";
 const supabase = _SURL && _SKEY ? createClient(_SURL, _SKEY) : null;
 
 const DB_KEY   = "lv_ielts_v2";
