@@ -721,6 +721,13 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
   const answerText = raw => (raw && typeof raw==="object") ? raw.text : (raw||"");
 
   const scoreAnswer = (q, raw) => {
+    // mcq_multi: student picks one letter; correct = comma-separated set e.g. "A,C"
+    if(q.type==="mcq_multi") {
+      const av = answerText(raw).trim().toUpperCase();
+      if(!av) return false;
+      const correctSet = (q.correct||"").toUpperCase().split(",").map(s=>s.trim()).filter(Boolean);
+      return correctSet.includes(av);
+    }
     const a = answerText(raw).trim().toLowerCase();
     const c = (q.correct||"").trim().toLowerCase();
     if(!a||!c) return false;
@@ -880,7 +887,7 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
             </div>
 
             {(()=>{
-              // Group consecutive 'matching' and 'form_table' questions; render all others individually
+              // Group consecutive 'matching', 'form_table', 'mcq_multi' questions; render others individually
               const rendered=[];
               let i=0;
               while(i<sec.questions.length){
@@ -889,6 +896,11 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                   const grp=[];
                   while(i<sec.questions.length&&sec.questions[i].type==="matching"){grp.push(sec.questions[i]);i++;}
                   rendered.push(<MatchingGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted}
+                    scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
+                } else if(q.type==="mcq_multi"){
+                  const grp=[];
+                  while(i<sec.questions.length&&sec.questions[i].type==="mcq_multi"){grp.push(sec.questions[i]);i++;}
+                  rendered.push(<McqMultiGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted}
                     scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
                 } else if(q.type==="form_table"){
                   const grp=[];
@@ -1028,6 +1040,77 @@ function ListeningQ({ q, answer, submitted, correct, onChange }) {
   );
 }
 
+// ── MCQ MULTI GROUP (Choose TWO — shared options, one answer box per question) ─
+function McqMultiGroup({ questions, answers, submitted, scoreQ, onChange }) {
+  const leader = questions[0];
+  const opts = leader.options || [];
+  const correctLetters = (leader.correct||"").toUpperCase().split(",").map(s=>s.trim()).filter(Boolean);
+
+  return (
+    <div style={{marginBottom:16}}>
+      {leader.instructions&&<TaskInstructionBlock instructions={leader.instructions}/>}
+      {/* Options panel — shown once for the whole group */}
+      <div style={{...cardStyle({padding:"14px 18px",marginBottom:8,background:"#F8FAFC",border:`1.5px solid ${C.s200}`})}}>
+        <div style={{fontSize:10,color:C.s400,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10}}>Options</div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {opts.filter(o=>o.trim()).map((opt,oi)=>{
+            const letter = String.fromCharCode(65+oi);
+            const isCorrect = submitted && correctLetters.includes(letter);
+            return (
+              <div key={oi} style={{display:"flex",gap:10,alignItems:"flex-start",
+                padding:"6px 10px",borderRadius:7,
+                background:isCorrect?"rgba(13,148,136,.08)":"transparent",
+                border:isCorrect?`1px solid ${C.teal}30`:"1px solid transparent",
+              }}>
+                <span style={{fontWeight:800,color:isCorrect?C.teal:C.s600,minWidth:22,fontFamily:"'JetBrains Mono',monospace",fontSize:13}}>{letter}</span>
+                <span style={{fontSize:13,color:C.s900,lineHeight:1.5}}>{opt}</span>
+                {isCorrect&&<span style={{fontSize:11,color:C.teal,fontWeight:700,marginLeft:"auto",flexShrink:0}}>✓ Correct</span>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {/* One answer box per question */}
+      {questions.map(q=>{
+        const ans = (answers[q.id]||"").toUpperCase();
+        const correct = submitted ? scoreQ(q, answers[q.id]) : null;
+        const borderCol = submitted?(correct===true?C.teal:correct===false?C.rose:C.s200):C.s200;
+        return (
+          <div key={q.id} style={{...cardStyle({borderLeft:`4px solid ${borderCol}`,marginBottom:8,padding:"11px 16px",
+            display:"flex",alignItems:"center",gap:12,
+            background:submitted?(correct?`rgba(13,148,136,.04)`:ans?`rgba(225,29,72,.04)`:"#fff"):"#fff",
+          })}}>
+            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:6,padding:"2px 7px",flexShrink:0}}>
+              {q.id}
+            </span>
+            <p style={{color:C.s900,fontSize:13,lineHeight:1.5,flex:1,fontWeight:500,margin:0}}>
+              {q.text||<span style={{color:C.s400,fontStyle:"italic"}}>Write ONE letter (A–{String.fromCharCode(64+opts.filter(o=>o.trim()).length)})</span>}
+            </p>
+            <select value={ans} onChange={e=>!submitted&&onChange(q.id,e.target.value.toUpperCase())} disabled={submitted}
+              style={{...inputStyle,width:80,padding:"6px 8px",cursor:submitted?"default":"pointer",
+                fontFamily:"'JetBrains Mono',monospace",fontWeight:800,fontSize:15,textAlign:"center",
+                borderColor:submitted?(correct?C.teal:ans?C.rose:C.s200):C.brand,
+                background:submitted?(correct?C.tealL:ans?C.roseL:"#fff"):C.brandL,
+                color:submitted?(correct?C.teal:ans?C.rose:C.s600):C.brand,
+              }}>
+              <option value="">—</option>
+              {opts.filter(o=>o.trim()).map((_,oi)=><option key={oi} value={String.fromCharCode(65+oi)}>{String.fromCharCode(65+oi)}</option>)}
+            </select>
+            {submitted&&(
+              <span style={{fontSize:12,fontWeight:700,color:correct?C.teal:C.rose,flexShrink:0,minWidth:50}}>
+                {correct?"✓ Correct":(ans?`✗ ${correctLetters.join(" or ")}`:"—")}
+              </span>
+            )}
+          </div>
+        );
+      })}
+      <div style={{fontSize:11,color:C.s400,padding:"3px 6px",fontStyle:"italic"}}>
+        Pick ONE letter per box. Correct answers: any of {correctLetters.length>0?correctLetters.join(", "):"…"} (in any order).
+      </div>
+    </div>
+  );
+}
+
 // ── FORM TABLE GROUP (visual table for form/table completion) ──────────────────
 function FormTableGroup({ questions, answers, submitted, scoreQ, onChange }) {
   const leader = questions[0];
@@ -1159,6 +1242,13 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
 
   const scoreQ = (q,a) => {
     if(!a) return false;
+    // mcq_multi: student picks one letter; correct = comma-separated set e.g. "A,C"
+    if(q.type==="mcq_multi") {
+      const av = rawText(a).trim().toUpperCase();
+      if(!av) return false;
+      const correctSet = (q.correct||"").toUpperCase().split(",").map(s=>s.trim()).filter(Boolean);
+      return correctSet.includes(av);
+    }
     // Case-insensitive: always lowercase both sides before comparing
     const av = rawText(a).trim().toLowerCase();
     const cv = (q.correct||"").trim().toLowerCase();
@@ -1235,7 +1325,7 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
             <span style={{fontSize:12,color:C.s400,fontWeight:600}}>{answered}/{allQ.length} answered</span>
           </div>
           {(()=>{
-            // Group consecutive same-type matching questions; render all others individually
+            // Group consecutive same-type questions; render all others individually
             const HEADING_TYPES = new Set(["matching_headings"]);
             const GROUP_TYPES   = new Set(["matching_info","matching_features","matching_endings"]);
             const rendered=[];
@@ -1250,6 +1340,10 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
                 const grp=[];
                 while(i<sec.questions.length&&sec.questions[i].type===q.type){grp.push(sec.questions[i]);i++;}
                 rendered.push(<MatchingGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted} scoreQ={scoreQ} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
+              } else if(q.type==="mcq_multi"){
+                const grp=[];
+                while(i<sec.questions.length&&sec.questions[i].type==="mcq_multi"){grp.push(sec.questions[i]);i++;}
+                rendered.push(<McqMultiGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted} scoreQ={scoreQ} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
               } else {
                 rendered.push(<ReadingQ key={q.id} q={q} answer={answers[q.id]} submitted={submitted}
                   correct={submitted?scoreQ(q,answers[q.id]):null} onChange={v=>setAnswers(a=>({...a,[q.id]:v}))}/>);
@@ -3213,6 +3307,14 @@ function AdminDashboard({ onExit }) {
       let n=0;
       qs.forEach(q=>{
         const raw=ans[q.id];
+        // mcq_multi: student picks one letter per box; correct = comma-separated set e.g. "A,C"
+        if(q.type==="mcq_multi"){
+          const av=(raw&&typeof raw==="object"?raw.text:(raw||"")).trim().toUpperCase();
+          if(!av) return;
+          const correctSet=(q.correct||"").toUpperCase().split(",").map(s=>s.trim()).filter(Boolean);
+          if(correctSet.includes(av)) n++;
+          return;
+        }
         // Case-insensitive: always lowercase both sides before comparing
         const a=(raw&&typeof raw==="object"?raw.text:(raw||"")).trim().toLowerCase();
         const c=(q.correct||"").trim().toLowerCase();
@@ -4679,7 +4781,7 @@ function AssignManager() {
 
 // ── QUESTION BUILDER HELPERS (top-level so QuestionBuilder is never remounted) ─
 const READING_Q_TYPES = [
-  ["mcq","Multiple Choice"],["truefalse","True / False / Not Given"],["yesno","Yes / No / Not Given"],
+  ["mcq","Multiple Choice"],["mcq_multi","Multiple Choice (Choose TWO)"],["truefalse","True / False / Not Given"],["yesno","Yes / No / Not Given"],
   ["matching_headings","Matching Headings"],["matching_info","Matching Information"],
   ["matching_features","Matching Features"],["matching_endings","Matching Sentence Endings"],
   ["sentence_completion","Sentence Completion"],["summary_completion","Summary Completion"],
@@ -4688,7 +4790,7 @@ const READING_Q_TYPES = [
   ["short_answer","Short Answer Questions"],
 ];
 const LISTENING_Q_TYPES = [
-  ["mcq","Multiple Choice"],["matching","Matching"],
+  ["mcq","Multiple Choice"],["mcq_multi","Multiple Choice (Choose TWO)"],["matching","Matching"],
   ["truefalse","True / False / Not Given"],["yesno","Yes / No / Not Given"],
   ["diagram_label","Plan / Map / Diagram Labeling"],["form_completion","Form Completion"],
   ["form_table","Form / Table Completion (Visual Table)"],
@@ -4696,11 +4798,11 @@ const LISTENING_Q_TYPES = [
   ["flowchart_completion","Flow-chart Completion"],["summary_completion","Summary Completion"],
   ["sentence_completion","Sentence Completion"],["short_answer","Short Answer Questions"],
 ];
-const OPTION_TYPES = new Set(["mcq","matching","matching_headings","matching_info","matching_features","matching_endings"]);
+const OPTION_TYPES = new Set(["mcq","mcq_multi","matching","matching_headings","matching_info","matching_features","matching_endings"]);
 const TEXT_INPUT_TYPES = new Set(["sentence_completion","summary_completion","note_completion","table_completion","flowchart_completion","diagram_label","short_answer","form_completion","fillblank"]);
 // Types that use a shared options list (group leader owns it; followers inherit)
-const GROUP_MATCH_TYPES = new Set(["matching_headings","matching_info","matching_features","matching_endings","matching"]);
-const defaultOptions = t => t==="matching_headings"?["","","","","","","","",""]:(OPTION_TYPES.has(t)?["","","",""]:[]);
+const GROUP_MATCH_TYPES = new Set(["matching_headings","matching_info","matching_features","matching_endings","matching","mcq_multi"]);
+const defaultOptions = t => t==="matching_headings"?["","","","","","","","",""]:(t==="mcq_multi"?["","","","",""]:OPTION_TYPES.has(t)?["","","",""]: []);
 const qbEmptyQ = (mode="reading") => ({id:Date.now()+Math.random(), type:"mcq", text:"", options:["","","",""], correct:"", hint:"", mode});
 const qbAddQ    = (setter,mode) => setter(qs=>[...qs, qbEmptyQ(mode)]);
 const qbRemoveQ = (setter,id) => setter(qs=>qs.filter(q=>q.id!==id));
@@ -4709,13 +4811,15 @@ const qbUpdateOpt = (setter,id,oi,val) => setter(qs=>qs.map(q=>q.id===id?{...q,o
 const qbAddOpt  = (setter,id) => setter(qs=>qs.map(q=>q.id===id?{...q,options:[...q.options,""]}:q));
 const qbRemOpt  = (setter,id,oi) => setter(qs=>qs.map(q=>q.id===id?{...q,options:q.options.filter((_,i)=>i!==oi)}:q));
 
-// Sync followers: when leader options change, push updated options to all consecutive followers
+// Sync followers: when leader options/correct change, push updated values to all consecutive followers
 const qbSyncFollowers = (setter,leaderIdx) => setter(qs=>{
   const leader=qs[leaderIdx];
   if(!leader||!GROUP_MATCH_TYPES.has(leader.type)) return qs;
   const out=[...qs];
   for(let i=leaderIdx+1;i<out.length&&out[i].type===leader.type;i++){
     out[i]={...out[i],options:[...leader.options]};
+    // For mcq_multi: also sync the correct letters so all questions in the group share same answer key
+    if(leader.type==="mcq_multi") out[i]={...out[i],correct:leader.correct||""};
   }
   return out;
 });
@@ -4727,6 +4831,7 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
     <div>
       {questions.map((q,qi)=>{
         const isGroupMatch  = GROUP_MATCH_TYPES.has(q.type);
+        const isMcqMulti    = q.type==="mcq_multi";
         const isGroupLeader = isGroupMatch && (qi===0 || questions[qi-1].type!==q.type);
         const isGroupFollow = isGroupMatch && !isGroupLeader;
         // Find the actual group leader (first Q in the consecutive same-type chain)
@@ -4737,7 +4842,7 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
         })() : -1;
         const leaderQ       = leaderIdx>=0 ? questions[leaderIdx] : null;
         const sharedOptions = isGroupMatch ? (isGroupLeader ? q.options : (leaderQ?.options||[])) : [];
-        const isOptionType  = OPTION_TYPES.has(q.type) && !isGroupMatch; // only MCQ
+        const isOptionType  = OPTION_TYPES.has(q.type) && !isGroupMatch; // only single-MCQ
         const isTextInput   = TEXT_INPUT_TYPES.has(q.type);
         const isTF  = q.type==="truefalse";
         const isYN  = q.type==="yesno";
@@ -4949,7 +5054,20 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <div>
                 <label style={labelStyle}>Correct Answer</label>
-                {fixedChoices?(
+                {isMcqMulti?(
+                  /* mcq_multi: comma-separated letters e.g. "A,C" — syncs to all questions in group */
+                  <div>
+                    <input value={q.correct||""} disabled={isGroupFollow}
+                      onChange={e=>{
+                        qbUpdateQ(setQuestions,q.id,"correct",e.target.value);
+                        if(isGroupLeader) setTimeout(()=>qbSyncFollowers(setQuestions,qi),0);
+                      }}
+                      placeholder="e.g. A,C" style={{...inputStyle,fontFamily:"'JetBrains Mono',monospace",fontWeight:700,
+                        background:isGroupFollow?"#F8FAFC":"#fff",color:isGroupFollow?C.s400:C.s900}}/>
+                    {isGroupLeader&&<p style={{fontSize:10,color:C.teal,marginTop:3,fontWeight:600}}>Enter all correct letters separated by comma (e.g. A,C). Auto-syncs to all questions in this group.</p>}
+                    {isGroupFollow&&<p style={{fontSize:10,color:C.s400,marginTop:3}}>Inherited from group leader Q{qStart+leaderIdx}</p>}
+                  </div>
+                ):fixedChoices?(
                   <select value={q.correct} onChange={e=>qbUpdateQ(setQuestions,q.id,"correct",e.target.value)}
                     style={{...inputStyle,cursor:"pointer",color:q.correct?"":C.s400,borderColor:q.correct?C.s300:"#f97316"}}>
                     <option value="">— select answer —</option>
@@ -4977,7 +5095,7 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
               <div>
                 <label style={labelStyle}>Hint <span style={{color:C.s400,fontWeight:400}}>(shown to candidate)</span></label>
                 <input value={q.hint||""} onChange={e=>qbUpdateQ(setQuestions,q.id,"hint",e.target.value)}
-                  placeholder={isGroupMatch?(isHeadings?"e.g. Choose ONE heading":"e.g. Choose ONE letter"):"e.g. NO MORE THAN THREE WORDS"}
+                  placeholder={isMcqMulti?"e.g. Choose ONE letter (A–E)":isGroupMatch?(isHeadings?"e.g. Choose ONE heading":"e.g. Choose ONE letter"):"e.g. NO MORE THAN THREE WORDS"}
                   style={inputStyle}/>
               </div>
             </div>
