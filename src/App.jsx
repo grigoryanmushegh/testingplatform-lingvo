@@ -899,7 +899,8 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                     scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
                 } else if(q.type==="mcq_multi"){
                   const grp=[];
-                  while(i<sec.questions.length&&sec.questions[i].type==="mcq_multi"){grp.push(sec.questions[i]);i++;}
+                  grp.push(sec.questions[i]); i++;
+                  while(i<sec.questions.length&&sec.questions[i].type==="mcq_multi"&&!sec.questions[i].newGroup){grp.push(sec.questions[i]);i++;}
                   rendered.push(<McqMultiGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted}
                     scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
                 } else if(q.type==="form_table"){
@@ -974,7 +975,7 @@ function ListeningQ({ q, answer, submitted, correct, onChange }) {
     <div style={{...cardStyle({borderLeft:`4px solid ${borderCol}`,marginBottom:10,padding:16})}}>
       <div style={{display:"flex",gap:10,marginBottom:10}}>
         <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:6,padding:"2px 7px",flexShrink:0,marginTop:2}}>{q.id}</span>
-        <p style={{color:C.s900,fontSize:13,lineHeight:1.5,flex:1,fontWeight:500}}>{q.text}</p>
+        <p style={{color:C.s900,fontSize:13,lineHeight:1.5,flex:1,fontWeight:500,whiteSpace:"pre-line"}}>{q.text}</p>
       </div>
 
       {isOptionType&&(
@@ -1596,7 +1597,7 @@ function ReadingQ({ q, answer, submitted, correct, onChange }) {
     <div style={{...cardStyle({borderLeft:`4px solid ${borderCol}`,marginBottom:10,padding:16})}}>
       <div style={{display:"flex",gap:10,marginBottom:10}}>
         <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:6,padding:"2px 7px",flexShrink:0,marginTop:1}}>Q{q.id}</span>
-        <p style={{color:C.s900,fontSize:13,lineHeight:1.5,flex:1,fontWeight:500}}>{q.text}</p>
+        <p style={{color:C.s900,fontSize:13,lineHeight:1.5,flex:1,fontWeight:500,whiteSpace:"pre-line"}}>{q.text}</p>
       </div>
 
       {/* Options list (MCQ, Matching variants) */}
@@ -3680,6 +3681,9 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
   const [mainTab, setMainTab] = useState("overview");
   const [assignSuiteId, setAssignSuiteId] = useState("");
   const [assignMsg, setAssignMsg] = useState("");
+  const [assignMode, setAssignMode] = useState("suite"); // "suite" | "module"
+  const [assignModuleType, setAssignModuleType] = useState(""); // "reading" | "writing1" | "writing2" | "listening"
+  const [assignModuleTestId, setAssignModuleTestId] = useState("");
   const [expandedAttempt, setExpandedAttempt] = useState(null);
   const [speakingInputs, setSpeakingInputs] = useState({});  // {attemptKey: bandValue}
   const [recheckStates, setRecheckStates]   = useState({});  // {attemptKey: {loading, taskLoading, msg, error}}
@@ -3767,12 +3771,25 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
     .sort((a,b)=>b.assignedAt-a.assignedAt);
   const suiteName = id => (db0.testSuites||[]).find(s=>s.id===id)?.name||"(deleted suite)";
 
-  const doAssign = () => {
-    if(!assignSuiteId) return;
-    const a = {id:genId("ASGN"),email:candidateEmail,suiteId:assignSuiteId,assignedAt:Date.now(),used:false};
+  const doAssign = async () => {
     const db = loadDB();
-    dbSave("assignments",[a,...(db.assignments||[])]);
-    setAssignMsg("✓ Test assigned! They'll receive it on next registration.");
+    if(assignMode==="suite") {
+      if(!assignSuiteId) return;
+      const a = {id:genId("ASGN"),email:candidateEmail,suiteId:assignSuiteId,assignedAt:Date.now(),used:false};
+      await dbSaveNow("assignments",[a,...(db.assignments||[])]);
+    } else {
+      if(!assignModuleType) return;
+      // Build a single-module suite on the fly
+      const modMap = {reading:"readingId",writing1:"writing1Id",writing2:"writing2Id",listening:"listeningId"};
+      const modLabel = {reading:"Reading",writing1:"Writing Task 1",writing2:"Writing Task 2",listening:"Listening"};
+      const suitePatch = {[modMap[assignModuleType]]: assignModuleTestId||null};
+      // Only the chosen module is set; others null = built-in (will be skipped by test flow)
+      const a = {id:genId("ASGN"),email:candidateEmail,singleModule:assignModuleType,
+        suiteId:null, ...suitePatch,
+        label:`${modLabel[assignModuleType]} only`,assignedAt:Date.now(),used:false};
+      await dbSaveNow("assignments",[a,...(db.assignments||[])]);
+    }
+    setAssignMsg("✓ Assignment saved!");
     setTimeout(()=>setAssignMsg(""),3000);
   };
 
@@ -3818,23 +3835,61 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24,alignItems:"start"}}>
           {/* Left: assign new */}
           <div style={{...cardStyle({padding:24})}}>
-            <div style={{fontWeight:800,fontSize:15,color:C.s900,marginBottom:4}}>Assign New Test</div>
-            <p style={{fontSize:12,color:C.s400,marginBottom:18}}>The suite will be queued for <strong>{candidateEmail}</strong> on their next registration.</p>
-            {publishedSuites.length===0?(
-              <div style={{background:C.amberL,borderRadius:8,padding:"12px 16px",fontSize:12,color:C.amber,fontWeight:600}}>
-                ⚠ No published test suites. Publish one in Test Suites first.
-              </div>
+            <div style={{fontWeight:800,fontSize:15,color:C.s900,marginBottom:12}}>Assign to <span style={{color:C.brand}}>{candidateEmail}</span></div>
+
+            {/* Mode toggle */}
+            <div style={{display:"flex",gap:0,background:C.s100,borderRadius:9,padding:3,marginBottom:18}}>
+              {[["suite","📋 Full Test Suite"],["module","🔖 Single Module"]].map(([m,lbl])=>(
+                <button key={m} onClick={()=>setAssignMode(m)} style={{
+                  flex:1,padding:"7px 0",border:"none",borderRadius:7,cursor:"pointer",fontSize:12,fontWeight:assignMode===m?700:500,
+                  background:assignMode===m?"#fff":C.s100,color:assignMode===m?C.brand:C.s400,
+                  boxShadow:assignMode===m?"0 1px 4px rgba(0,0,0,.08)":"none",transition:"all .15s",
+                }}>{lbl}</button>
+              ))}
+            </div>
+
+            {assignMode==="suite"?(
+              publishedSuites.length===0?(
+                <div style={{background:C.amberL,borderRadius:8,padding:"12px 16px",fontSize:12,color:C.amber,fontWeight:600}}>
+                  ⚠ No published test suites. Publish one in Test Suites first.
+                </div>
+              ):(
+                <div>
+                  <label style={labelStyle}>Test Suite</label>
+                  <select value={assignSuiteId} onChange={e=>setAssignSuiteId(e.target.value)} style={{...inputStyle,marginBottom:14,cursor:"pointer"}}>
+                    <option value="">— select suite —</option>
+                    {publishedSuites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                  <button onClick={doAssign} disabled={!assignSuiteId} style={{...btnStyle("primary",!assignSuiteId),width:"100%"}}>Assign Full Test →</button>
+                </div>
+              )
             ):(
               <div>
-                <label style={labelStyle}>Test Suite</label>
-                <select value={assignSuiteId} onChange={e=>setAssignSuiteId(e.target.value)} style={{...inputStyle,marginBottom:14,cursor:"pointer"}}>
-                  <option value="">— select suite —</option>
-                  {publishedSuites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+                <label style={labelStyle}>Module</label>
+                <select value={assignModuleType} onChange={e=>{setAssignModuleType(e.target.value);setAssignModuleTestId("");}} style={{...inputStyle,marginBottom:14,cursor:"pointer"}}>
+                  <option value="">— select module —</option>
+                  <option value="reading">📖 Reading</option>
+                  <option value="writing1">✍️ Writing Task 1</option>
+                  <option value="writing2">✍️ Writing Task 2</option>
+                  <option value="listening">🎧 Listening</option>
                 </select>
-                <button onClick={doAssign} disabled={!assignSuiteId} style={{...btnStyle("primary",!assignSuiteId),width:"100%"}}>Assign Test →</button>
-                {assignMsg&&<div style={{marginTop:10,color:C.teal,fontWeight:700,fontSize:13}}>{assignMsg}</div>}
+                {assignModuleType&&(()=>{
+                  const typeMap={reading:"Reading",writing1:"Writing",writing2:"Writing",listening:"Listening"};
+                  const tests=(loadDB().tests||[]).filter(t=>t.type===typeMap[assignModuleType]);
+                  return tests.length>0?(
+                    <div style={{marginBottom:14}}>
+                      <label style={labelStyle}>Test (optional — leave blank for built-in)</label>
+                      <select value={assignModuleTestId} onChange={e=>setAssignModuleTestId(e.target.value)} style={{...inputStyle,cursor:"pointer"}}>
+                        <option value="">— use built-in —</option>
+                        {tests.map(t=><option key={t.id} value={t.id}>{t.title}</option>)}
+                      </select>
+                    </div>
+                  ):null;
+                })()}
+                <button onClick={doAssign} disabled={!assignModuleType} style={{...btnStyle("primary",!assignModuleType),width:"100%"}}>Assign Module →</button>
               </div>
             )}
+            {assignMsg&&<div style={{marginTop:12,color:C.teal,fontWeight:700,fontSize:13}}>{assignMsg}</div>}
           </div>
 
           {/* Right: assignment history for this candidate */}
@@ -3855,7 +3910,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                     background:a.used?"#fff":C.tealL+"66"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
                       <div style={{flex:1}}>
-                        <div style={{fontWeight:700,fontSize:13,color:C.s900,marginBottom:3}}>{suiteName(a.suiteId)}</div>
+                        <div style={{fontWeight:700,fontSize:13,color:C.s900,marginBottom:3}}>{a.singleModule ? (a.label||`${a.singleModule} only`) : suiteName(a.suiteId)}</div>
                         <div style={{fontSize:11,color:C.s400}}>
                           Assigned {new Date(a.assignedAt).toLocaleDateString("en-GB")} · {new Date(a.assignedAt).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}
                         </div>
@@ -4345,8 +4400,10 @@ function TestSuiteManager() {
     setLId(s.listeningId||""); setEditId(s.id); setCreating(true);
   };
 
-  const saveSuite = () => {
+  const [saving, setSaving] = useState(false);
+  const saveSuite = async () => {
     if(!name.trim()) return;
+    setSaving(true);
     let updated;
     if(editId) {
       updated = suites.map(s=>s.id===editId?{...s,name:name.trim(),readingId:rId||null,writing1Id:w1Id||null,writing2Id:w2Id||null,listeningId:lId||null}:s);
@@ -4354,15 +4411,17 @@ function TestSuiteManager() {
       const ns = {id:genId("SUITE"),name:name.trim(),status:"draft",readingId:rId||null,writing1Id:w1Id||null,writing2Id:w2Id||null,listeningId:lId||null,createdAt:new Date().toLocaleDateString("en-GB")};
       updated = [...suites, ns];
     }
-    setSuites(updated); dbSave("testSuites",updated);
+    setSuites(updated);
+    await dbSaveNow("testSuites",updated);
+    setSaving(false);
     setCreating(false); setEditId(null);
   };
 
-  const togglePublish = id => {
+  const togglePublish = async id => {
     const updated = suites.map(s=>s.id===id?{...s,status:s.status==="published"?"draft":"published"}:s);
-    setSuites(updated); dbSave("testSuites",updated);
+    setSuites(updated); await dbSaveNow("testSuites",updated);
   };
-  const deleteSuite = id => { const u=suites.filter(s=>s.id!==id); setSuites(u); dbSave("testSuites",u); };
+  const deleteSuite = async id => { const u=suites.filter(s=>s.id!==id); setSuites(u); await dbSaveNow("testSuites",u); };
   const secName = id => id ? (allSections.find(s=>s.id===id)?.title||"—") : "Built-in";
   const pubCount = suites.filter(s=>s.status==="published").length;
 
@@ -4405,7 +4464,7 @@ function TestSuiteManager() {
             💡 Sections set to "built-in" use the default practice questions included with the platform.
           </div>
           <div style={{display:"flex",gap:10}}>
-            <button onClick={saveSuite} disabled={!name.trim()} style={btnStyle("primary",!name.trim())}>{editId?"Save Changes":"Save as Draft"}</button>
+            <button onClick={saveSuite} disabled={!name.trim()||saving} style={btnStyle("primary",!name.trim()||saving)}>{saving?"Saving…":editId?"Save Changes":"Save as Draft"}</button>
             <button onClick={()=>setCreating(false)} style={btnStyle("ghost")}>Cancel</button>
           </div>
         </div>
@@ -5821,6 +5880,7 @@ function peekAssignment(email) {
   const db = loadDB();
   const assignment = (db.assignments||[]).find(a=>a.email===email.trim().toLowerCase()&&!a.used);
   if(assignment) {
+    if(assignment.singleModule) return {status:"assigned", suiteName: assignment.label||`${assignment.singleModule} only`};
     const suite = (db.testSuites||[]).find(s=>s.id===assignment.suiteId);
     if(suite) return {status:"assigned", suiteName:suite.name};
   }
@@ -5832,15 +5892,39 @@ function resolveTestSuite(email) {
   const db = loadDB();
   const assignment = (db.assignments||[]).find(a => a.email === email.trim().toLowerCase() && !a.used);
   if(assignment) {
-    const suite = (db.testSuites||[]).find(s=>s.id===assignment.suiteId);
-    if(suite) {
-      dbSave("assignments", db.assignments.map(a=>a.id===assignment.id?{...a,used:true}:a));
-      return buildSuiteData(suite, db);
+    // Mark used immediately
+    dbSaveNow("assignments", db.assignments.map(a=>a.id===assignment.id?{...a,used:true}:a));
+    // Single-module assignment
+    if(assignment.singleModule) {
+      return buildModuleData(assignment, db);
     }
+    const suite = (db.testSuites||[]).find(s=>s.id===assignment.suiteId);
+    if(suite) return buildSuiteData(suite, db);
   }
   const published = (db.testSuites||[]).filter(s=>s.status==="published");
   if(published.length>0) {
     return buildSuiteData(published[Math.floor(Math.random()*published.length)], db);
+  }
+  return null;
+}
+
+// Build a single-module suite object (only one module is active; others null)
+function buildModuleData(assignment, db) {
+  const tests = db.tests||[];
+  const mod = assignment.singleModule; // "reading"|"writing1"|"writing2"|"listening"
+  const base = {id:assignment.id, name:assignment.label||`${mod} only`, singleModule:mod};
+  if(mod==="reading") {
+    return {...base, readingData: assignment.readingId?tests.find(t=>t.id===assignment.readingId)||null:null, writingData:null, listeningData:null};
+  } else if(mod==="listening") {
+    return {...base, readingData:null, writingData:null, listeningData: assignment.listeningId?tests.find(t=>t.id===assignment.listeningId)||null:null};
+  } else if(mod==="writing1"||mod==="writing2") {
+    const task1 = mod==="writing1" && assignment.writing1Id ? tests.find(t=>t.id===assignment.writing1Id)||null : null;
+    const task2 = mod==="writing2" && assignment.writing2Id ? tests.find(t=>t.id===assignment.writing2Id)||null : null;
+    const writingData = {id:"w-module",type:"Writing",title:assignment.label||"Writing",
+      task1Prompt: task1?.task1Prompt||null, task1Image: task1?.task1Image||null,
+      task2Prompt: task2?.task2Prompt||null,
+      singleTask: mod==="writing1"?"task1":"task2"};
+    return {...base, readingData:null, writingData, listeningData:null};
   }
   return null;
 }
@@ -6049,7 +6133,11 @@ export default function App() {
     const suite = resolveTestSuite(candidate.email);
     setActiveSuite(suite);
     enterFullscreen();
-    setStep(2);
+    // Single-module: jump straight to the relevant step
+    const mod = suite?.singleModule;
+    if(mod==="reading")              setStep(3);
+    else if(mod==="writing1"||mod==="writing2") setStep(4);
+    else                             setStep(2); // full suite or listening-only
   };
 
   // Confirm exit exam — exits fullscreen and resets everything
@@ -6137,9 +6225,9 @@ export default function App() {
           {breakNext&&(
             <BreakScreen nextSection={breakNext.label} onContinue={()=>{ setStep(breakNext.step); setBreakNext(null); }}/>
           )}
-          {!breakNext&&step===2&&<ListeningTest testData={activeSuite?.listeningData} candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{setScores(s=>({...s,listening:r}));setBreakNext({label:"Reading Test",step:3});}}/>}
-          {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{setScores(s=>({...s,reading:r})); setBreakNext({label:"Writing Test",step:4});}}/>}
-          {!breakNext&&step===4&&<WritingTest   testData={activeSuite?.writingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={w=>{setScores(s=>({...s,writing:w}));  setStep(5);}}/>}
+          {!breakNext&&step===2&&<ListeningTest testData={activeSuite?.listeningData} candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{setScores(s=>({...s,listening:r})); activeSuite?.singleModule?setStep(7):setBreakNext({label:"Reading Test",step:3});}}/>}
+          {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{setScores(s=>({...s,reading:r}));  activeSuite?.singleModule?setStep(7):setBreakNext({label:"Writing Test",step:4});}}/>}
+          {!breakNext&&step===4&&<WritingTest   testData={activeSuite?.writingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={w=>{setScores(s=>({...s,writing:w}));  activeSuite?.singleModule?setStep(6):setStep(5);}}/>}
           {!breakNext&&step===5&&!speakingExamDone&&(()=>{
             const aiSpeakingOn = !!(loadDB().aiSpeakingEnabled);
             if(!aiSpeakingOn) { setTimeout(()=>setSpeakingExamDone(true),0); return null; }
