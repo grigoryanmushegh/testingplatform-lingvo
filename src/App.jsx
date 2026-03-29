@@ -6078,7 +6078,15 @@ export default function App() {
   // Track whether we are programmatically exiting fullscreen (normal flow) vs user pressing Escape
   const programmaticExitRef = useRef(false);
 
-  useEffect(()=>{ initDB().then(()=>setDbReady(true)); },[]);
+  useEffect(()=>{
+    initDB().then(()=>{
+      setDbReady(true);
+      // Auto-open admin if URL hash is #admin or path ends with /admin
+      if(window.location.hash==="#admin"||window.location.pathname.endsWith("/admin")){
+        setView("admin");
+      }
+    });
+  },[]);
 
   // Exit fullscreen when results screen is shown — must be before any conditional returns
   useEffect(()=>{
@@ -6156,7 +6164,7 @@ export default function App() {
     setSpeakingBand(null);
   };
 
-  if(view==="admin") return <AdminDashboard onExit={()=>setView("home")}/>;
+  if(view==="admin") return <AdminDashboard onExit={()=>{ window.location.hash=""; setView("home"); }}/>;
 
   // Is the exam actively running (steps 2–5 = Listening/Reading/Writing/Speaking, or on break)
   const examActive = view==="test" && (step>=2 && step<=5 || breakNext!==null);
