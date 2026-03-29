@@ -1342,7 +1342,8 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
                 rendered.push(<MatchingGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted} scoreQ={scoreQ} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
               } else if(q.type==="mcq_multi"){
                 const grp=[];
-                while(i<sec.questions.length&&sec.questions[i].type==="mcq_multi"){grp.push(sec.questions[i]);i++;}
+                grp.push(sec.questions[i]); i++;
+                while(i<sec.questions.length&&sec.questions[i].type==="mcq_multi"&&!sec.questions[i].newGroup){grp.push(sec.questions[i]);i++;}
                 rendered.push(<McqMultiGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted} scoreQ={scoreQ} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
               } else {
                 rendered.push(<ReadingQ key={q.id} q={q} answer={answers[q.id]} submitted={submitted}
@@ -4816,7 +4817,7 @@ const qbSyncFollowers = (setter,leaderIdx) => setter(qs=>{
   const leader=qs[leaderIdx];
   if(!leader||!GROUP_MATCH_TYPES.has(leader.type)) return qs;
   const out=[...qs];
-  for(let i=leaderIdx+1;i<out.length&&out[i].type===leader.type;i++){
+  for(let i=leaderIdx+1;i<out.length&&out[i].type===leader.type&&!out[i].newGroup;i++){
     out[i]={...out[i],options:[...leader.options]};
     // For mcq_multi: also sync the correct letters so all questions in the group share same answer key
     if(leader.type==="mcq_multi") out[i]={...out[i],correct:leader.correct||""};
@@ -4832,7 +4833,7 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
       {questions.map((q,qi)=>{
         const isGroupMatch  = GROUP_MATCH_TYPES.has(q.type);
         const isMcqMulti    = q.type==="mcq_multi";
-        const isGroupLeader = isGroupMatch && (qi===0 || questions[qi-1].type!==q.type);
+        const isGroupLeader = isGroupMatch && (qi===0 || questions[qi-1].type!==q.type || q.newGroup===true);
         const isGroupFollow = isGroupMatch && !isGroupLeader;
         // Find the actual group leader (first Q in the consecutive same-type chain)
         const leaderIdx = isGroupFollow ? (()=>{
@@ -5065,7 +5066,17 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
                       placeholder="e.g. A,C" style={{...inputStyle,fontFamily:"'JetBrains Mono',monospace",fontWeight:700,
                         background:isGroupFollow?"#F8FAFC":"#fff",color:isGroupFollow?C.s400:C.s900}}/>
                     {isGroupLeader&&<p style={{fontSize:10,color:C.teal,marginTop:3,fontWeight:600}}>Enter all correct letters separated by comma (e.g. A,C). Auto-syncs to all questions in this group.</p>}
-                    {isGroupFollow&&<p style={{fontSize:10,color:C.s400,marginTop:3}}>Inherited from group leader Q{qStart+leaderIdx}</p>}
+                    {isGroupFollow&&(
+                      <div style={{marginTop:4}}>
+                        <p style={{fontSize:10,color:C.s400,marginBottom:4}}>Inherited from group leader Q{qStart+leaderIdx}</p>
+                        <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:11,fontWeight:700,color:"#15803D"}}>
+                          <input type="checkbox" checked={!!q.newGroup}
+                            onChange={e=>qbUpdateQ(setQuestions,q.id,"newGroup",e.target.checked)}
+                            style={{width:13,height:13,cursor:"pointer"}}/>
+                          Start new question group here (new options list)
+                        </label>
+                      </div>
+                    )}
                   </div>
                 ):fixedChoices?(
                   <select value={q.correct} onChange={e=>qbUpdateQ(setQuestions,q.id,"correct",e.target.value)}
