@@ -690,9 +690,33 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
   const [submitted, setSubmitted]   = useState(false);
   const [secIdx, setSecIdx]         = useState(0);
   const [flagged, setFlagged]       = useState({}); // {qId: true}
+  const [hlColor, setHlColor]       = useState("y");
+  const hlColorRef                  = useRef("y");
+  useEffect(()=>{ hlColorRef.current = hlColor; }, [hlColor]);
+  const questRef                    = useRef(null);
   const audioRef                    = useRef(null);
   const lastTimeRef                 = useRef(0);
   const testActiveRef               = useRef(false);
+
+  const onQMouseUp = () => {
+    const sel = window.getSelection();
+    if(!sel||sel.isCollapsed||sel.rangeCount===0) return;
+    if(sel.toString().trim().length<2) return;
+    const range = sel.getRangeAt(0);
+    if(!questRef.current?.contains(range.commonAncestorContainer)) return;
+    try {
+      const mark = document.createElement("mark");
+      mark.className = `hl-${hlColorRef.current}`;
+      mark.appendChild(range.extractContents());
+      range.insertNode(mark);
+    } catch(e){}
+    sel.removeAllRanges();
+  };
+  const clearQHighlights = () => {
+    questRef.current?.querySelectorAll("mark.hl-y,mark.hl-b").forEach(m=>{
+      const p=m.parentNode; while(m.firstChild) p.insertBefore(m.firstChild,m); p.removeChild(m);
+    });
+  };
 
   // Keep ref in sync so beforeunload always reads current state
   useEffect(()=>{ testActiveRef.current = ready && !submitted; }, [ready, submitted]);
@@ -892,7 +916,19 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
         </div>
 
         {/* Questions panel */}
-        <div style={{overflow:"auto",padding:28,background:C.bg}}>
+        <div style={{display:"flex",flexDirection:"column",overflow:"hidden",background:C.bg}}>
+          {/* Highlight toolbar */}
+          <div style={{background:"#fff",borderBottom:`1px solid ${C.s200}`,padding:"6px 20px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+            <span style={{fontSize:11,color:C.s400,fontWeight:600}}>HIGHLIGHT:</span>
+            {[["y",C.hlY],["b",C.hlB]].map(([val,bg])=>(
+              <button key={val} onClick={()=>setHlColor(val)} title={val==="y"?"Yellow":"Blue"} style={{
+                width:20,height:20,borderRadius:4,cursor:"pointer",background:bg,border:`2px solid ${hlColor===val?C.s900:"transparent"}`,flexShrink:0,
+              }}/>
+            ))}
+            <button onClick={clearQHighlights} style={{...btnStyle("ghost"),fontSize:11,padding:"3px 8px",color:C.rose,fontWeight:700}}>✕ Clear</button>
+            <span style={{fontSize:11,color:C.s400}}>Select text to highlight</span>
+          </div>
+          <div style={{overflow:"auto",padding:28,flex:1}} ref={questRef} onMouseUp={onQMouseUp}>
           <div className="fu">
             <div style={{...cardStyle(),padding:"14px 18px",marginBottom:20,borderLeft:`4px solid ${C.brand}`}}>
               <p style={{fontWeight:700,color:C.s900,marginBottom:4,fontSize:14}}>{sec.label}</p>
@@ -950,7 +986,8 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
               </div>
             </div>
           </div>
-        </div>
+          </div>{/* scrollable area */}
+        </div>{/* flex column */}
       </div>
     </div>
   );
@@ -1201,7 +1238,10 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
   const [highlights, setHl]       = useState([]);
   const [hlColor, setHlColor]     = useState("y");
   const [flagged, setFlagged]     = useState({});
-  const passRef = useRef(null);
+  const passRef  = useRef(null);
+  const questRef = useRef(null);
+  const hlColorRef = useRef("y");
+  useEffect(()=>{ hlColorRef.current = hlColor; }, [hlColor]);
 
   const testActiveRef2 = useRef(false);
   useEffect(()=>{ testActiveRef2.current = ready && !submitted; }, [ready, submitted]);
@@ -1239,12 +1279,28 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
 
   const onMouseUp = () => {
     const sel = window.getSelection();
-    if(!sel||sel.isCollapsed) return;
+    if(!sel||sel.isCollapsed||sel.rangeCount===0) return;
     const text = sel.toString().trim();
-    if(text.length<3) return;
-    if(!passRef.current?.contains(sel.getRangeAt(0).commonAncestorContainer)) return;
-    setHl(h=>[...h,{id:Date.now(),passageKey:sec.passageKey,text,color:hlColor}]);
-    sel.removeAllRanges();
+    if(text.length<2) return;
+    const range = sel.getRangeAt(0);
+    const color = hlColorRef.current;
+    const inPassage   = passRef.current?.contains(range.commonAncestorContainer);
+    const inQuestions = questRef.current?.contains(range.commonAncestorContainer);
+    if(inPassage){
+      // Passage: store in state → re-rendered via regex on next pass
+      setHl(h=>[...h,{id:Date.now(),passageKey:sec.passageKey,text,color}]);
+      sel.removeAllRanges();
+    } else if(inQuestions){
+      // Questions panel: wrap the selected range directly in a <mark> in the DOM
+      try {
+        const mark = document.createElement("mark");
+        mark.className = `hl-${color}`;
+        const frag = range.extractContents();
+        mark.appendChild(frag);
+        range.insertNode(mark);
+      } catch(e){ /* selection spans element boundaries — skip */ }
+      sel.removeAllRanges();
+    }
   };
 
   const renderPassage = (raw, key) => {
@@ -1322,7 +1378,15 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
               border:`2px solid ${hlColor===val?C.s900:"transparent"}`,
             }}/>
           ))}
-          <button onClick={()=>setHl(h=>h.filter(hi=>hi.passageKey!==sec.passageKey))} style={{
+          <button onClick={()=>{
+            setHl(h=>h.filter(hi=>hi.passageKey!==sec.passageKey));
+            // Also remove DOM marks from questions panel
+            questRef.current?.querySelectorAll("mark.hl-y,mark.hl-b").forEach(m=>{
+              const parent=m.parentNode;
+              while(m.firstChild) parent.insertBefore(m.firstChild,m);
+              parent.removeChild(m);
+            });
+          }} style={{
             ...btnStyle("ghost"),fontSize:11,padding:"4px 10px",color:C.rose,fontWeight:700,
           }}>✕ Clear</button>
           <span style={{fontSize:11,color:C.s400}}>Select text to highlight</span>
@@ -1338,7 +1402,7 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
         </div>
 
         {/* Questions */}
-        <div style={{overflow:"auto",padding:28,background:C.bg}}>
+        <div style={{overflow:"auto",padding:28,background:C.bg}} ref={questRef} onMouseUp={onMouseUp}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <h3 style={{fontSize:16,fontWeight:700,color:C.s900}}>{sec.label}</h3>
             <span style={{fontSize:12,color:C.s400,fontWeight:600}}>{answered}/{allQ.length} answered</span>
@@ -1689,6 +1753,30 @@ function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
   const [texts, setTexts]         = useState({0:"",1:""});
   const [submitted, setSubmitted] = useState(false);
   const [dbCustomTasks, setDbCustomTasks] = useState(null);
+  const [hlColor, setHlColor]     = useState("y");
+  const hlColorRef                = useRef("y");
+  useEffect(()=>{ hlColorRef.current = hlColor; }, [hlColor]);
+  const promptRef                 = useRef(null);
+
+  const onPromptMouseUp = () => {
+    const sel = window.getSelection();
+    if(!sel||sel.isCollapsed||sel.rangeCount===0) return;
+    if(sel.toString().trim().length<2) return;
+    const range = sel.getRangeAt(0);
+    if(!promptRef.current?.contains(range.commonAncestorContainer)) return;
+    try {
+      const mark = document.createElement("mark");
+      mark.className = `hl-${hlColorRef.current}`;
+      mark.appendChild(range.extractContents());
+      range.insertNode(mark);
+    } catch(e){}
+    sel.removeAllRanges();
+  };
+  const clearPromptHighlights = () => {
+    promptRef.current?.querySelectorAll("mark.hl-y,mark.hl-b").forEach(m=>{
+      const p=m.parentNode; while(m.firstChild) p.insertBefore(m.firstChild,m); p.removeChild(m);
+    });
+  };
 
   useEffect(()=>{
     if(!testData) {
@@ -1753,7 +1841,19 @@ function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",flex:1,overflow:"hidden"}}>
 
         {/* LEFT — Task prompt */}
-        <div style={{overflow:"auto",padding:28,borderRight:`1px solid ${C.s200}`,background:"#fff",display:"flex",flexDirection:"column",gap:16}}>
+        <div style={{overflow:"auto",padding:28,borderRight:`1px solid ${C.s200}`,background:"#fff",display:"flex",flexDirection:"column",gap:16}}
+          ref={promptRef} onMouseUp={onPromptMouseUp}>
+          {/* Highlight toolbar */}
+          <div style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.s200}`,marginBottom:4}}>
+            <span style={{fontSize:11,color:C.s400,fontWeight:600}}>HIGHLIGHT:</span>
+            {[["y",C.hlY],["b",C.hlB]].map(([val,bg])=>(
+              <button key={val} onClick={()=>setHlColor(val)} style={{
+                width:20,height:20,borderRadius:4,cursor:"pointer",background:bg,border:`2px solid ${hlColor===val?C.s900:"transparent"}`,
+              }}/>
+            ))}
+            <button onClick={clearPromptHighlights} style={{...btnStyle("ghost"),fontSize:11,padding:"3px 8px",color:C.rose,fontWeight:700}}>✕ Clear</button>
+            <span style={{fontSize:11,color:C.s400}}>Select text to highlight</span>
+          </div>
           <div style={{...cardStyle({borderLeft:`4px solid ${C.brand}`,padding:20})}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
               <div style={{...tagStyle(C.brand)}}>{task.task}</div>
