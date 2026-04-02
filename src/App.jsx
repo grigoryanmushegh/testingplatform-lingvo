@@ -6143,8 +6143,9 @@ export default function App() {
   const [breakNext, setBreakNext]     = useState(null); // {label, step} — shown between sections
   const [speakingExamDone, setSpeakingExamDone] = useState(false);
   const [speakingBand, setSpeakingBand] = useState(null);
-  const sessionIdRef = useRef(null); // stable ID for upsert across partial saves
-  const scoresRef    = useRef({});   // mirror of scores state for use inside callbacks
+  const sessionIdRef   = useRef(null); // stable ID for upsert across partial saves
+  const scoresRef      = useRef({});   // mirror of scores state for use inside callbacks
+  const activeSuiteRef = useRef(null); // mirrors activeSuite for use inside async callbacks
 
   // Track whether we are programmatically exiting fullscreen (normal flow) vs user pressing Escape
   const programmaticExitRef = useRef(false);
@@ -6241,8 +6242,6 @@ export default function App() {
       await _flushConfig(_db);
     }
   };
-
-  const activeSuiteRef = useRef(null);
 
   // From lobby "Begin Test" → enter fullscreen ONCE for the whole exam → advance to listening
   const handleStartTest = () => {
