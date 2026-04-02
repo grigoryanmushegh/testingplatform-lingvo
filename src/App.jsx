@@ -3280,6 +3280,8 @@ function AISpeakingManager({ onRefresh }) {
 function AdminDashboard({ onExit }) {
   const [auth, setAuth]       = useState(false);
   const [pw, setPw]           = useState("");
+  const [failCount, setFailCount] = useState(0);
+  const [lockedUntil, setLockedUntil] = useState(0);
   const [tab, setTab]         = useState("overview");
   const [db, setDb]           = useState(loadDB());
   const [selected, setSelected] = useState(null);
@@ -3431,24 +3433,58 @@ function AdminDashboard({ onExit }) {
     setTimeout(()=>setRecalcMsg(""),5000);
   };
 
-  if(!auth) return (
+  const ADMIN_PW = import.meta.env.VITE_ADMIN_PASSWORD || "Lingvo.2025!";
+  const tryLogin = () => {
+    const now = Date.now();
+    if(now < lockedUntil) return;
+    if(pw === ADMIN_PW) {
+      setAuth(true);
+      setFailCount(0);
+    } else {
+      const next = failCount + 1;
+      setFailCount(next);
+      setPw("");
+      if(next >= 5) {
+        setLockedUntil(now + 5 * 60 * 1000); // lock 5 minutes
+        setFailCount(0);
+      }
+    }
+  };
+  if(!auth) {
+    const now = Date.now();
+    const locked = now < lockedUntil;
+    const remaining = locked ? Math.ceil((lockedUntil - now) / 1000) : 0;
+    return (
     <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0F172A,#064E3B)",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{...cardStyle({padding:40,width:380})}}>
         <div style={{textAlign:"center",marginBottom:28}}>
           <Logo/>
           <div style={{marginTop:16,fontSize:13,color:C.s400}}>Admin Portal — Sign In</div>
         </div>
-        <label style={labelStyle}>Password</label>
-        <input type="password" value={pw} onChange={e=>setPw(e.target.value)}
-          onKeyDown={e=>e.key==="Enter"&&(pw==="Lingvo.2025!"?setAuth(true):alert("Incorrect password"))}
-          placeholder="Enter password" style={inputStyle} autoFocus/>
-        <button onClick={()=>pw==="Lingvo.2025!"?setAuth(true):alert("Incorrect password")}
-          style={{...btnStyle("primary"),width:"100%",marginTop:14,padding:"12px",borderRadius:10,fontSize:15}}>
-          Sign In →
-        </button>
+        {locked ? (
+          <div style={{textAlign:"center",padding:"18px",background:C.roseL,borderRadius:10,color:C.rose,fontWeight:700,fontSize:14}}>
+            🔒 Too many failed attempts.<br/>
+            <span style={{fontWeight:400,fontSize:12}}>Try again in {Math.floor(remaining/60)}m {remaining%60}s</span>
+          </div>
+        ) : (
+          <>
+            {failCount>0&&<div style={{marginBottom:10,padding:"10px 14px",background:C.roseL,borderRadius:8,color:C.rose,fontSize:13,fontWeight:600}}>
+              ✗ Incorrect password ({5-failCount} attempt{5-failCount!==1?"s":""} left)
+            </div>}
+            <label style={labelStyle}>Password</label>
+            <input type="password" value={pw} onChange={e=>setPw(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&tryLogin()}
+              placeholder="Enter password" style={inputStyle} autoFocus/>
+            <button onClick={tryLogin}
+              style={{...btnStyle("primary"),width:"100%",marginTop:14,padding:"12px",borderRadius:10,fontSize:15}}>
+              Sign In →
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
+  }
 
   const pts=db.participants||[], bks=db.bookings||[];
   const avg=arr=>arr.length?(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1):"—";
@@ -6155,11 +6191,63 @@ export default function App() {
   useEffect(()=>{
     initDB().then(()=>{
       setDbReady(true);
-      // Auto-open admin if URL hash is #admin or path ends with /admin
+      // Replace initial history entry with current state
+      window.history.replaceState({view:"home",step:0},"");
       if(window.location.hash==="#admin"||window.location.pathname.endsWith("/admin")){
         setView("admin");
       }
     });
+  },[]);
+
+  // Push a history entry whenever view or step changes so the back button works
+  const isFirstRender = useRef(true);
+  useEffect(()=>{
+    if(isFirstRender.current){ isFirstRender.current=false; return; }
+    window.history.pushState({view,step},"");
+  },[view,step]);
+
+  // Handle browser back button
+  useEffect(()=>{
+    const handler = e => {
+      const state = e.state||{view:"home",step:0};
+      // During active exam → intercept back, show exit modal
+      setStep(cur=>{
+        setView(v=>{
+          const examOn = v==="test" && cur>=2 && cur<=5;
+          if(examOn){
+            window.history.pushState({view:v,step:cur},""); // re-push so back still works
+            setExitReason("manual");
+            setExitConfirm(true);
+            return v;
+          }
+          return state.view||"home";
+        });
+        return state.step??0;
+      });
+    };
+    window.addEventListener("popstate", handler);
+    return ()=>window.removeEventListener("popstate", handler);
+  },[]);
+
+  // Block right-click and DevTools shortcuts during exam
+  useEffect(()=>{
+    const examOn = ()=>{ let active=false; setStep(s=>{ active=s>=2&&s<=5; return s; }); return active; };
+    const noCtx = e=>{ if(examOn()) e.preventDefault(); };
+    const noKey = e=>{
+      if(!examOn()) return;
+      // Block F12, Ctrl+Shift+I/J/C/U, Ctrl+U (view source)
+      if(e.key==="F12"||
+         (e.ctrlKey&&e.shiftKey&&["I","J","C","i","j","c"].includes(e.key))||
+         (e.ctrlKey&&["u","U"].includes(e.key))){
+        e.preventDefault();
+      }
+    };
+    document.addEventListener("contextmenu", noCtx);
+    document.addEventListener("keydown", noKey);
+    return ()=>{
+      document.removeEventListener("contextmenu", noCtx);
+      document.removeEventListener("keydown", noKey);
+    };
   },[]);
 
   // Exit fullscreen when results screen is shown — must be before any conditional returns
@@ -6240,8 +6328,6 @@ export default function App() {
     if(supabase) {
       const email=(candidate.email||"").toLowerCase().trim();
       await supabase.from("participants").upsert({id:partial.id, email, type:"attempt", data:partial});
-      // also write into ielts_store for cross-browser visibility
-      await _flushConfig(_db);
     }
   };
 
