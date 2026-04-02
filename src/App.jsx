@@ -73,9 +73,8 @@ let   _flushTmr = null;
 const _flushConfig = async db => {
   if(!supabase) return false;
   try {
-    // Include participants in ielts_store so Safari/other browsers can read them
-    // (participants table SELECT may be blocked by RLS — ielts_store is always readable)
-    const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||"",participants:db.participants||[]};
+    // Config only — no participants (kept in participants table separately for performance)
+    const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||""};
     const {error} = await supabase.from("ielts_store").upsert({id:"main",data:cfg,updated_at:new Date().toISOString()});
     if(error){ console.warn("[DB] config write error:",error.message); return false; }
     return true;
@@ -90,10 +89,11 @@ const _insertParticipant = async item => {
   try {
     const email = ((item.candidate?.email||item.email)||"").toLowerCase().trim();
     const type  = item.listeningBand!=null ? "attempt" : "registration";
-    const {error} = await supabase.from("participants").insert({id:item.id, email, type, data:item});
-    if(error){ console.warn("[DB] participant insert error:",error.message); return false; }
+    // upsert: overwrites same id (partial→complete save uses same sessionId)
+    const {error} = await supabase.from("participants").upsert({id:item.id, email, type, data:item});
+    if(error){ console.warn("[DB] participant upsert error:",error.message); return false; }
     return true;
-  } catch(e){ console.warn("[DB] participant insert failed:",e); return false; }
+  } catch(e){ console.warn("[DB] participant upsert failed:",e); return false; }
 };
 const _loadParticipants = async () => {
   if(!supabase) return null;
@@ -120,20 +120,20 @@ const dbPushNow = async (col,item) => {
 const dbSave    = (col,items) => { _db[col]=items; saveDB(_db); };
 const dbSaveNow = async (col,items) => { _db[col]=items; await saveDBNow(_db); };
 
-// Force re-fetch from both Supabase sources
+// Force re-fetch from Supabase
 export async function reloadDB() {
   if(supabase){
     try{
-      // Load config + participants from ielts_store (always accessible, no RLS issues)
-      const {data:cfg} = await supabase.from("ielts_store").select("data").eq("id","main").single();
+      const [{data:cfg},{data:ptsRows,error:ptsErr}] = await Promise.all([
+        supabase.from("ielts_store").select("data").eq("id","main").single(),
+        supabase.from("participants").select("data").order("created_at",{ascending:false}),
+      ]);
       const base = cfg?.data || {};
-      // Also try participants table (may be blocked by RLS in some setups — use as supplement)
-      const pts = await _loadParticipants();
-      // Merge: participants table rows + ielts_store.participants, deduplicate by id
-      const merged = [...(pts||[]), ...(base.participants||[])];
+      const pts  = (!ptsErr && ptsRows) ? ptsRows.map(r=>r.data) : (_db.participants||[]);
+      // deduplicate by id
       const seen = new Set();
-      const deduped = merged.filter(p=>{ const k=p.id||p.email||JSON.stringify(p); if(seen.has(k)) return false; seen.add(k); return true; });
-      // Apply scoreOverrides on top of participant data
+      const deduped = pts.filter(p=>{ const k=p.id||p.email; if(seen.has(k)) return false; seen.add(k); return true; });
+      // Apply scoreOverrides
       const overrides = base.scoreOverrides||{};
       const withOverrides = deduped.map(p=> overrides[p.id] ? {...p,...overrides[p.id]} : p);
       _db = {..._emptyDB(), ...base, participants: withOverrides};
@@ -147,13 +147,15 @@ export async function reloadDB() {
 export async function initDB() {
   if(supabase){
     try{
-      const {data:cfg} = await supabase.from("ielts_store").select("data").eq("id","main").single();
+      const [{data:cfg},{data:ptsRows}] = await Promise.all([
+        supabase.from("ielts_store").select("data").eq("id","main").single(),
+        supabase.from("participants").select("data").order("created_at",{ascending:false}),
+      ]);
       const base = cfg?.data || {};
-      const pts  = await _loadParticipants();
-      if(cfg?.data || pts){
-        const merged = [...(pts||[]), ...(base.participants||[])];
+      const pts  = ptsRows ? ptsRows.map(r=>r.data) : [];
+      if(cfg?.data || pts.length){
         const seen = new Set();
-        const deduped = merged.filter(p=>{ const k=p.id||p.email||JSON.stringify(p); if(seen.has(k)) return false; seen.add(k); return true; });
+        const deduped = pts.filter(p=>{ const k=p.id||p.email; if(seen.has(k)) return false; seen.add(k); return true; });
         _db = {..._emptyDB(), ...base, participants: deduped};
         localStorage.setItem(DB_KEY,JSON.stringify(_db));
         return;
@@ -3321,7 +3323,7 @@ function AdminDashboard({ onExit }) {
     setDb({...loadDB()});
     setRefreshing(false);
   };
-  useEffect(()=>{const t=setInterval(refresh,15000);return()=>clearInterval(t);},[]);
+  useEffect(()=>{const t=setInterval(refresh,60000);return()=>clearInterval(t);},[]);
 
   const recalculateAllBands = async () => {
     setRecalculating(true);
