@@ -518,10 +518,19 @@ function PreTestScreen({ icon, label, color="#11CD87", onStart }) {
 
 function Countdown({ seconds, onExpire }) {
   const [left, setLeft] = useState(seconds);
+  const [showWarn, setShowWarn] = useState(false);
+  const warnFired = useRef(false);
   useEffect(()=>{
     if(left<=0){onExpire?.();return;}
     const t=setTimeout(()=>setLeft(l=>l-1),1000);
     return()=>clearTimeout(t);
+  },[left]);
+  // Fire 10-min warning toast once
+  useEffect(()=>{
+    if(left<=600 && left>595 && !warnFired.current){
+      warnFired.current=true; setShowWarn(true);
+      setTimeout(()=>setShowWarn(false),6000);
+    }
   },[left]);
   const urgent  = left < 300;   // last 5 min → red
   const warning = left < 600;   // last 10 min → amber
@@ -552,6 +561,20 @@ function Countdown({ seconds, onExpire }) {
           </div>
         )}
       </div>
+      {/* 10-min warning toast — fixed to top center of screen */}
+      {showWarn&&(
+        <div style={{position:"fixed",top:80,left:"50%",transform:"translateX(-50%)",zIndex:9999,
+          background:"#B45309",color:"#fff",borderRadius:12,padding:"14px 28px",
+          boxShadow:"0 8px 32px rgba(0,0,0,.4)",display:"flex",alignItems:"center",gap:12,
+          animation:"slideDown .4s ease",pointerEvents:"none"}}>
+          <span style={{fontSize:22}}>⏰</span>
+          <div>
+            <div style={{fontWeight:800,fontSize:15}}>10 minutes remaining!</div>
+            <div style={{fontSize:12,opacity:.85}}>Please check your answers and complete remaining questions.</div>
+          </div>
+          <style>{`@keyframes slideDown{from{opacity:0;transform:translateX(-50%) translateY(-20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
+        </div>
+      )}
     </div>
   );
 }
@@ -614,47 +637,35 @@ function SectionHeader({ icon, label, title, right, onExit, candidateInfo }) {
 
 // ── REGISTRATION ──────────────────────────────────────────────────────────────
 function Registration({ onNext }) {
-  const [form, setForm] = useState({name:"",email:"",phone:"",dob:"",nationality:"",testType:"Academic"});
+  const [form, setForm] = useState({name:"",email:"",dob:"",testType:"Academic"});
   const [errors, setErrors] = useState({});
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const validate=()=>{
     const e={};
     if(!form.name.trim())e.name="Required";
     if(!/\S+@\S+\.\S+/.test(form.email))e.email="Valid email required";
-    if(!form.phone.trim())e.phone="Required";
     if(!form.dob)e.dob="Required";
     setErrors(e); return !Object.keys(e).length;
   };
   return (
-    <div style={{maxWidth:580,margin:"48px auto",padding:"0 24px"}}>
+    <div style={{maxWidth:520,margin:"48px auto",padding:"0 24px"}}>
       <div style={{textAlign:"center",marginBottom:36}}>
         <div style={{...tagStyle(),marginBottom:12}}>Candidate Registration</div>
         <h2 style={{fontSize:28,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:8}}>Begin Your IELTS Test</h2>
         <p style={{color:C.s400,fontSize:14}}>Please complete your details accurately before starting</p>
       </div>
       <div style={{...cardStyle(),padding:32}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:20}}>
-          {[["Full Name","name","text","John Smith",true],["Email","email","email","you@example.com",true],["Phone","phone","tel","+1 234 567 8900",true],["Date of Birth","dob","date","",true],["Nationality","nationality","text","e.g. Armenian",false]].map(([lbl,key,type,ph,req])=>(
-            <div key={key} style={key==="nationality"?{gridColumn:"1/-1"}:{}}>
+        <div style={{display:"flex",flexDirection:"column",gap:20,marginBottom:24}}>
+          {[["Full Name","name","text","John Smith",true],["Email","email","email","you@example.com",true],["Date of Birth","dob","date","",true]].map(([lbl,key,type,ph,req])=>(
+            <div key={key}>
               <label style={labelStyle}>{lbl}{req&&<span style={{color:C.rose}}> *</span>}</label>
               <input type={type} value={form[key]} onChange={e=>set(key,e.target.value)} placeholder={ph}
                 style={{...inputStyle,borderColor:errors[key]?C.rose:C.s200}}/>
               {errors[key]&&<div style={{color:C.rose,fontSize:11,marginTop:4}}>{errors[key]}</div>}
             </div>
           ))}
-        </div>
-        <div style={{marginBottom:24}}>
-          <label style={labelStyle}>Test Type</label>
-          <div style={{display:"flex",gap:10}}>
-            {["Academic","General Training"].map(t=>(
-              <button key={t} onClick={()=>set("testType",t)} style={{
-                flex:1,padding:"11px",borderRadius:10,fontWeight:700,fontSize:14,cursor:"pointer",transition:"all .15s",
-                background:form.testType===t?C.brand:"#fff",
-                border:`1.5px solid ${form.testType===t?C.brand:C.s200}`,
-                color:form.testType===t?"#fff":C.s600,
-                boxShadow:form.testType===t?"0 2px 8px rgba(17,205,135,.3)":"none",
-              }}>{t}</button>
-            ))}
+          <div style={{background:C.brandL,borderRadius:8,padding:"10px 14px",fontSize:13,color:C.brand,fontWeight:600}}>
+            📋 Test Type: <strong>IELTS Academic</strong>
           </div>
         </div>
         <div style={{background:C.brandL,borderRadius:10,padding:"12px 16px",fontSize:12,color:C.brand,marginBottom:24}}>
@@ -676,6 +687,7 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
   const [answers, setAnswers]       = useState({});
   const [submitted, setSubmitted]   = useState(false);
   const [secIdx, setSecIdx]         = useState(0);
+  const [flagged, setFlagged]       = useState({}); // {qId: true}
   const audioRef                    = useRef(null);
   const lastTimeRef                 = useRef(0);
   const testActiveRef               = useRef(false);
@@ -803,8 +815,7 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                     <audio ref={audioRef} controls autoPlay src={testData.audioUrl} style={{width:"100%",height:36}}
                       controlsList="nodownload noplaybackrate" preload="auto"
                       onTimeUpdate={e=>{ lastTimeRef.current = e.target.currentTime; }}
-                      onSeeking={e=>{ e.target.currentTime = lastTimeRef.current; }}
-                      onPause={e=>{ if(!submitted && phase==="main") e.target.play().catch(()=>{}); }}/>
+                      onSeeking={e=>{ e.target.currentTime = lastTimeRef.current; }}/>
                   </div>
                   <div style={{marginTop:8,padding:"6px 10px",background:"rgba(13,148,136,.12)",border:"1px solid rgba(13,148,136,.25)",borderRadius:7}}>
                     <p style={{color:"rgba(100,255,220,.8)",fontSize:11,lineHeight:1.5}}>🎧 One continuous recording for all sections — do not pause.</p>
@@ -830,7 +841,6 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                       controlsList="nodownload noplaybackrate" preload="auto"
                       onTimeUpdate={e=>{ lastTimeRef.current = e.target.currentTime; }}
                       onSeeking={e=>{ e.target.currentTime = lastTimeRef.current; }}
-                      onPause={e=>{ if(!submitted && phase==="main") e.target.play().catch(()=>{}); }}
                       onEnded={()=>{ if(secIdx < sections.length-1) setTimeout(()=>setSecIdx(i=>i+1), 800); }}/>
                   </div>
                   <div style={{marginTop:8,padding:"6px 10px",background:"rgba(13,148,136,.12)",border:"1px solid rgba(13,148,136,.25)",borderRadius:7}}>
@@ -917,6 +927,7 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                 } else {
                   rendered.push(<ListeningQ key={q.id} q={q} answer={answers[q.id]} submitted={submitted}
                     correct={submitted?scoreAnswer(q,answers[q.id]):null}
+                    flagged={!!flagged[q.id]} onFlag={id=>setFlagged(f=>({...f,[id]:!f[id]}))}
                     onChange={v=>setAnswers(a=>({...a,[q.id]:v}))}/>);
                   i++;
                 }
@@ -954,8 +965,8 @@ function TaskInstructionBlock({ instructions }) {
   );
 }
 
-function ListeningQ({ q, answer, submitted, correct, onChange }) {
-  const borderCol = submitted?(correct===true?C.teal:correct===false?C.rose:C.s200):C.s200;
+function ListeningQ({ q, answer, submitted, correct, onChange, flagged, onFlag }) {
+  const borderCol = submitted?(correct===true?C.teal:correct===false?C.rose:C.s200):flagged?"#F59E0B":C.s200;
   const isOptionType = OPTION_TYPES.has(q.type);
   const isTextInput  = TEXT_INPUT_TYPES.has(q.type)||q.type==="short";
   const isTF = q.type==="truefalse";
@@ -975,10 +986,11 @@ function ListeningQ({ q, answer, submitted, correct, onChange }) {
       </div>
     )}
 
-    <div style={{...cardStyle({borderLeft:`4px solid ${borderCol}`,marginBottom:10,padding:16})}}>
-      <div style={{display:"flex",gap:10,marginBottom:10}}>
+    <div style={{...cardStyle({borderLeft:`4px solid ${borderCol}`,marginBottom:10,padding:16}),background:flagged?"#FFFBEB":""}}>
+      <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start"}}>
         <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:6,padding:"2px 7px",flexShrink:0,marginTop:2}}>{q.id}</span>
         <p style={{color:C.s900,fontSize:13,lineHeight:1.5,flex:1,fontWeight:500,whiteSpace:"pre-line"}}>{q.text}</p>
+        {!submitted&&<button onClick={()=>onFlag?.(q.id)} title="Flag for review" style={{background:"none",border:"none",cursor:"pointer",fontSize:16,opacity:flagged?1:.35,flexShrink:0,padding:0}}>{flagged?"🚩":"⚑"}</button>}
       </div>
 
       {isOptionType&&(
@@ -1186,6 +1198,7 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
   const [score, setScore]         = useState(null);
   const [highlights, setHl]       = useState([]);
   const [hlColor, setHlColor]     = useState("y");
+  const [flagged, setFlagged]     = useState({});
   const passRef = useRef(null);
 
   const testActiveRef2 = useRef(false);
@@ -1351,7 +1364,8 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
                 rendered.push(<McqMultiGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted} scoreQ={scoreQ} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
               } else {
                 rendered.push(<ReadingQ key={q.id} q={q} answer={answers[q.id]} submitted={submitted}
-                  correct={submitted?scoreQ(q,answers[q.id]):null} onChange={v=>setAnswers(a=>({...a,[q.id]:v}))}/>);
+                  correct={submitted?scoreQ(q,answers[q.id]):null} onChange={v=>setAnswers(a=>({...a,[q.id]:v}))}
+                  flagged={!!flagged[q.id]} onFlag={id=>setFlagged(f=>({...f,[id]:!f[id]}))}/>);
                 i++;
               }
             }
@@ -1585,8 +1599,8 @@ function MatchingGroup({ questions, answers, submitted, scoreQ, onChange }) {
   );
 }
 
-function ReadingQ({ q, answer, submitted, correct, onChange }) {
-  const borderCol = submitted?(correct===true?C.teal:correct===false?C.rose:C.s200):C.s200;
+function ReadingQ({ q, answer, submitted, correct, onChange, flagged, onFlag }) {
+  const borderCol = submitted?(correct===true?C.teal:correct===false?C.rose:C.s200):flagged?"#F59E0B":C.s200;
   const isOptionType = OPTION_TYPES.has(q.type);
   const isTextInput  = TEXT_INPUT_TYPES.has(q.type);
   const isTF  = q.type==="truefalse";
@@ -1597,10 +1611,11 @@ function ReadingQ({ q, answer, submitted, correct, onChange }) {
   return (
     <>
     {q.instructions&&<TaskInstructionBlock instructions={q.instructions}/>}
-    <div style={{...cardStyle({borderLeft:`4px solid ${borderCol}`,marginBottom:10,padding:16})}}>
-      <div style={{display:"flex",gap:10,marginBottom:10}}>
+    <div style={{...cardStyle({borderLeft:`4px solid ${borderCol}`,marginBottom:10,padding:16}),background:flagged?"#FFFBEB":""}}>
+      <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start"}}>
         <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:6,padding:"2px 7px",flexShrink:0,marginTop:1}}>Q{q.id}</span>
         <p style={{color:C.s900,fontSize:13,lineHeight:1.5,flex:1,fontWeight:500,whiteSpace:"pre-line"}}>{q.text}</p>
+        {!submitted&&<button onClick={()=>onFlag?.(q.id)} title="Flag for review" style={{background:"none",border:"none",cursor:"pointer",fontSize:16,opacity:flagged?1:.35,flexShrink:0,padding:0}}>{flagged?"🚩":"⚑"}</button>}
       </div>
 
       {/* Options list (MCQ, Matching variants) */}
@@ -2868,7 +2883,7 @@ function exportResultsPDF({ candidateInfo, lBand, rBand, wBand, overall, L, R, W
 }
 
 // ── RESULTS ───────────────────────────────────────────────────────────────────
-function Results({ scores, candidateInfo, booking, suiteName, suiteId }) {
+function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId }) {
   // Null-safe score access in case of partial data
   const L = scores.listening||{correct:0,total:40,answers:{},allQuestions:[]};
   const R = scores.reading  ||{correct:0,total:40,answers:{},allQuestions:[]};
@@ -2883,7 +2898,7 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId }) {
 
   useEffect(()=>{
     dbPushNow("participants",{
-      id:genId("IELTS"), candidate:info,
+      id:sessionId||genId("IELTS"), candidate:info, status:"complete",
       date:new Date().toLocaleDateString("en-GB"),
       timestamp:Date.now(),
       suiteId: suiteId||null,
@@ -3959,9 +3974,19 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                           Assigned {new Date(a.assignedAt).toLocaleDateString("en-GB")} · {new Date(a.assignedAt).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}
                         </div>
                       </div>
-                      <span style={{...tagStyle(a.used?C.s400:C.teal),fontSize:11,flexShrink:0}}>
-                        {a.used?"✓ Used":"⏳ Pending"}
-                      </span>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                        <span style={{...tagStyle(a.used?C.s400:C.teal),fontSize:11}}>
+                          {a.used?"✓ Used":"⏳ Pending"}
+                        </span>
+                        {!a.used&&(
+                          <button onClick={async()=>{
+                            const db=loadDB();
+                            const updated=(db.assignments||[]).filter(x=>x.id!==a.id);
+                            await dbSaveNow("assignments",updated);
+                            setDb({...loadDB()});
+                          }} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:6,padding:"3px 8px",fontSize:11,cursor:"pointer",fontWeight:700}}>✕ Remove</button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -6118,6 +6143,8 @@ export default function App() {
   const [breakNext, setBreakNext]     = useState(null); // {label, step} — shown between sections
   const [speakingExamDone, setSpeakingExamDone] = useState(false);
   const [speakingBand, setSpeakingBand] = useState(null);
+  const sessionIdRef = useRef(null); // stable ID for upsert across partial saves
+  const scoresRef    = useRef({});   // mirror of scores state for use inside callbacks
 
   // Track whether we are programmatically exiting fullscreen (normal flow) vs user pressing Escape
   const programmaticExitRef = useRef(false);
@@ -6180,10 +6207,49 @@ export default function App() {
     setStep(1);
   };
 
+  // Auto-save partial results after each module so admin sees data even if student abandons
+  const autoSave = async (updatedScores) => {
+    if(!candidate) return;
+    scoresRef.current = updatedScores;
+    if(!sessionIdRef.current) sessionIdRef.current = genId("IELTS");
+    const L = updatedScores.listening||null;
+    const R = updatedScores.reading||null;
+    const W = updatedScores.writing||null;
+    const bands = [
+      L ? listeningBand(L.correct, L.total) : null,
+      R ? readingBand(R.correct, R.total) : null,
+      W?.band ?? null,
+    ].filter(b=>b!=null);
+    const partial = {
+      id: sessionIdRef.current,
+      candidate, status:"in_progress",
+      date: new Date().toLocaleDateString("en-GB"),
+      timestamp: Date.now(),
+      suiteId: activeSuiteRef.current?.id||null,
+      ...(L ? {listeningScore:`${L.correct}/${L.total}`, listeningBand:listeningBand(L.correct,L.total), listeningAnswers:L.answers, allListeningQuestions:L.allQuestions||[]} : {}),
+      ...(R ? {readingScore:`${R.correct}/${R.total}`,   readingBand:readingBand(R.correct,R.total),     readingAnswers:R.answers,   allReadingQuestions:R.allQuestions||[]}   : {}),
+      ...(W ? {writingBand:W.band, writingTexts:W.texts, writingFeedback:W.aiFeedback, writingAiDetection:W.aiDetection} : {}),
+      overall: bands.length ? overallBand(bands) : null,
+    };
+    // Upsert to participants table (same id = update existing row)
+    _db.participants = [partial, ...(_db.participants||[]).filter(p=>p.id!==partial.id)];
+    try { localStorage.setItem(DB_KEY, JSON.stringify(_db)); } catch{}
+    if(supabase) {
+      const email=(candidate.email||"").toLowerCase().trim();
+      await supabase.from("participants").upsert({id:partial.id, email, type:"attempt", data:partial});
+      // also write into ielts_store for cross-browser visibility
+      await _flushConfig(_db);
+    }
+  };
+
+  const activeSuiteRef = useRef(null);
+
   // From lobby "Begin Test" → enter fullscreen ONCE for the whole exam → advance to listening
   const handleStartTest = () => {
+    sessionIdRef.current = genId("IELTS"); // fresh session ID for each test run
     const suite = resolveTestSuite(candidate.email);
     setActiveSuite(suite);
+    activeSuiteRef.current = suite;
     enterFullscreen();
     // Single-module: jump straight to the relevant step
     const mod = suite?.singleModule;
@@ -6277,9 +6343,9 @@ export default function App() {
           {breakNext&&(
             <BreakScreen nextSection={breakNext.label} onContinue={()=>{ setStep(breakNext.step); setBreakNext(null); }}/>
           )}
-          {!breakNext&&step===2&&<ListeningTest testData={activeSuite?.listeningData} candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{setScores(s=>({...s,listening:r})); activeSuite?.singleModule?setStep(7):setBreakNext({label:"Reading Test",step:3});}}/>}
-          {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{setScores(s=>({...s,reading:r}));  activeSuite?.singleModule?setStep(7):setBreakNext({label:"Writing Test",step:4});}}/>}
-          {!breakNext&&step===4&&<WritingTest   testData={activeSuite?.writingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={w=>{setScores(s=>({...s,writing:w}));  activeSuite?.singleModule?setStep(6):setStep(5);}}/>}
+          {!breakNext&&step===2&&<ListeningTest testData={activeSuite?.listeningData} candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{const ns={...scoresRef.current,listening:r}; setScores(ns); autoSave(ns); activeSuite?.singleModule?setStep(7):setBreakNext({label:"Reading Test",step:3});}}/>}
+          {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{const ns={...scoresRef.current,reading:r};  setScores(ns); autoSave(ns); activeSuite?.singleModule?setStep(7):setBreakNext({label:"Writing Test",step:4});}}/>}
+          {!breakNext&&step===4&&<WritingTest   testData={activeSuite?.writingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={w=>{const ns={...scoresRef.current,writing:w};  setScores(ns); autoSave(ns); activeSuite?.singleModule?setStep(6):setStep(5);}}/>}
           {!breakNext&&step===5&&!speakingExamDone&&(()=>{
             const aiSpeakingOn = !!(loadDB().aiSpeakingEnabled);
             if(!aiSpeakingOn) { setTimeout(()=>setSpeakingExamDone(true),0); return null; }
@@ -6317,6 +6383,7 @@ export default function App() {
               booking={booking}
               suiteName={activeSuite?.name}
               suiteId={activeSuite?.id}
+              sessionId={sessionIdRef.current}
             />
           )}
         </>
