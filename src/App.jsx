@@ -6181,7 +6181,7 @@ function TestLobby({ candidate, onStart }) {
 
   useEffect(()=>{
     if(info.status==="waiting") {
-      const t = setInterval(recheck, 10000);
+      const t = setInterval(recheck, 20000);
       return ()=>clearInterval(t);
     }
   }, [info.status]);
