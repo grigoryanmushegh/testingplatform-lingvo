@@ -5887,9 +5887,6 @@ function Home({ onStart, onAdmin }) {
   return (
     <div style={{minHeight:"calc(100vh - 64px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px"}}>
       <div style={{maxWidth:680,width:"100%",textAlign:"center"}}>
-        <div style={{display:"flex",justifyContent:"center",marginBottom:28}}>
-          <Logo variant="ielts" size={26}/>
-        </div>
         <h1 style={{fontSize:52,fontWeight:900,color:C.s900,letterSpacing:"-0.04em",lineHeight:1.1,marginBottom:16}}>
           IELTS Academic<br/>
           <span style={{background:`linear-gradient(135deg,${C.lc},#11CD87,${C.lc})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>
