@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useLayoutEffect } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import emailjs from "@emailjs/browser";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { C } from "./lib/constants.js";
 import {
@@ -2515,7 +2516,8 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
 }
 
 // ── PDF EXPORT ────────────────────────────────────────────────────────────────
-function exportResultsPDF({ candidateInfo, lBand, rBand, wBand, overall, L, R, W, suiteName, booking }) {
+// returnBase64=true → returns base64 string instead of triggering download
+function exportResultsPDF({ candidateInfo, lBand, rBand, wBand, overall, L, R, W, suiteName, booking, returnBase64=false }) {
   const doc = new jsPDF({ unit:"pt", format:"a4" });
   const PW = doc.internal.pageSize.getWidth();
   const PH = doc.internal.pageSize.getHeight();
@@ -2849,6 +2851,7 @@ function exportResultsPDF({ candidateInfo, lBand, rBand, wBand, overall, L, R, W
   }
 
   const safeName = (info.name || "Candidate").replace(/[^a-zA-Z0-9]/g,"_");
+  if(returnBase64) return doc.output("datauristring"); // base64 for email attachment
   doc.save(`IELTS_Report_${safeName}_${new Date().toLocaleDateString("en-GB").replace(/\//g,"-")}.pdf`);
 }
 
@@ -3717,6 +3720,132 @@ function ParticipantTable({ profiles, onSelect }) {
   );
 }
 
+// ── SEND RESULTS EMAIL MODAL ──────────────────────────────────────────────────
+const EMAILJS_SERVICE  = import.meta.env.VITE_EMAILJS_SERVICE  || "";
+const EMAILJS_TEMPLATE = import.meta.env.VITE_EMAILJS_TEMPLATE || "";
+const EMAILJS_KEY      = import.meta.env.VITE_EMAILJS_KEY      || "";
+
+function SendResultsModal({ profile, attempt, onClose }) {
+  const [feedback, setFeedback] = useState("");
+  const [sending, setSending]   = useState(false);
+  const [sent, setSent]         = useState(false);
+  const [error, setError]       = useState("");
+
+  const info = profile.candidate || { name: profile.email, email: profile.email };
+  const a    = attempt;
+
+  const handleSend = async () => {
+    if(!EMAILJS_SERVICE || !EMAILJS_TEMPLATE || !EMAILJS_KEY) {
+      setError("EmailJS is not configured. Add VITE_EMAILJS_SERVICE, VITE_EMAILJS_TEMPLATE, VITE_EMAILJS_KEY in Vercel environment variables.");
+      return;
+    }
+    setSending(true); setError("");
+    try {
+      // Generate PDF as base64
+      const parseScore = s => { const [c,t]=(s||"0/0").split("/").map(Number); return {correct:isNaN(c)?0:c,total:isNaN(t)?40:t}; };
+      const L2 = parseScore(a.listeningScore);
+      const R2 = parseScore(a.readingScore);
+      const pdfBase64 = exportResultsPDF({
+        candidateInfo: info,
+        lBand: a.listeningBand, rBand: a.readingBand, wBand: a.writingBand,
+        overall: a.overall,
+        L: L2, R: R2,
+        W: { aiFeedback: a.writingFeedback||{}, aiDetection: a.writingAiDetection||null, texts: a.writingTexts||{} },
+        suiteName: a.suiteName||null,
+        booking: a.speakingBooking||null,
+        returnBase64: true,
+      });
+
+      const bandLine = b => b != null ? `${Number(b).toFixed(1)}` : "—";
+      const params = {
+        to_name:       info.name || "Candidate",
+        to_email:      info.email || profile.email,
+        candidate_name: info.name || "Candidate",
+        test_date:     a.date || new Date().toLocaleDateString("en-GB"),
+        overall_band:  bandLine(a.overall),
+        listening_band: bandLine(a.listeningBand),
+        reading_band:   bandLine(a.readingBand),
+        writing_band:   bandLine(a.writingBand),
+        speaking_band:  bandLine(a.speakingBand),
+        custom_feedback: feedback.trim() || "Keep up the great work and continue practising!",
+        pdf_attachment:  pdfBase64,
+      };
+
+      await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, params, EMAILJS_KEY);
+      setSent(true);
+    } catch(e) {
+      setError("Failed to send email: " + (e?.text || e?.message || "Unknown error"));
+    }
+    setSending(false);
+  };
+
+  const bandLine = (label, val) => val != null
+    ? `${label}: Band ${Number(val).toFixed(1)}`
+    : `${label}: —`;
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.75)",zIndex:9999,
+      display:"flex",alignItems:"center",justifyContent:"center",padding:24,backdropFilter:"blur(4px)"}}>
+      <div style={{background:"#fff",borderRadius:20,padding:36,maxWidth:520,width:"100%",
+        boxShadow:"0 24px 80px rgba(0,0,0,.4)",animation:"fadeUp .2s ease both"}}>
+
+        {sent ? (
+          <div style={{textAlign:"center",padding:"20px 0"}}>
+            <div style={{fontSize:52,marginBottom:16}}>✅</div>
+            <h2 style={{fontSize:20,fontWeight:800,color:C.s900,marginBottom:8}}>Email Sent!</h2>
+            <p style={{color:C.s600,fontSize:14,marginBottom:24}}>
+              Results + PDF sent to <strong>{info.email||profile.email}</strong>
+            </p>
+            <button onClick={onClose} style={{...btnStyle("primary"),padding:"11px 32px",borderRadius:10}}>Close</button>
+          </div>
+        ) : (
+          <>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
+              <div>
+                <h2 style={{fontSize:18,fontWeight:800,color:C.s900,marginBottom:4}}>📧 Send Results</h2>
+                <p style={{fontSize:13,color:C.s400}}>to <strong>{info.email||profile.email}</strong></p>
+              </div>
+              <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",fontSize:20,color:C.s400,padding:4}}>✕</button>
+            </div>
+
+            {/* Score summary */}
+            <div style={{background:C.s100,borderRadius:12,padding:"14px 16px",marginBottom:18,fontSize:13}}>
+              <div style={{fontWeight:700,color:C.s900,marginBottom:8}}>📊 Results to be sent:</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 16px",color:C.s600}}>
+                {[["Overall",a.overall],["Listening",a.listeningBand],["Reading",a.readingBand],["Writing",a.writingBand],["Speaking",a.speakingBand]].map(([lbl,val])=>(
+                  <div key={lbl}><span style={{fontWeight:600,color:C.s800}}>{lbl}:</span> {val!=null?`Band ${Number(val).toFixed(1)}`:"—"}</div>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom feedback */}
+            <label style={{display:"block",fontWeight:700,fontSize:13,color:C.s800,marginBottom:6}}>
+              Custom Feedback <span style={{fontWeight:400,color:C.s400}}>(optional)</span>
+            </label>
+            <textarea
+              value={feedback}
+              onChange={e=>setFeedback(e.target.value)}
+              placeholder="e.g. Great performance on reading! Focus on improving listening accuracy in Section 3. We recommend practicing daily with past IELTS papers…"
+              style={{width:"100%",minHeight:110,padding:"10px 14px",borderRadius:10,border:`1.5px solid ${C.s200}`,
+                fontSize:13,lineHeight:1.7,fontFamily:"inherit",resize:"vertical",marginBottom:16}}
+            />
+
+            {error && <div style={{background:C.roseL,color:C.rose,borderRadius:8,padding:"10px 14px",fontSize:13,fontWeight:600,marginBottom:14}}>{error}</div>}
+
+            <div style={{display:"flex",gap:12}}>
+              <button onClick={onClose} style={{...btnStyle("ghost"),flex:1,padding:"11px",borderRadius:10,border:`1.5px solid ${C.s200}`}}>Cancel</button>
+              <button onClick={handleSend} disabled={sending} style={{...btnStyle("primary",sending),flex:2,padding:"11px",borderRadius:10,
+                background:sending?"#ccc":`linear-gradient(135deg,${C.lc},${C.brand})`,fontSize:14,fontWeight:800}}>
+                {sending ? "Sending…" : "📨 Send Results Email"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
   const [wTab, setWTab]       = useState(0);
   const [mainTab, setMainTab] = useState("overview");
@@ -3726,8 +3855,9 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
   const [assignModuleType, setAssignModuleType] = useState(""); // "reading" | "writing1" | "writing2" | "listening"
   const [assignModuleTestId, setAssignModuleTestId] = useState("");
   const [expandedAttempt, setExpandedAttempt] = useState(null);
-  const [speakingInputs, setSpeakingInputs] = useState({});  // {attemptKey: bandValue}
-  const [recheckStates, setRecheckStates]   = useState({});  // {attemptKey: {loading, taskLoading, msg, error}}
+  const [speakingInputs, setSpeakingInputs] = useState({});
+  const [recheckStates, setRecheckStates]   = useState({});
+  const [showSendModal, setShowSendModal]   = useState(false);
 
   // Re-check a single attempt's writing with AI
   const handleRecheckWriting = async (a) => {
@@ -3838,9 +3968,18 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
 
   return (
     <div>
+      {showSendModal&&allAttempts.length>0&&(
+        <SendResultsModal profile={profile} attempt={latest} onClose={()=>setShowSendModal(false)}/>
+      )}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,gap:12,flexWrap:"wrap"}}>
         <button onClick={onBack} style={{display:"flex",alignItems:"center",gap:8,background:C.brandL,color:C.brand,border:`1.5px solid ${C.brand}30`,borderRadius:9,padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:700}}>← Back to All Candidates</button>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
+          {/* Send Results Email */}
+          {allAttempts.length>0&&(
+            <button onClick={()=>setShowSendModal(true)} style={{display:"flex",alignItems:"center",gap:7,background:`linear-gradient(135deg,${C.lc},${C.brand})`,color:"#fff",border:"none",borderRadius:9,padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:700,boxShadow:`0 2px 10px rgba(0,191,178,.3)`}}>
+              📧 Send Results
+            </button>
+          )}
           {/* Export latest attempt PDF */}
           {allAttempts.length>0&&(
             <button onClick={()=>{
