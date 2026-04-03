@@ -3267,35 +3267,6 @@ function AdminDashboard({ onExit }) {
   const [refreshing, setRefreshing] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
   const [recalcMsg, setRecalcMsg] = useState("");
-  const [syncing, setSyncing] = useState(false);
-  const [syncMsg, setSyncMsg] = useState("");
-
-  // Upload all localStorage participants to Supabase (one-time migration)
-  const syncToCloud = async () => {
-    setSyncing(true); setSyncMsg("");
-    const localData = (() => { try{ return JSON.parse(localStorage.getItem("lv_ielts_v2"))||{}; }catch{ return {}; } })();
-    const localPts = localData.participants||[];
-    if(!localPts.length){ setSyncMsg("No local data to sync."); setSyncing(false); return; }
-    let uploaded=0, skipped=0;
-    for(const item of localPts){
-      try{
-        const email=((item.candidate?.email||item.email)||"").toLowerCase().trim();
-        const type=item.listeningBand!=null?"attempt":"registration";
-        const {error}=await supabase.from("participants").insert({id:item.id||("MIG-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)),email,type,data:item});
-        if(error&&error.code==="23505") skipped++; // duplicate
-        else if(error) skipped++;
-        else uploaded++;
-      }catch{ skipped++; }
-    }
-    // Load ALL participants from participants table into _db, then flush to ielts_store
-    const allPts = await _loadParticipants();
-    if(allPts&&allPts.length) { const cur = loadDB(); cur.participants = allPts; setInternalDb(cur); }
-    await _flushConfig(loadDB()); // now writes participants into ielts_store too
-    await reloadDB(); setDb({...loadDB()});
-    setSyncMsg(`✓ Synced ${uploaded} records to cloud${skipped?` (${skipped} already existed)`:""}.`);
-    setSyncing(false);
-    setTimeout(()=>setSyncMsg(""),8000);
-  };
   const [candidateSearch, setCandidateSearch] = useState("");
   const refresh = async () => {
     setRefreshing(true);
@@ -3520,18 +3491,6 @@ function AdminDashboard({ onExit }) {
                     </div>
                   </div>
                 ))}
-              </div>
-              {/* Sync to Cloud — migrate Chrome localStorage data to Supabase */}
-              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,padding:"14px 20px",background:"#FFF7ED",borderRadius:12,border:"1px solid #FED7AA"}}>
-                <div style={{fontSize:22}}>☁️</div>
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:700,fontSize:13,color:C.s900}}>Sync Local Data to Cloud</div>
-                  <div style={{fontSize:12,color:C.s600}}>Open this on <strong>Chrome</strong> and click Sync — uploads all candidate records from this browser to Supabase so every device sees them.</div>
-                </div>
-                {syncMsg&&<span style={{fontSize:12,color:C.teal,fontWeight:700,maxWidth:200,textAlign:"right"}}>{syncMsg}</span>}
-                <button onClick={syncToCloud} disabled={syncing||!supabase} style={{...btnStyle("teal",syncing||!supabase),padding:"9px 20px",fontSize:13,whiteSpace:"nowrap"}}>
-                  {syncing?"Syncing…":"⬆ Sync to Cloud"}
-                </button>
               </div>
               <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24,padding:"14px 20px",background:C.brandL,borderRadius:12,border:`1px solid ${C.brand}30`}}>
                 <div style={{flex:1}}>
