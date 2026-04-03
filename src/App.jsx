@@ -3715,7 +3715,7 @@ function ParticipantTable({ profiles, onSelect }) {
       <table style={{width:"100%",borderCollapse:"collapse"}}>
         <thead>
           <tr style={{background:C.s900}}>
-            {["Candidate","Tests","Latest Date","Listening","Reading","Writing","Speaking","Overall",""].map(h=>(
+            {["Candidate","Tests","Latest Date","Listening","Reading","Writing","Speaking","Overall",""].map((h,hi)=>(
               <th key={h} style={{padding:"10px 14px",textAlign:"left",color:"rgba(255,255,255,.6)",fontSize:11,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase"}}>{h}</th>
             ))}
           </tr>
@@ -3724,7 +3724,7 @@ function ParticipantTable({ profiles, onSelect }) {
           {profiles.map((profile,i)=>{
             const latest = profile.attempts[0]||{};
             return (
-              <tr key={i} style={{borderTop:`1px solid ${C.s200}`,transition:"background .1s",cursor:"pointer"}}
+              <tr key={i} onClick={()=>onSelect(profile)} style={{borderTop:`1px solid ${C.s200}`,transition:"background .1s",cursor:"pointer"}}
                 onMouseEnter={e=>e.currentTarget.style.background=C.brandL}
                 onMouseLeave={e=>e.currentTarget.style.background=""}>
                 <td style={{padding:"11px 14px"}}>
@@ -3740,9 +3740,7 @@ function ParticipantTable({ profiles, onSelect }) {
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.writingBand} pending={latest.writingBand==null&&latest.writingTexts!=null}/></td>
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.speakingBand}/></td>
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.overall} large/></td>
-                <td style={{padding:"11px 14px"}}>
-                  <button onClick={()=>onSelect(profile)} style={{...btnStyle("secondary"),padding:"5px 12px",fontSize:12}}>Open Profile →</button>
-                </td>
+                <td style={{padding:"11px 14px",color:C.brand,fontWeight:700,fontSize:13}}>→</td>
               </tr>
             );
           })}
