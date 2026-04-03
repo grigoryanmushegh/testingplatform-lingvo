@@ -169,11 +169,11 @@ function TopBar({ onAdmin }) {
   return (
     <div style={{
       background: "#fff",
-      borderBottom: `1px solid ${C.s200}`,
+      borderBottom: `2px solid ${C.lc}`,
       padding: "0 32px",
       display: "flex", alignItems:"center", justifyContent:"space-between",
       height: 64,
-      boxShadow: "0 1px 0 rgba(0,0,0,.05)",
+      boxShadow: `0 2px 12px rgba(0,191,178,.12)`,
       position:"sticky", top:0, zIndex:100,
     }}>
       <Logo />
@@ -200,15 +200,15 @@ function StepNav({ step, steps }) {
             <div key={s} style={{
               display:"flex", alignItems:"center", gap:10,
               padding:"14px 20px", fontSize:12, fontWeight:active?700:500,
-              color: active?C.brand:done?C.teal:C.s400,
-              borderBottom:`2px solid ${active?C.brand:done?C.teal:"transparent"}`,
+              color: active?C.brand:done?C.lc:C.s400,
+              borderBottom:`2px solid ${active?C.brand:done?C.lc:"transparent"}`,
               transition:"all .2s", whiteSpace:"nowrap",
             }}>
               <div style={{
                 width:22, height:22, borderRadius:"50%", fontSize:11, fontWeight:800,
                 display:"flex", alignItems:"center", justifyContent:"center",
-                background: done?C.tealL:active?C.brandL:C.s100,
-                color: done?C.teal:active?C.brand:C.s400,
+                background: done?C.lcL:active?C.brandL:C.s100,
+                color: done?C.lc:active?C.brand:C.s400,
                 flexShrink:0,
               }}>{done?"✓":vi+1}</div>
               {s}
@@ -5885,10 +5885,10 @@ function Home({ onStart, onAdmin }) {
   return (
     <div style={{minHeight:"calc(100vh - 64px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px"}}>
       <div style={{maxWidth:680,width:"100%",textAlign:"center"}}>
-        <div style={{...tagStyle(),marginBottom:20}}>Official IELTS Practice Format</div>
+        <div style={{...tagStyle(),marginBottom:20,background:C.lcL,color:C.lcD,borderColor:C.lc}}>Official IELTS Practice Format</div>
         <h1 style={{fontSize:52,fontWeight:900,color:C.s900,letterSpacing:"-0.04em",lineHeight:1.1,marginBottom:16}}>
           IELTS Academic<br/>
-          <span style={{background:"linear-gradient(135deg,#0BA870,#11CD87,#0BA870)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>
+          <span style={{background:`linear-gradient(135deg,${C.lc},#11CD87,${C.lc})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>
             Practice Test
           </span>
         </h1>
@@ -5906,7 +5906,7 @@ function Home({ onStart, onAdmin }) {
             <div key={title} style={{...cardStyle({padding:20,transition:"all .2s",cursor:"default"})}}>
               <div style={{fontSize:26,marginBottom:10}}>{icon}</div>
               <div style={{fontWeight:800,color:C.s900,marginBottom:4,fontSize:14}}>{title}</div>
-              <div style={{color:C.brand,fontSize:12,fontWeight:700}}>{sub}</div>
+              <div style={{color:C.lc,fontSize:12,fontWeight:700}}>{sub}</div>
             </div>
           ))}
         </div>
@@ -5914,8 +5914,8 @@ function Home({ onStart, onAdmin }) {
         <button onClick={onStart} style={{
           ...btnStyle("primary"),
           padding:"15px 56px",fontSize:16,borderRadius:14,
-          background:"linear-gradient(135deg,#0BA870,#11CD87)",
-          boxShadow:"0 8px 24px rgba(17,205,135,.4)",
+          background:`linear-gradient(135deg,${C.lc},#11CD87)`,
+          boxShadow:`0 8px 24px rgba(0,191,178,.4)`,
         }}>
           Begin Test →
         </button>

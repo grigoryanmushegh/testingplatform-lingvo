@@ -11,6 +11,9 @@ export const C = {
   brandD:   "#0BA870",
   brandL:   "#E6FAF4",
   brandM:   "#3DDBA3",
+  lc:       "#00BFB2",   // LingvoConnect teal (from logo)
+  lcD:      "#009E93",
+  lcL:      "#E0FAF8",
   teal:     "#0D9488",
   tealL:    "#CCFBF1",
   amber:    "#D97706",
