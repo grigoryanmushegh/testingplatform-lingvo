@@ -178,7 +178,7 @@ function TopBar({ onAdmin }) {
       boxShadow: `0 2px 12px rgba(0,191,178,.12)`,
       position:"sticky", top:0, zIndex:100,
     }}>
-      <img src="/logo-ielts.png" alt="LingvoConnect IELTS" style={{height:38,width:"auto",display:"block"}}/>
+      <img src="/logo-ielts.png" alt="LingvoConnect IELTS" style={{height:26,width:"auto",display:"block"}}/>
       <button onClick={onAdmin} style={{
         ...btnStyle("ghost"),
         color: C.s600, fontSize:13, border:`1px solid ${C.s200}`,
