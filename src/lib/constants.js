@@ -49,5 +49,35 @@ gs.textContent = `
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}
   .fu{animation:fadeUp .3s ease both}
   .spin{animation:spin 1s linear infinite}
+
+  /* ── iPad / tablet responsive ──────────────────────────────────────────── */
+  /* Use dvh (dynamic viewport height) so iOS keyboard shrink is respected   */
+  .test-shell { height: calc(100dvh - 130px); display:flex; flex-direction:column; }
+
+  /* Listening: sidebar on top, questions below on small screens */
+  .listen-grid { display:grid; grid-template-columns:300px 1fr; flex:1; overflow:hidden; }
+  @media (max-width: 900px) {
+    .listen-grid { grid-template-columns:1fr; grid-template-rows:auto 1fr; }
+    .listen-sidebar { max-height:220px; overflow-y:auto; }
+  }
+
+  /* Reading / Writing: side-by-side → stacked on iPad portrait */
+  .split-grid { display:grid; grid-template-columns:1fr 1fr; flex:1; overflow:hidden; }
+  @media (max-width: 900px) {
+    .split-grid { grid-template-columns:1fr; grid-template-rows:1fr 1fr; }
+    .split-grid > * { overflow:auto; }
+  }
+
+  /* Prevent body scroll when virtual keyboard opens on iOS */
+  body.exam-active { position:fixed; width:100%; overflow:hidden; }
+
+  /* Tab bar wraps nicely on iPad */
+  .section-tabbar { overflow-x:auto; -webkit-overflow-scrolling:touch; white-space:nowrap; }
+
+  /* Make sure textareas scroll properly on iOS */
+  textarea { -webkit-overflow-scrolling: touch; }
+
+  /* Safe area insets for iPad home-bar */
+  .topbar-safe { padding-bottom: env(safe-area-inset-bottom, 0); }
 `;
 document.head.appendChild(gs);

@@ -220,12 +220,18 @@ function StepNav({ step, steps }) {
   );
 }
 
-// Helper: request / exit fullscreen
+/// Helper: detect iOS/iPadOS (no fullscreen API support)
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
+
+// Helper: request / exit fullscreen (silently skipped on iOS)
 const enterFullscreen = () => {
+  if(isIOS) return; // iOS doesn't support fullscreen API
   const el = document.documentElement;
   (el.requestFullscreen||el.webkitRequestFullscreen||el.mozRequestFullScreen||el.msRequestFullscreen)?.call(el).catch(()=>{});
 };
 const exitFullscreen = () => {
+  if(isIOS) return;
   (document.exitFullscreen||document.webkitExitFullscreen||document.mozCancelFullScreen||document.msExitFullscreen)?.call(document).catch(()=>{});
 };
 
@@ -244,7 +250,7 @@ function BreakScreen({ nextSection, onContinue }) {
   const urgent = left < 60;
   return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-      height:"calc(100vh - 130px)",background:"#0F172A",gap:32,padding:32}}>
+      height:"calc(100dvh - 130px)",background:"#0F172A",gap:32,padding:32}}>
       <div style={{textAlign:"center"}}>
         <div style={{fontSize:13,color:"rgba(255,255,255,.5)",fontWeight:700,letterSpacing:"0.15em",
           textTransform:"uppercase",marginBottom:8}}>Section Complete</div>
@@ -292,7 +298,7 @@ function PreTestScreen({ icon, label, color="#11CD87", onStart }) {
   const pct = left/60;
   return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-      height:"calc(100vh - 130px)",background:"#0F172A",gap:32,padding:32}}>
+      height:"calc(100dvh - 130px)",background:"#0F172A",gap:32,padding:32}}>
       <div style={{fontSize:56}}>{icon}</div>
       <div style={{textAlign:"center"}}>
         <div style={{fontSize:13,color:"rgba(255,255,255,.5)",fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>
@@ -620,7 +626,7 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
 
   // 10-min checking phase overlay
   if(phase==="checking" && !submitted) return (
-    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)"}}>
       <SectionHeader icon="🎧" label="Listening Test" title="Checking Time"
         right={<Countdown seconds={10*60} onExpire={handleSubmit}/>} onExit={onExit} candidateInfo={candidateInfo}/>
       <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
@@ -643,13 +649,13 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
   const sec = sections[secIdx];
 
   return (
-    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)"}}>
       <SectionHeader icon="🎧" label="Listening Test" title="IELTS Academic Listening"
         right={<Countdown seconds={40*60} onExpire={handleMainExpire}/>} onExit={onExit} candidateInfo={candidateInfo}/>
 
-      <div style={{display:"grid",gridTemplateColumns:"300px 1fr",flex:1,overflow:"hidden"}}>
+      <div className="listen-grid">
         {/* Sidebar */}
-        <div style={{background:C.s900,display:"flex",flexDirection:"column",overflow:"auto"}}>
+        <div className="listen-sidebar" style={{background:C.s900,display:"flex",flexDirection:"column",overflow:"auto"}}>
           {/* Audio player */}
           <div style={{padding:20,borderBottom:"1px solid rgba(255,255,255,.08)"}}>
             <div style={{color:"rgba(255,255,255,.4)",fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:10}}>
@@ -754,7 +760,7 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
             <button onClick={clearQHighlights} style={{...btnStyle("ghost"),fontSize:11,padding:"3px 8px",color:C.rose,fontWeight:700}}>✕ Clear</button>
             <span style={{fontSize:11,color:C.s400}}>Select text to highlight</span>
           </div>
-          <div style={{overflow:"auto",padding:28,flex:1}} ref={questRef} onMouseUp={onQMouseUp}>
+          <div style={{overflow:"auto",padding:28,flex:1}} ref={questRef} onMouseUp={onQMouseUp} onTouchEnd={onQMouseUp}>
           <div className="fu">
             <div style={{...cardStyle(),padding:"14px 18px",marginBottom:20,borderLeft:`4px solid ${C.brand}`}}>
               <p style={{fontWeight:700,color:C.s900,marginBottom:4,fontSize:14}}>{sec.label}</p>
@@ -1195,7 +1201,7 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
   const handleContinue = () => onComplete({correct:score.correct, total:score.total, answers, allQuestions:allQ});
 
   return (
-    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)"}}>
       <SectionHeader icon="📖" label="Reading Test" title="IELTS Academic Reading"
         right={<Countdown seconds={60*60} onExpire={handleSubmit}/>} onExit={onExit} candidateInfo={candidateInfo}/>
 
@@ -1235,16 +1241,16 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
         </div>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",flex:1,overflow:"hidden"}}>
+      <div className="split-grid">
         {/* Passage */}
-        <div style={{overflow:"auto",padding:28,borderRight:`1px solid ${C.s200}`,background:"#fff"}} ref={passRef} onMouseUp={onMouseUp}>
+        <div style={{overflow:"auto",padding:28,borderRight:`1px solid ${C.s200}`,background:"#fff"}} ref={passRef} onMouseUp={onMouseUp} onTouchEnd={onMouseUp}>
           <h3 style={{fontSize:18,fontWeight:800,color:C.s900,marginBottom:20,letterSpacing:"-0.02em"}}>{passage.title}</h3>
           <div style={{fontSize:14,lineHeight:1.95,color:C.s800}}
             dangerouslySetInnerHTML={{__html:`<p style='margin-bottom:16px'>${renderPassage(passage.text,sec.passageKey)}</p>`}}/>
         </div>
 
         {/* Questions */}
-        <div style={{overflow:"auto",padding:28,background:C.bg}} ref={questRef} onMouseUp={onMouseUp}>
+        <div style={{overflow:"auto",padding:28,background:C.bg}} ref={questRef} onMouseUp={onMouseUp} onTouchEnd={onMouseUp}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <h3 style={{fontSize:16,fontWeight:700,color:C.s900}}>{sec.label}</h3>
             <span style={{fontSize:12,color:C.s400,fontWeight:600}}>{answered}/{allQ.length} answered</span>
@@ -1674,7 +1680,7 @@ function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
   };
 
   return (
-    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)"}}>
       <SectionHeader icon="✍️" label="Writing Test" title="IELTS Academic Writing"
         right={
           <div style={{display:"flex",gap:10,alignItems:"center"}}>
@@ -1698,11 +1704,11 @@ function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
         } onExit={onExit} candidateInfo={candidateInfo}/>
 
       {/* Split: prompt left, writing right */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",flex:1,overflow:"hidden"}}>
+      <div className="split-grid">
 
         {/* LEFT — Task prompt */}
         <div style={{overflow:"auto",padding:28,borderRight:`1px solid ${C.s200}`,background:"#fff",display:"flex",flexDirection:"column",gap:16}}
-          ref={promptRef} onMouseUp={onPromptMouseUp}>
+          ref={promptRef} onMouseUp={onPromptMouseUp} onTouchEnd={onPromptMouseUp}>
           {/* Highlight toolbar */}
           <div style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.s200}`,marginBottom:4}}>
             <span style={{fontSize:11,color:C.s400,fontWeight:600}}>HIGHLIGHT:</span>
@@ -1776,7 +1782,7 @@ function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
             onChange={e=>!submitted&&setTexts(t=>({...t,[tIdx]:e.target.value}))}
             disabled={submitted}
             placeholder={`Write your ${task.task} response here…`}
-            style={{...inputStyle,flex:1,minHeight:"calc(100vh - 440px)",resize:"none",lineHeight:1.9,fontSize:14,borderRadius:12,
+            style={{...inputStyle,flex:1,minHeight:"calc(100dvh - 440px)",resize:"none",lineHeight:1.9,fontSize:14,borderRadius:12,
               borderColor:meetsMin?C.teal:C.s200,background:submitted?"#F9FAFB":"#fff"}}
           />
 
@@ -6209,7 +6215,9 @@ export default function App() {
   },[step]);
 
   // Detect when user manually exits fullscreen during an active exam → show interrupt modal
+  // Skip entirely on iOS — fullscreen API not supported, would fire immediately
   useEffect(()=>{
+    if(isIOS) return;
     const handler = () => {
       if(document.fullscreenElement) return; // still in fullscreen — ignore
       if(programmaticExitRef.current){ programmaticExitRef.current=false; return; } // we triggered it
