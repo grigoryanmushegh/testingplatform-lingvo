@@ -3246,6 +3246,24 @@ function AdminDashboard({ onExit }) {
   const [db, setDb]           = useState(loadDB());
   const [selected, setSelected] = useState(null);
 
+  // Push history when opening/closing a profile so back button works inside admin
+  const openProfile = profile => {
+    window.history.pushState({adminProfile:true},"");
+    setSelected(profile);
+    setTab("participants");
+  };
+  const closeProfile = () => {
+    setSelected(null);
+  };
+  // Handle back button inside admin
+  useEffect(()=>{
+    const handler = e => {
+      if(selected){ setSelected(null); window.history.pushState({adminProfile:false},""); }
+    };
+    window.addEventListener("popstate", handler);
+    return ()=>window.removeEventListener("popstate", handler);
+  },[selected]);
+
   const [refreshing, setRefreshing] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
   const [recalcMsg, setRecalcMsg] = useState("");
@@ -3474,7 +3492,7 @@ function AdminDashboard({ onExit }) {
         {/* Sidebar */}
         <div style={{width:220,background:"#fff",borderRight:`1px solid ${C.s200}`,paddingTop:16}}>
           {navItems.map(([t,icon,lbl])=>(
-            <button key={t} onClick={()=>{setTab(t);setSelected(null);}} style={{
+            <button key={t} onClick={()=>{setTab(t);closeProfile();}} style={{
               display:"flex",alignItems:"center",gap:12,width:"100%",padding:"11px 20px",
               border:"none",cursor:"pointer",textAlign:"left",fontSize:13,transition:"all .15s",
               background:tab===t?C.brandL:"transparent",
@@ -3530,7 +3548,7 @@ function AdminDashboard({ onExit }) {
                 const byEmail={};
                 pts.forEach(p=>{const cand=p.candidate||p;const key=(cand?.email||p.email||p.id||"").toLowerCase();if(!byEmail[key])byEmail[key]={email:key,candidate:cand,attempts:[]};byEmail[key].attempts.push(p);});
                 const recentProfiles=Object.values(byEmail).map(g=>({...g,attempts:g.attempts.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0))})).sort((a,b)=>(b.attempts[0]?.timestamp||0)-(a.attempts[0]?.timestamp||0)).slice(0,8);
-                return <ParticipantTable profiles={recentProfiles} onSelect={profile=>{setSelected(profile);setTab("participants");}}/>;
+                return <ParticipantTable profiles={recentProfiles} onSelect={openProfile}/>;
               })()}
             </div>
           )}
@@ -3568,13 +3586,13 @@ function AdminDashboard({ onExit }) {
                         const q=candidateSearch.trim().toLowerCase();
                         if(!q) return true;
                         return (p.candidate?.name||"").toLowerCase().includes(q)||(p.email||"").toLowerCase().includes(q);
-                      })} onSelect={setSelected}/>}
+                      })} onSelect={openProfile}/>}
                   </div>
                 );
               })()}
             </div>
           )}
-          {tab==="participants"&&selected&&<ParticipantDetail profile={selected} onBack={()=>setSelected(null)} onUpdateProfile={setSelected}/>}
+          {tab==="participants"&&selected&&<ParticipantDetail profile={selected} onBack={closeProfile} onUpdateProfile={openProfile}/>}
 
           {tab==="bookings"&&(
             <div>
