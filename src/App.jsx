@@ -1,217 +1,22 @@
-import { useState, useEffect, useRef } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { useState, useEffect, useRef, useLayoutEffect } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { SpeedInsights } from "@vercel/speed-insights/react";
+import { C } from "./lib/constants.js";
+import {
+  supabase, setInternalDb,
+  _flushConfig, _loadParticipants,
+  loadDB, saveDB, saveDBNow,
+  dbPush, dbPushNow, dbSave, dbSaveNow,
+  reloadDB, initDB, genId, DB_KEY,
+} from "./lib/db.js";
+import {
+  pad2, fmtTime, countWords,
+  listeningBand, readingBand, overallBand,
+  bandLabel,
+} from "./lib/utils.js";
 
-// ── FONTS: Montserrat everywhere ──────────────────────────────────────────────
-(() => {
-  const l = document.createElement("link");
-  l.href = "https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@400;600&display=swap";
-  l.rel = "stylesheet"; document.head.appendChild(l);
-})();
-
-// ── PALETTE ───────────────────────────────────────────────────────────────────
-const C = {
-  brand:    "#11CD87",   // Lingvo green
-  brandD:   "#0BA870",
-  brandL:   "#E6FAF4",
-  brandM:   "#3DDBA3",
-  teal:     "#0D9488",
-  tealL:    "#CCFBF1",
-  amber:    "#D97706",
-  amberL:   "#FEF3C7",
-  rose:     "#E11D48",
-  roseL:    "#FFE4E6",
-  violet:   "#0BA870",
-  bg:       "#F5FEFA",
-  surface:  "#FFFFFF",
-  s900:     "#0F172A",
-  s800:     "#1E293B",
-  s600:     "#475569",
-  s400:     "#94A3B8",
-  s200:     "#E2E8F0",
-  s100:     "#F1F5F9",
-  hlY:      "#FEF08A",
-  hlB:      "#BAE6FD",
-};
-
-// ── GLOBAL CSS ────────────────────────────────────────────────────────────────
-const gs = document.createElement("style");
-gs.textContent = `
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  html,body{height:100%;background:${C.bg}}
-  body{font-family:'Montserrat',sans-serif;font-size:14px;color:${C.s900};-webkit-font-smoothing:antialiased}
-  ::-webkit-scrollbar{width:5px;height:5px}
-  ::-webkit-scrollbar-track{background:transparent}
-  ::-webkit-scrollbar-thumb{background:${C.s200};border-radius:99px}
-  input,textarea,select,button{font-family:'Montserrat',sans-serif}
-  textarea:focus,input:focus,select:focus{outline:2px solid ${C.brand};outline-offset:0;border-color:${C.brand}!important}
-  .hl-y{background:${C.hlY};border-radius:3px;padding:0 2px}
-  .hl-b{background:${C.hlB};border-radius:3px;padding:0 2px}
-  @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  @keyframes glow{0%,100%{box-shadow:0 0 0 0 rgba(17,205,135,.35)}50%{box-shadow:0 0 0 8px rgba(17,205,135,0)}}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}
-  .fu{animation:fadeUp .3s ease both}
-  .spin{animation:spin 1s linear infinite}
-`;
-document.head.appendChild(gs);
-
-// ── SUPABASE + STORAGE ────────────────────────────────────────────────────────
-// Anon key is safe to expose (public read/write only, no admin privileges)
-const _SURL = import.meta.env.VITE_SUPABASE_URL  || "https://ymbncyrgrgtkejeuxmfb.supabase.co";
-const _SKEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltYm5jeXJncmd0a2VqZXV4bWZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MDA1NDksImV4cCI6MjA4OTQ3NjU0OX0.vCwQBV-WJ2yHJIHLWZcbt37odQnKu5P3JiATk8oHc3g";
-const supabase = _SURL && _SKEY ? createClient(_SURL, _SKEY) : null;
-
-const DB_KEY   = "lv_ielts_v2";
-const _emptyDB = () => ({participants:[],bookings:[],tests:[],testSuites:[],assignments:[],speakingSlots:[]});
-let   _db      = _emptyDB();
-let   _flushTmr = null;
-
-// ── Config store (admin data: tests, suites, assignments, slots) ──────────────
-const _flushConfig = async db => {
-  if(!supabase) return false;
-  try {
-    // Config only — no participants (kept in participants table separately for performance)
-    const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||""};
-    const {error} = await supabase.from("ielts_store").upsert({id:"main",data:cfg,updated_at:new Date().toISOString()});
-    if(error){ console.warn("[DB] config write error:",error.message); return false; }
-    return true;
-  } catch(e){ console.warn("[DB] config write failed:",e); return false; }
-};
-const _flush    = db => { clearTimeout(_flushTmr); _flushTmr = setTimeout(()=>_flushConfig(db),300); };
-const _flushNow = db => _flushConfig(db);
-
-// ── Participants table — one row per student, no concurrent conflicts ──────────
-const _insertParticipant = async item => {
-  if(!supabase) return false;
-  try {
-    const email = ((item.candidate?.email||item.email)||"").toLowerCase().trim();
-    const type  = item.listeningBand!=null ? "attempt" : "registration";
-    // upsert: overwrites same id (partial→complete save uses same sessionId)
-    const {error} = await supabase.from("participants").upsert({id:item.id, email, type, data:item});
-    if(error){ console.warn("[DB] participant upsert error:",error.message); return false; }
-    return true;
-  } catch(e){ console.warn("[DB] participant upsert failed:",e); return false; }
-};
-const _loadParticipants = async () => {
-  if(!supabase) return null;
-  try {
-    const {data,error} = await supabase.from("participants").select("data").order("created_at",{ascending:false});
-    if(error||!data) return null;
-    return data.map(r=>r.data);
-  } catch{ return null; }
-};
-
-const loadDB  = () => _db;
-const saveDB  = db => { _db=db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{} _flush(db); };
-const saveDBNow = async db => { _db=db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{} await _flushNow(db); };
-
-// dbPush for participants → individual row insert (concurrent-safe)
-// dbPush for anything else → full config upsert
-const dbPush    = (col,item) => { _db[col]=[item,...(_db[col]||[])]; saveDB(_db); };
-const dbPushNow = async (col,item) => {
-  _db[col]=[item,...(_db[col]||[])];
-  try{localStorage.setItem(DB_KEY,JSON.stringify(_db));}catch{}
-  if(col==="participants") { await _insertParticipant(item); }
-  else { await _flushNow(_db); }
-};
-const dbSave    = (col,items) => { _db[col]=items; saveDB(_db); };
-const dbSaveNow = async (col,items) => { _db[col]=items; await saveDBNow(_db); };
-
-// Force re-fetch from Supabase
-export async function reloadDB() {
-  if(supabase){
-    try{
-      const [{data:cfg},{data:ptsRows,error:ptsErr}] = await Promise.all([
-        supabase.from("ielts_store").select("data").eq("id","main").single(),
-        supabase.from("participants").select("data").order("created_at",{ascending:false}),
-      ]);
-      const base = cfg?.data || {};
-      const pts  = (!ptsErr && ptsRows) ? ptsRows.map(r=>r.data) : (_db.participants||[]);
-      // deduplicate by id
-      const seen = new Set();
-      const deduped = pts.filter(p=>{ const k=p.id||p.email; if(seen.has(k)) return false; seen.add(k); return true; });
-      // Apply scoreOverrides
-      const overrides = base.scoreOverrides||{};
-      const withOverrides = deduped.map(p=> overrides[p.id] ? {...p,...overrides[p.id]} : p);
-      _db = {..._emptyDB(), ...base, participants: withOverrides};
-      localStorage.setItem(DB_KEY,JSON.stringify(_db));
-      return;
-    }catch(e){ console.warn("[DB] reloadDB error:",e); }
-  }
-  try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
-}
-
-export async function initDB() {
-  if(supabase){
-    try{
-      const [{data:cfg},{data:ptsRows}] = await Promise.all([
-        supabase.from("ielts_store").select("data").eq("id","main").single(),
-        supabase.from("participants").select("data").order("created_at",{ascending:false}),
-      ]);
-      const base = cfg?.data || {};
-      const pts  = ptsRows ? ptsRows.map(r=>r.data) : [];
-      if(cfg?.data || pts.length){
-        const seen = new Set();
-        const deduped = pts.filter(p=>{ const k=p.id||p.email; if(seen.has(k)) return false; seen.add(k); return true; });
-        _db = {..._emptyDB(), ...base, participants: deduped};
-        localStorage.setItem(DB_KEY,JSON.stringify(_db));
-        return;
-      }
-      // First run — seed from localStorage
-      try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
-      await _flushConfig(_db);
-    }catch{
-      try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
-    }
-  } else {
-    try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
-  }
-}
-const genId   = p => `${p}-${Date.now().toString(36).toUpperCase()}`;
-
-// ── HELPERS ───────────────────────────────────────────────────────────────────
-const pad2    = n => String(n).padStart(2,"0");
-const fmtTime = s => `${pad2(Math.floor(s/60))}:${pad2(s%60)}`;
-// countWords: only count real words (3+ chars, has letters) — avoids single symbols triggering AI
-const countWords = t => t.trim().split(/\s+/).filter(w => w.length >= 3 && /[a-zA-Z]/.test(w)).length;
-
-// ── OFFICIAL IELTS BAND SCORE TABLES ─────────────────────────────────────────
-// Scores are scaled to /40 equivalent before lookup (supports custom-length tests)
-// Source: official IELTS score conversion charts (Cambridge / British Council)
-
-// ── LISTENING: Official IELTS band conversion ─────────────────────────────────
-// 39-40=9.0 | 37-38=8.5 | 35-36=8.0 | 32-34=7.5 | 30-31=7.0 | 26-29=6.5
-// 23-25=6.0 | 18-22=5.5 | 16-17=5.0 | 13-15=4.5 | 10-12=4.0 | 8-9=3.5 …
-function listeningBand(c, t) {
-  const s = t > 0 ? Math.round(c / t * 40) : 0;
-  if(s>=39)return 9.0; if(s>=37)return 8.5; if(s>=35)return 8.0;
-  if(s>=32)return 7.5; if(s>=30)return 7.0; if(s>=26)return 6.5;
-  if(s>=23)return 6.0; if(s>=18)return 5.5; if(s>=16)return 5.0;
-  if(s>=13)return 4.5; if(s>=10)return 4.0; if(s>=8) return 3.5;
-  if(s>=6) return 3.0; if(s>=4) return 2.5; if(s>=2) return 2.0;
-  if(s>=1) return 1.5; return 0.0;
-}
-
-// ── READING (Academic): Official IELTS band conversion ───────────────────────
-// 39-40=9.0 | 37-38=8.5 | 35-36=8.0 | 33-34=7.5 | 30-32=7.0 | 27-29=6.5
-// 23-26=6.0 | 19-22=5.5 | 15-18=5.0 | 13-14=4.5 | 10-12=4.0 | 8-9=3.5 …
-function readingBand(c, t) {
-  const s = t > 0 ? Math.round(c / t * 40) : 0;
-  if(s>=39)return 9.0; if(s>=37)return 8.5; if(s>=35)return 8.0;
-  if(s>=33)return 7.5; if(s>=30)return 7.0; if(s>=27)return 6.5;
-  if(s>=23)return 6.0; if(s>=19)return 5.5; if(s>=15)return 5.0;
-  if(s>=13)return 4.5; if(s>=10)return 4.0; if(s>=8) return 3.5;
-  if(s>=6) return 3.0; if(s>=4) return 2.5; if(s>=2) return 2.0;
-  if(s>=1) return 1.5; return 0.0;
-}
-
-// Overall band: average of all four skills, rounded to nearest 0.5
-const overallBand = bs => Math.round(bs.reduce((a,b)=>a+b,0)/bs.length*2)/2;
-
-const bandLabel = b => b>=8.5?"Expert User":b>=7.5?"Very Good User":b>=6.5?"Competent User":b>=5.5?"Modest User":b>=4?"Limited User":"Extremely Limited";
+// bandColor and bandBg reference the C palette object directly
 const bandColor = b => b>=7.5?C.teal:b>=6?C.brand:b>=5?C.amber:C.rose;
 const bandBg    = b => b>=7.5?C.tealL:b>=6?C.brandL:b>=5?C.amberL:C.roseL;
 
@@ -691,6 +496,7 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
   const [secIdx, setSecIdx]         = useState(0);
   const [flagged, setFlagged]       = useState({}); // {qId: true}
   const [hlColor, setHlColor]       = useState("y");
+  const [qHighlights, setQHighlights] = useState([]);
   const hlColorRef                  = useRef("y");
   useEffect(()=>{ hlColorRef.current = hlColor; }, [hlColor]);
   const questRef                    = useRef(null);
@@ -701,22 +507,42 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
   const onQMouseUp = () => {
     const sel = window.getSelection();
     if(!sel||sel.isCollapsed||sel.rangeCount===0) return;
-    if(sel.toString().trim().length<2) return;
+    const text = sel.toString().trim();
+    if(text.length<2) return;
     const range = sel.getRangeAt(0);
     if(!questRef.current?.contains(range.commonAncestorContainer)) return;
-    try {
-      const mark = document.createElement("mark");
-      mark.className = `hl-${hlColorRef.current}`;
-      mark.appendChild(range.extractContents());
-      range.insertNode(mark);
-    } catch(e){}
+    setQHighlights(h=>[...h, {id:Date.now(), text, color:hlColorRef.current}]);
     sel.removeAllRanges();
   };
-  const clearQHighlights = () => {
-    questRef.current?.querySelectorAll("mark.hl-y,mark.hl-b").forEach(m=>{
-      const p=m.parentNode; while(m.firstChild) p.insertBefore(m.firstChild,m); p.removeChild(m);
+  const clearQHighlights = () => setQHighlights([]);
+
+  useLayoutEffect(()=>{
+    if(!questRef.current) return;
+    // Remove existing marks
+    questRef.current.querySelectorAll("mark.hl-y,mark.hl-b").forEach(m=>{
+      const p=m.parentNode;
+      if(!p) return;
+      while(m.firstChild) p.insertBefore(m.firstChild,m);
+      p.removeChild(m);
     });
-  };
+    // Re-apply from state
+    qHighlights.forEach(h=>{
+      const walker = document.createTreeWalker(questRef.current, NodeFilter.SHOW_TEXT, null);
+      let node;
+      while((node = walker.nextNode())){
+        const idx = node.textContent.indexOf(h.text);
+        if(idx === -1) continue;
+        if(node.parentElement.closest("mark")) continue;
+        const range = document.createRange();
+        range.setStart(node, idx);
+        range.setEnd(node, idx + h.text.length);
+        const mark = document.createElement("mark");
+        mark.className = `hl-${h.color}`;
+        try { range.surroundContents(mark); } catch(e){}
+        break;
+      }
+    });
+  }, [qHighlights]);
 
   // Keep ref in sync so beforeunload always reads current state
   useEffect(()=>{ testActiveRef.current = ready && !submitted; }, [ready, submitted]);
@@ -1238,6 +1064,7 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
   const [highlights, setHl]       = useState([]);
   const [hlColor, setHlColor]     = useState("y");
   const [flagged, setFlagged]     = useState({});
+  const [qHighlights, setQHighlights] = useState([]);
   const passRef  = useRef(null);
   const questRef = useRef(null);
   const hlColorRef = useRef("y");
@@ -1250,6 +1077,32 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
+
+  useLayoutEffect(()=>{
+    if(!questRef.current) return;
+    questRef.current.querySelectorAll("mark.hl-y,mark.hl-b").forEach(m=>{
+      const p=m.parentNode;
+      if(!p) return;
+      while(m.firstChild) p.insertBefore(m.firstChild,m);
+      p.removeChild(m);
+    });
+    qHighlights.forEach(h=>{
+      const walker = document.createTreeWalker(questRef.current, NodeFilter.SHOW_TEXT, null);
+      let node;
+      while((node = walker.nextNode())){
+        const idx = node.textContent.indexOf(h.text);
+        if(idx === -1) continue;
+        if(node.parentElement.closest("mark")) continue;
+        const range = document.createRange();
+        range.setStart(node, idx);
+        range.setEnd(node, idx + h.text.length);
+        const mark = document.createElement("mark");
+        mark.className = `hl-${h.color}`;
+        try { range.surroundContents(mark); } catch(e){}
+        break;
+      }
+    });
+  }, [qHighlights]);
 
   if(!ready) return <PreTestScreen icon="📖" label="Reading Test" onStart={()=>setReady(true)}/>;
   // Build sections & passage map — supports new multi-passage format, old single-passage, or built-in
@@ -1291,14 +1144,8 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
       setHl(h=>[...h,{id:Date.now(),passageKey:sec.passageKey,text,color}]);
       sel.removeAllRanges();
     } else if(inQuestions){
-      // Questions panel: wrap the selected range directly in a <mark> in the DOM
-      try {
-        const mark = document.createElement("mark");
-        mark.className = `hl-${color}`;
-        const frag = range.extractContents();
-        mark.appendChild(frag);
-        range.insertNode(mark);
-      } catch(e){ /* selection spans element boundaries — skip */ }
+      // Questions panel: store in state → re-applied via useLayoutEffect
+      setQHighlights(h=>[...h, {id:Date.now(), text, color}]);
       sel.removeAllRanges();
     }
   };
@@ -1380,12 +1227,7 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
           ))}
           <button onClick={()=>{
             setHl(h=>h.filter(hi=>hi.passageKey!==sec.passageKey));
-            // Also remove DOM marks from questions panel
-            questRef.current?.querySelectorAll("mark.hl-y,mark.hl-b").forEach(m=>{
-              const parent=m.parentNode;
-              while(m.firstChild) parent.insertBefore(m.firstChild,m);
-              parent.removeChild(m);
-            });
+            setQHighlights([]);
           }} style={{
             ...btnStyle("ghost"),fontSize:11,padding:"4px 10px",color:C.rose,fontWeight:700,
           }}>✕ Clear</button>
@@ -1754,6 +1596,7 @@ function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
   const [submitted, setSubmitted] = useState(false);
   const [dbCustomTasks, setDbCustomTasks] = useState(null);
   const [hlColor, setHlColor]     = useState("y");
+  const [promptHighlights, setPromptHighlights] = useState([]);
   const hlColorRef                = useRef("y");
   useEffect(()=>{ hlColorRef.current = hlColor; }, [hlColor]);
   const promptRef                 = useRef(null);
@@ -1761,22 +1604,39 @@ function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
   const onPromptMouseUp = () => {
     const sel = window.getSelection();
     if(!sel||sel.isCollapsed||sel.rangeCount===0) return;
-    if(sel.toString().trim().length<2) return;
+    const text = sel.toString().trim();
+    if(text.length<2) return;
     const range = sel.getRangeAt(0);
     if(!promptRef.current?.contains(range.commonAncestorContainer)) return;
-    try {
-      const mark = document.createElement("mark");
-      mark.className = `hl-${hlColorRef.current}`;
-      mark.appendChild(range.extractContents());
-      range.insertNode(mark);
-    } catch(e){}
+    setPromptHighlights(h=>[...h, {id:Date.now(), text, color:hlColorRef.current}]);
     sel.removeAllRanges();
   };
-  const clearPromptHighlights = () => {
-    promptRef.current?.querySelectorAll("mark.hl-y,mark.hl-b").forEach(m=>{
-      const p=m.parentNode; while(m.firstChild) p.insertBefore(m.firstChild,m); p.removeChild(m);
+  const clearPromptHighlights = () => setPromptHighlights([]);
+
+  useLayoutEffect(()=>{
+    const ref = promptRef.current;
+    if(!ref) return;
+    ref.querySelectorAll("mark.hl-y,mark.hl-b").forEach(m=>{
+      const p=m.parentNode; if(!p) return;
+      while(m.firstChild) p.insertBefore(m.firstChild,m);
+      p.removeChild(m);
     });
-  };
+    promptHighlights.forEach(h=>{
+      const walker=document.createTreeWalker(ref,NodeFilter.SHOW_TEXT,null);
+      let node;
+      while((node=walker.nextNode())){
+        const idx=node.textContent.indexOf(h.text);
+        if(idx===-1) continue;
+        if(node.parentElement.closest("mark")) continue;
+        const range=document.createRange();
+        range.setStart(node,idx); range.setEnd(node,idx+h.text.length);
+        const mark=document.createElement("mark");
+        mark.className=`hl-${h.color}`;
+        try{ range.surroundContents(mark); }catch(e){}
+        break;
+      }
+    });
+  }, [promptHighlights]);
 
   useEffect(()=>{
     if(!testData) {
@@ -3411,8 +3271,8 @@ function AdminDashboard({ onExit }) {
     }
     // Load ALL participants from participants table into _db, then flush to ielts_store
     const allPts = await _loadParticipants();
-    if(allPts&&allPts.length) _db.participants = allPts;
-    await _flushConfig(_db); // now writes participants into ielts_store too
+    if(allPts&&allPts.length) { const cur = loadDB(); cur.participants = allPts; setInternalDb(cur); }
+    await _flushConfig(loadDB()); // now writes participants into ielts_store too
     await reloadDB(); setDb({...loadDB()});
     setSyncMsg(`✓ Synced ${uploaded} records to cloud${skipped?` (${skipped} already existed)`:""}.`);
     setSyncing(false);
@@ -3432,7 +3292,7 @@ function AdminDashboard({ onExit }) {
 
     // Build answer key maps from ALL current tests (always fresh in _db.tests)
     const keyByText={}, keyById={};
-    (_db.tests||[]).forEach(t=>{
+    (loadDB().tests||[]).forEach(t=>{
       let off=0;
       const addQ=(q,idx)=>{
         const c=(q.correct||"").trim(); if(!c) return;
@@ -3488,7 +3348,7 @@ function AdminDashboard({ onExit }) {
     // Load fresh participants from Supabase, fall back to local
     const freshPts=supabase?(await _loadParticipants()||[]):[];
     const allPtsMap={};
-    [...(_db.participants||[]),...freshPts].forEach(p=>{if(p.id)allPtsMap[p.id]=p;});
+    [...(loadDB().participants||[]),...freshPts].forEach(p=>{if(p.id)allPtsMap[p.id]=p;});
     const participants=Object.values(allPtsMap);
 
     let count=0;
@@ -3523,10 +3383,11 @@ function AdminDashboard({ onExit }) {
     });
 
     // Save overrides to ielts_store (reliable — same table as tests/suites)
-    _db={..._db,participants:updatedPts,scoreOverrides};
-    try{localStorage.setItem(DB_KEY,JSON.stringify(_db));}catch{}
-    await _flushConfig(_db); // writes scoreOverrides to Supabase ielts_store
-    setDb({..._db}); // update UI immediately
+    const updatedDb = {...loadDB(),participants:updatedPts,scoreOverrides};
+    setInternalDb(updatedDb);
+    try{localStorage.setItem(DB_KEY,JSON.stringify(updatedDb));}catch{}
+    await _flushConfig(updatedDb); // writes scoreOverrides to Supabase ielts_store
+    setDb({...updatedDb}); // update UI immediately
 
     setRecalculating(false);
     setRecalcMsg(`✓ Recalculated ${count} student records`);
@@ -3929,14 +3790,16 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
 
     // Persist to _db + scoreOverrides
     const patch = {writingFeedback:newFb,writingAiDetection:newDet,writingBand:newWBand,overall:newOverall};
-    const updatedPts = (_db.participants||[]).map(p=>
+    const curDb3 = loadDB();
+    const updatedPts = (curDb3.participants||[]).map(p=>
       (p.id&&p.id===a.id)||(p.timestamp&&p.timestamp===a.timestamp) ? {...p,...patch} : p
     );
-    const overrides = {...(_db.scoreOverrides||{})};
+    const overrides = {...(curDb3.scoreOverrides||{})};
     overrides[key] = {...(overrides[key]||{}),...patch};
-    _db = {..._db,participants:updatedPts,scoreOverrides:overrides};
-    try{localStorage.setItem(DB_KEY,JSON.stringify(_db));}catch{}
-    await _flushConfig(_db);
+    const updatedDb3 = {...curDb3,participants:updatedPts,scoreOverrides:overrides};
+    setInternalDb(updatedDb3);
+    try{localStorage.setItem(DB_KEY,JSON.stringify(updatedDb3));}catch{}
+    await _flushConfig(updatedDb3);
 
     // Propagate to parent so UI updates immediately
     const updatedAttempts = (profile.attempts||[]).map(att=>
@@ -4194,7 +4057,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                       // Build live answer key from current tests (text-match first, ID fallback)
                       // This means history ALWAYS shows the latest answer keys even without recalculate
                       const liveKeyByText={}, liveKeyById={};
-                      (_db.tests||[]).forEach(t=>{
+                      (loadDB().tests||[]).forEach(t=>{
                         let off=0;
                         const addQ=(q,idx)=>{
                           const c=(q.correct||"").trim(); if(!c) return;
@@ -4457,16 +4320,18 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                 const wBand = a.writingBand??null;
                                 const newOverall = overallBand(wBand!=null?[lBand,rBand,wBand,val]:[lBand,rBand,val]);
                                 // Update _db in memory
-                                const updatedPts = (_db.participants||[]).map(p=>
+                                const curDb4 = loadDB();
+                                const updatedPts = (curDb4.participants||[]).map(p=>
                                   (p.id&&p.id===a.id)||(p.timestamp&&p.timestamp===a.timestamp)
                                     ? {...p,speakingBand:val,overall:newOverall} : p
                                 );
-                                const overrides = {...(_db.scoreOverrides||{})};
+                                const overrides = {...(curDb4.scoreOverrides||{})};
                                 const key = a.id||a.timestamp;
                                 overrides[key]={...( overrides[key]||{}),speakingBand:val,overall:newOverall};
-                                _db={..._db,participants:updatedPts,scoreOverrides:overrides};
-                                try{localStorage.setItem(DB_KEY,JSON.stringify(_db));}catch{}
-                                await _flushConfig(_db);
+                                const updatedDb4 = {...curDb4,participants:updatedPts,scoreOverrides:overrides};
+                                setInternalDb(updatedDb4);
+                                try{localStorage.setItem(DB_KEY,JSON.stringify(updatedDb4));}catch{}
+                                await _flushConfig(updatedDb4);
                                 // Update profile so UI reflects new score immediately
                                 const updatedAttempts=(profile.attempts||[]).map(att=>
                                   att===a||att.timestamp===a.timestamp?{...att,speakingBand:val,overall:newOverall}:att
@@ -6270,6 +6135,8 @@ function TestLobby({ candidate, onStart }) {
 
 export default function App() {
   const [dbReady, setDbReady]       = useState(false);
+  const [loadError, setLoadError]   = useState(false);
+  const [offline, setOffline]       = useState(!navigator.onLine);
   const [view, setView]             = useState("home");
   const [step, setStep]             = useState(0);
   const [candidate, setCand]        = useState(null);
@@ -6289,14 +6156,25 @@ export default function App() {
   const programmaticExitRef = useRef(false);
 
   useEffect(()=>{
+    const timeout = setTimeout(()=>{ setLoadError(true); }, 10000);
     initDB().then(()=>{
+      clearTimeout(timeout);
       setDbReady(true);
       // Replace initial history entry with current state
       window.history.replaceState({view:"home",step:0},"");
       if(window.location.hash==="#admin"||window.location.pathname.endsWith("/admin")){
         setView("admin");
       }
-    });
+    }).catch(()=>{ clearTimeout(timeout); setLoadError(true); });
+    return ()=>clearTimeout(timeout);
+  },[]);
+
+  useEffect(()=>{
+    const on=()=>setOffline(false);
+    const off=()=>setOffline(true);
+    window.addEventListener("online",on);
+    window.addEventListener("offline",off);
+    return ()=>{ window.removeEventListener("online",on); window.removeEventListener("offline",off); };
   },[]);
 
   // Push a history entry whenever view or step changes so the back button works
@@ -6377,10 +6255,26 @@ export default function App() {
   if(!dbReady) return (
     <div style={{minHeight:"100vh",background:"#0F172A",display:"flex",flexDirection:"column",
       alignItems:"center",justifyContent:"center",gap:20}}>
-      <div style={{width:48,height:48,border:"4px solid rgba(17,205,135,.2)",borderTopColor:"#11CD87",
-        borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
-      <div style={{color:"rgba(255,255,255,.5)",fontSize:14,fontWeight:600}}>Loading platform…</div>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      {loadError?(
+        <>
+          <div style={{fontSize:40}}>⚠️</div>
+          <div style={{color:"#fff",fontSize:16,fontWeight:700}}>Could not connect</div>
+          <div style={{color:"rgba(255,255,255,.5)",fontSize:13,textAlign:"center",maxWidth:340,lineHeight:1.6}}>
+            Check your internet connection and try again.
+          </div>
+          <button onClick={()=>window.location.reload()} style={{
+            background:"#11CD87",color:"#064E3B",border:"none",borderRadius:12,
+            padding:"12px 32px",fontSize:14,fontWeight:800,cursor:"pointer"
+          }}>Try Again</button>
+        </>
+      ):(
+        <>
+          <div style={{width:48,height:48,border:"4px solid rgba(17,205,135,.2)",borderTopColor:"#11CD87",
+            borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+          <div style={{color:"rgba(255,255,255,.5)",fontSize:14,fontWeight:600}}>Loading platform…</div>
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        </>
+      )}
     </div>
   );
 
@@ -6423,8 +6317,9 @@ export default function App() {
       overall: bands.length ? overallBand(bands) : null,
     };
     // Upsert to participants table (same id = update existing row)
-    _db.participants = [partial, ...(_db.participants||[]).filter(p=>p.id!==partial.id)];
-    try { localStorage.setItem(DB_KEY, JSON.stringify(_db)); } catch{}
+    const curDbAS = loadDB();
+    curDbAS.participants = [partial, ...(curDbAS.participants||[]).filter(p=>p.id!==partial.id)];
+    try { localStorage.setItem(DB_KEY, JSON.stringify(curDbAS)); } catch{}
     if(supabase) {
       const email=(candidate.email||"").toLowerCase().trim();
       await supabase.from("participants").upsert({id:partial.id, email, type:"attempt", data:partial});
@@ -6468,6 +6363,12 @@ export default function App() {
 
   return (
     <div style={{minHeight:"100vh",background:C.bg}}>
+      {offline&&(
+        <div style={{position:"fixed",top:0,left:0,right:0,zIndex:99999,background:"#B45309",
+          color:"#fff",textAlign:"center",padding:"10px",fontSize:13,fontWeight:700}}>
+          ⚠️ No internet connection — your answers are saved locally and will sync when reconnected.
+        </div>
+      )}
       <TopBar onAdmin={()=>setView("admin")}/>
 
       {/* Exit Exam button is now inline in each SectionHeader */}
