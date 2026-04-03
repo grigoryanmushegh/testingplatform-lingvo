@@ -137,9 +137,11 @@ const WRITING_TASKS = [
 
 // ── SHARED COMPONENTS ─────────────────────────────────────────────────────────
 
-function Logo({ size=18, dark=false }) {
+function Logo({ size=18, dark=false, variant="default" }) {
+  // variant="ielts" uses the full "Lingvo Connect | IELTS Testing Platform" logo
+  const src = variant==="ielts" ? "/logo-ielts.png" : "/logo.png";
   return (
-    <img src="/logo.png" alt="LingvoConnect" style={{ height: size*2.2, width:"auto", display:"block", filter: dark?"brightness(0) invert(1)":"none" }}/>
+    <img src={src} alt="LingvoConnect" style={{ height: size*2.2, width:"auto", display:"block", filter: dark?"brightness(0) invert(1)":"none" }}/>
   );
 }
 // Demo Link Component
@@ -176,7 +178,7 @@ function TopBar({ onAdmin }) {
       boxShadow: `0 2px 12px rgba(0,191,178,.12)`,
       position:"sticky", top:0, zIndex:100,
     }}>
-      <Logo />
+      <Logo variant="ielts" size={20}/>
       <button onClick={onAdmin} style={{
         ...btnStyle("ghost"),
         color: C.s600, fontSize:13, border:`1px solid ${C.s200}`,
@@ -5885,7 +5887,9 @@ function Home({ onStart, onAdmin }) {
   return (
     <div style={{minHeight:"calc(100vh - 64px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px"}}>
       <div style={{maxWidth:680,width:"100%",textAlign:"center"}}>
-        <div style={{...tagStyle(),marginBottom:20,background:C.lcL,color:C.lcD,borderColor:C.lc}}>Official IELTS Practice Format</div>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:28}}>
+          <Logo variant="ielts" size={26}/>
+        </div>
         <h1 style={{fontSize:52,fontWeight:900,color:C.s900,letterSpacing:"-0.04em",lineHeight:1.1,marginBottom:16}}>
           IELTS Academic<br/>
           <span style={{background:`linear-gradient(135deg,${C.lc},#11CD87,${C.lc})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>
