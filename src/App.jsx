@@ -3456,7 +3456,11 @@ function AdminDashboard({ onExit }) {
       {/* Admin topbar */}
       <div style={{background:"#0F172A",borderBottom:"2px solid #11CD87",padding:"0 28px",height:64,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:200}}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
-          <img src="/logo-ielts.png" alt="LingvoConnect IELTS" style={{height:22,width:"auto",display:"block"}}/>
+          <div style={{display:"flex",alignItems:"center",gap:0,fontFamily:"'Montserrat',sans-serif",fontWeight:800,fontSize:18,letterSpacing:"-0.02em",lineHeight:1}}>
+            <span style={{color:"#fff"}}>Lingvo Connect</span>
+            <span style={{color:"rgba(255,255,255,.3)",margin:"0 6px",fontWeight:300}}>|</span>
+            <span style={{color:"#E11D48",fontStyle:"italic"}}>IELTS</span>
+          </div>
           <div style={{width:1,height:24,background:"rgba(255,255,255,.12)"}}/>
           <span style={{background:"#11CD87",color:"#064E3B",fontSize:10,fontWeight:800,padding:"3px 10px",borderRadius:20,letterSpacing:"0.1em"}}>ADMIN PORTAL</span>
           {selected&&<span style={{color:"rgba(255,255,255,.3)",fontSize:12}}>/ {selected.candidate?.name||selected.email||"Profile"}</span>}
