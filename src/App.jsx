@@ -5593,8 +5593,11 @@ function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qS
 // ── PDF IMPORTER ──────────────────────────────────────────────────────────────
 async function extractTextFromPDF(file) {
   const pdfjsLib = await import("pdfjs-dist");
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+  // Use Vite's new URL() to let the bundler resolve the worker file correctly
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.min.mjs",
+    import.meta.url
+  ).href;
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   let text = "";
