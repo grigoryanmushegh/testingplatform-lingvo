@@ -82,5 +82,64 @@ gs.textContent = `
 
   /* Safe area insets for iPad home-bar */
   .topbar-safe { padding-bottom: env(safe-area-inset-bottom, 0); }
+
+  /* ── Mobile (phone) responsive ─────────────────────────────────────────── */
+  @media (max-width: 480px) {
+    /* TopBar */
+    .topbar { padding: 0 14px !important; height: 54px !important; }
+    .topbar-logo { height: 20px !important; }
+    .topbar-admin-btn { font-size: 11px !important; padding: 6px 10px !important; }
+
+    /* StepNav */
+    .step-nav { padding: 0 4px !important; }
+    .step-nav-item { padding: 8px 8px !important; font-size: 10px !important; gap: 6px !important; }
+    .step-nav-dot { width: 18px !important; height: 18px !important; font-size: 9px !important; }
+
+    /* Home */
+    .home-hero { padding: 28px 16px !important; }
+    .home-h1 { font-size: 30px !important; letter-spacing: -0.02em !important; }
+    .home-sub { font-size: 14px !important; margin-bottom: 28px !important; }
+    .home-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; max-width: 100% !important; }
+    .home-grid-card { padding: 14px !important; }
+    .home-cta { padding: 13px 32px !important; font-size: 15px !important; }
+
+    /* Registration */
+    .reg-wrap { padding: 0 12px !important; margin-top: 24px !important; }
+    .reg-card { padding: 20px 16px !important; }
+
+    /* Test shell — topbar shrinks to 54px on mobile */
+    .test-shell { height: calc(100dvh - 104px) !important; }
+
+    /* Listening sidebar on mobile: compact */
+    .listen-sidebar { max-height: 160px !important; }
+
+    /* Results grid: 4 sections → 2×2 */
+    .results-band-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
+
+    /* Results page overall score card */
+    .results-wrap { padding: 16px 12px !important; }
+    .results-overall { padding: 28px 20px !important; border-radius: 16px !important; }
+    .results-overall-score { font-size: 72px !important; }
+    .results-export-row { flex-wrap: wrap; gap: 8px !important; }
+
+    /* Section header */
+    .section-header { padding: 10px 12px !important; flex-wrap: wrap; gap: 8px !important; }
+    .section-header-title { font-size: 13px !important; }
+    .cand-bar { padding: 5px 12px !important; flex-wrap: wrap; gap: 6px !important; }
+    .cand-bar-email { display: none !important; }   /* hide email on phones */
+
+    /* Writing/Reading split — more space for answer area on phone */
+    .split-grid { grid-template-rows: 40% 60% !important; }
+
+    /* Writing textarea */
+    .writing-area { font-size: 14px !important; min-height: 200px !important; }
+
+    /* Admin */
+    .admin-stats-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
+    .admin-panel { padding: 12px !important; }
+
+    /* Bottom safe area */
+    .test-shell { padding-bottom: env(safe-area-inset-bottom, 0) !important; }
+  }
 `;
 document.head.appendChild(gs);

@@ -139,10 +139,9 @@ const WRITING_TASKS = [
 // ── SHARED COMPONENTS ─────────────────────────────────────────────────────────
 
 function Logo({ size=18, dark=false, variant="default" }) {
-  // variant="ielts" uses the full "Lingvo Connect | IELTS Testing Platform" logo
-  const src = variant==="ielts" ? "/logo-ielts.png" : "/logo.png";
+  // Always use the horizontal "Lingvo Connect | IELTS" logo
   return (
-    <img src={src} alt="LingvoConnect" style={{ height: size*2.2, width:"auto", display:"block", filter: dark?"brightness(0) invert(1)":"none" }}/>
+    <img src="/logo-ielts.png" alt="LingvoConnect IELTS" style={{ height: size*2.2, width:"auto", display:"block", margin:"0 auto", filter: dark?"brightness(0) invert(1)":"none" }}/>
   );
 }
 // Demo Link Component
@@ -170,7 +169,7 @@ function DemoShareLink() {
 
 function TopBar({ onAdmin }) {
   return (
-    <div style={{
+    <div className="topbar" style={{
       background: "#fff",
       borderBottom: `2px solid ${C.lc}`,
       padding: "0 32px",
@@ -179,8 +178,8 @@ function TopBar({ onAdmin }) {
       boxShadow: `0 2px 12px rgba(0,191,178,.12)`,
       position:"sticky", top:0, zIndex:100,
     }}>
-      <img src="/logo-ielts.png" alt="LingvoConnect IELTS" style={{height:26,width:"auto",display:"block"}}/>
-      <button onClick={onAdmin} style={{
+      <img src="/logo-ielts.png" alt="LingvoConnect IELTS" className="topbar-logo" style={{height:26,width:"auto",display:"block"}}/>
+      <button onClick={onAdmin} className="topbar-admin-btn" style={{
         ...btnStyle("ghost"),
         color: C.s600, fontSize:13, border:`1px solid ${C.s200}`,
         borderRadius:8, padding:"7px 16px",
@@ -195,19 +194,19 @@ function StepNav({ step, steps }) {
   // Filter out the "Lobby" step from the visible nav — it's an internal transition
   const visible = steps.map((s,i)=>({s,i})).filter(({s})=>s!=="Lobby");
   return (
-    <div style={{ background:"#fff", borderBottom:`1px solid ${C.s200}`, padding:"0 32px", overflowX:"auto" }}>
+    <div className="step-nav section-tabbar" style={{ background:"#fff", borderBottom:`1px solid ${C.s200}`, padding:"0 32px", overflowX:"auto" }}>
       <div style={{ display:"flex", gap:0, minWidth:"fit-content" }}>
         {visible.map(({s,i}, vi) => {
           const done=i<step, active=i===step;
           return (
-            <div key={s} style={{
+            <div key={s} className="step-nav-item" style={{
               display:"flex", alignItems:"center", gap:10,
               padding:"14px 20px", fontSize:12, fontWeight:active?700:500,
               color: active?C.brand:done?C.lc:C.s400,
               borderBottom:`2px solid ${active?C.brand:done?C.lc:"transparent"}`,
               transition:"all .2s", whiteSpace:"nowrap",
             }}>
-              <div style={{
+              <div className="step-nav-dot" style={{
                 width:22, height:22, borderRadius:"50%", fontSize:11, fontWeight:800,
                 display:"flex", alignItems:"center", justifyContent:"center",
                 background: done?C.lcL:active?C.brandL:C.s100,
@@ -408,7 +407,7 @@ function SectionHeader({ icon, label, title, right, onExit, candidateInfo }) {
           borderBottom:"1px solid rgba(17,205,135,.15)",
           padding:"6px 32px",
           display:"flex",alignItems:"center",gap:16,
-        }}>
+        }} className="cand-bar">
           <span style={{fontSize:11,color:"rgba(17,205,135,.7)",fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase"}}>
             👤 Candidate
           </span>
@@ -421,14 +420,14 @@ function SectionHeader({ icon, label, title, right, onExit, candidateInfo }) {
             </span>
           )}
           {candidateInfo.email&&(
-            <span style={{fontSize:11,color:"rgba(255,255,255,.3)",marginLeft:4}}>
+            <span className="cand-bar-email" style={{fontSize:11,color:"rgba(255,255,255,.3)",marginLeft:4}}>
               {candidateInfo.email}
             </span>
           )}
         </div>
       )}
       {/* Section title row */}
-      <div style={{padding:"14px 32px", display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+      <div className="section-header" style={{padding:"14px 32px", display:"flex", justifyContent:"space-between", alignItems:"center"}}>
         <div>
           <div style={{ color:"rgba(255,255,255,.45)", fontSize:11, fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:4 }}>
             {icon} {label}
@@ -464,13 +463,13 @@ function Registration({ onNext }) {
     setErrors(e); return !Object.keys(e).length;
   };
   return (
-    <div style={{maxWidth:520,margin:"48px auto",padding:"0 24px"}}>
+    <div className="reg-wrap" style={{maxWidth:520,margin:"48px auto",padding:"0 24px"}}>
       <div style={{textAlign:"center",marginBottom:36}}>
         <div style={{...tagStyle(),marginBottom:12}}>Candidate Registration</div>
         <h2 style={{fontSize:28,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:8}}>Begin Your IELTS Test</h2>
         <p style={{color:C.s400,fontSize:14}}>Please complete your details accurately before starting</p>
       </div>
-      <div style={{...cardStyle(),padding:32}}>
+      <div className="reg-card" style={{...cardStyle(),padding:32}}>
         <div style={{display:"flex",flexDirection:"column",gap:20,marginBottom:24}}>
           {[["Full Name","name","text","John Smith",true],["Email","email","email","you@example.com",true],["Date of Birth","dob","date","",true]].map(([lbl,key,type,ph,req])=>(
             <div key={key}>
@@ -1785,6 +1784,7 @@ function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
             onChange={e=>!submitted&&setTexts(t=>({...t,[tIdx]:e.target.value}))}
             disabled={submitted}
             placeholder={`Write your ${task.task} response here…`}
+            className="writing-area"
             style={{...inputStyle,flex:1,minHeight:"calc(100dvh - 440px)",resize:"none",lineHeight:1.9,fontSize:14,borderRadius:12,
               borderColor:meetsMin?C.teal:C.s200,background:submitted?"#F9FAFB":"#fff"}}
           />
@@ -2897,15 +2897,15 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
   ];
 
   return (
-    <div style={{maxWidth:820,margin:"0 auto",padding:"40px 24px"}}>
+    <div className="results-wrap" style={{maxWidth:820,margin:"0 auto",padding:"40px 24px"}}>
       {/* Hero */}
-      <div style={{background:"linear-gradient(135deg,#064E3B 0%,#065F46 40%,#0BA870 100%)",borderRadius:20,padding:"52px 48px",textAlign:"center",marginBottom:28,position:"relative",overflow:"hidden"}}>
+      <div className="results-overall" style={{background:"linear-gradient(135deg,#064E3B 0%,#065F46 40%,#0BA870 100%)",borderRadius:20,padding:"52px 48px",textAlign:"center",marginBottom:28,position:"relative",overflow:"hidden"}}>
         <div style={{position:"absolute",top:-40,right:-40,width:180,height:180,borderRadius:"50%",background:bc,opacity:.1}}/>
         <div style={{position:"absolute",bottom:-60,left:-30,width:220,height:220,borderRadius:"50%",background:"rgba(255,255,255,.03)"}}/>
         <div style={{color:"rgba(255,255,255,.5)",fontSize:11,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>
           Overall Band Score{!aiChecked&&<span style={{color:"#FFB703",marginLeft:8,fontSize:10}}>⚠ Writing not included</span>}
         </div>
-        <div style={{fontSize:108,fontWeight:900,color:bc,lineHeight:1,letterSpacing:"-0.05em"}}>{overall.toFixed(1)}</div>
+        <div className="results-overall-score" style={{fontSize:108,fontWeight:900,color:bc,lineHeight:1,letterSpacing:"-0.05em"}}>{overall.toFixed(1)}</div>
         <div style={{fontSize:20,color:"rgba(255,255,255,.85)",fontWeight:700,marginBottom:12,letterSpacing:"-0.02em"}}>{bandLabel(overall)}</div>
         <div style={{color:"rgba(255,255,255,.4)",fontSize:14}}>{info.name} · {new Date().toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</div>
         {suiteName&&<div style={{display:"inline-block",background:"rgba(255,255,255,.08)",borderRadius:8,padding:"5px 14px",marginTop:8,fontSize:12,color:"rgba(255,255,255,.55)"}}>🧪 {suiteName}</div>}
@@ -2917,7 +2917,7 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
       </div>
 
       {/* Sections */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:24}}>
+      <div className="results-band-grid" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:24}}>
         {sections.map(({name,band,icon,detail})=>{
           const col=band?bandColor(band):C.s400;
           return (
@@ -3419,8 +3419,8 @@ function AdminDashboard({ onExit }) {
     <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0F172A,#064E3B)",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{...cardStyle({padding:40,width:380})}}>
         <div style={{textAlign:"center",marginBottom:28}}>
-          <Logo/>
-          <div style={{marginTop:16,fontSize:13,color:C.s400}}>Admin Portal — Sign In</div>
+          <Logo size={11}/>
+          <div style={{marginTop:12,fontSize:13,color:C.s400}}>Admin Portal — Sign In</div>
         </div>
         {locked ? (
           <div style={{textAlign:"center",padding:"18px",background:C.roseL,borderRadius:10,color:C.rose,fontWeight:700,fontSize:14}}>
@@ -3490,7 +3490,7 @@ function AdminDashboard({ onExit }) {
           {tab==="overview"&&(
             <div>
               <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:24}}>Dashboard Overview</h2>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:28}}>
+              <div className="admin-stats-grid" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:28}}>
                 {[["Total Candidates",pts.length,C.brand,"👥"],["Avg Band",avg(pts.map(p=>p.overall||0)),C.teal,"🏆"],["Speaking Booked",bks.length,C.violet,"🗓️"],["This Week",pts.filter(p=>Date.now()-p.timestamp<7*864e5).length,C.amber,"📅"]].map(([lbl,val,col,icon])=>(
                   <div key={lbl} style={{...cardStyle({padding:20})}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
@@ -6024,26 +6024,26 @@ function AddTestManager() {
 // ── HOME PAGE ─────────────────────────────────────────────────────────────────
 function Home({ onStart, onAdmin }) {
   return (
-    <div style={{minHeight:"calc(100vh - 64px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px"}}>
+    <div className="home-hero" style={{minHeight:"calc(100vh - 64px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px"}}>
       <div style={{maxWidth:680,width:"100%",textAlign:"center"}}>
-        <h1 style={{fontSize:52,fontWeight:900,color:C.s900,letterSpacing:"-0.04em",lineHeight:1.1,marginBottom:16}}>
+        <h1 className="home-h1" style={{fontSize:52,fontWeight:900,color:C.s900,letterSpacing:"-0.04em",lineHeight:1.1,marginBottom:16}}>
           IELTS Academic<br/>
           <span style={{background:`linear-gradient(135deg,${C.lc},#11CD87,${C.lc})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>
             Practice Test
           </span>
         </h1>
-        <p style={{color:C.s400,fontSize:16,lineHeight:1.8,maxWidth:480,margin:"0 auto 44px",fontWeight:500}}>
+        <p className="home-sub" style={{color:C.s400,fontSize:16,lineHeight:1.8,maxWidth:480,margin:"0 auto 44px",fontWeight:500}}>
           Real IELTS questions. AI-powered writing feedback. Instant band scores. Speaking test booking.
         </p>
 
-        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,maxWidth:560,margin:"0 auto 40px",textAlign:"left"}}>
+        <div className="home-grid" style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,maxWidth:560,margin:"0 auto 40px",textAlign:"left"}}>
           {[
             ["🎧","Listening","40 Questions"],
             ["📖","Reading","40 Questions"],
             ["✍️","Writing","2 Tasks · AI Evaluated"],
             ["🗓️","Speaking","Book with Examiner"],
           ].map(([icon,title,sub])=>(
-            <div key={title} style={{...cardStyle({padding:20,transition:"all .2s",cursor:"default"})}}>
+            <div key={title} className="home-grid-card" style={{...cardStyle({padding:20,transition:"all .2s",cursor:"default"})}}>
               <div style={{fontSize:26,marginBottom:10}}>{icon}</div>
               <div style={{fontWeight:800,color:C.s900,marginBottom:4,fontSize:14}}>{title}</div>
               <div style={{color:C.lc,fontSize:12,fontWeight:700}}>{sub}</div>
@@ -6051,7 +6051,7 @@ function Home({ onStart, onAdmin }) {
           ))}
         </div>
 
-        <button onClick={onStart} style={{
+        <button onClick={onStart} className="home-cta" style={{
           ...btnStyle("primary"),
           padding:"15px 56px",fontSize:16,borderRadius:14,
           background:`linear-gradient(135deg,${C.lc},#11CD87)`,
