@@ -5593,11 +5593,8 @@ function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qS
 // ── PDF IMPORTER ──────────────────────────────────────────────────────────────
 async function extractTextFromPDF(file) {
   const pdfjsLib = await import("pdfjs-dist");
-  // Use Vite's new URL() to let the bundler resolve the worker file correctly
-  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-    "pdfjs-dist/build/pdf.worker.min.mjs",
-    import.meta.url
-  ).href;
+  // Serve the worker as a static file from /public — works in both dev and Vercel
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   let text = "";
