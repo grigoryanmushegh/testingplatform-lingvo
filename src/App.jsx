@@ -3773,7 +3773,7 @@ function SendResultsModal({ profile, attempt, onClose }) {
         custom_feedback: feedback.trim() || "Keep up the great work and continue practising!",
       };
 
-      await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, params, EMAILJS_KEY);
+      await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, params, { publicKey: EMAILJS_KEY });
       setSent(true);
     } catch(e) {
       const detail = e?.text || e?.message || e?.status || JSON.stringify(e) || "Unknown error";
