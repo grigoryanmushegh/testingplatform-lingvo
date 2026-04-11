@@ -3771,13 +3771,14 @@ function SendResultsModal({ profile, attempt, onClose }) {
         writing_band:   bandLine(a.writingBand),
         speaking_band:  bandLine(a.speakingBand),
         custom_feedback: feedback.trim() || "Keep up the great work and continue practising!",
-        pdf_attachment:  pdfBase64,
       };
 
       await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, params, EMAILJS_KEY);
       setSent(true);
     } catch(e) {
-      setError("Failed to send email: " + (e?.text || e?.message || "Unknown error"));
+      const detail = e?.text || e?.message || e?.status || JSON.stringify(e) || "Unknown error";
+      setError("Failed to send email: " + detail);
+      console.error("EmailJS error:", e);
     }
     setSending(false);
   };
