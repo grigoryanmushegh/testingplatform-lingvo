@@ -3764,7 +3764,7 @@ function SendResultsModal({ profile, attempt, onClose }) {
         to_name:       info.name || "Candidate",
         to_email:      info.email || profile.email,
         candidate_name: info.name || "Candidate",
-        test_date:     a.date || new Date().toLocaleDateString("en-GB"),
+        test_date:     (a.date || new Date().toLocaleDateString("en-GB")).replace(/\//g, " / "),
         overall_band:  bandLine(a.overall),
         listening_band: bandLine(a.listeningBand),
         reading_band:   bandLine(a.readingBand),
