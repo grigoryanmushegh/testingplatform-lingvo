@@ -3773,10 +3773,24 @@ function SendResultsModal({ profile, attempt, onClose }) {
         custom_feedback: feedback.trim() || "Keep up the great work and continue practising!",
       };
 
-      await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, params, { publicKey: EMAILJS_KEY });
+      console.log("Sending to:", params.to_email, "params:", params);
+      const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          service_id:      EMAILJS_SERVICE,
+          template_id:     EMAILJS_TEMPLATE,
+          user_id:         EMAILJS_KEY,
+          template_params: params,
+        }),
+      });
+      if(!res.ok) {
+        const txt = await res.text();
+        throw new Error(`${res.status}: ${txt}`);
+      }
       setSent(true);
     } catch(e) {
-      const detail = e?.text || e?.message || e?.status || JSON.stringify(e) || "Unknown error";
+      const detail = e?.message || String(e) || "Unknown error";
       setError("Failed to send email: " + detail);
       console.error("EmailJS error:", e);
     }
