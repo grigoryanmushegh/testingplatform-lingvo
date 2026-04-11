@@ -3773,20 +3773,14 @@ function SendResultsModal({ profile, attempt, onClose }) {
         custom_feedback: feedback.trim() || "Keep up the great work and continue practising!",
       };
 
-      console.log("Sending to:", params.to_email, "params:", params);
-      const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+      const res = await fetch("/api/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          service_id:      EMAILJS_SERVICE,
-          template_id:     EMAILJS_TEMPLATE,
-          user_id:         EMAILJS_KEY,
-          template_params: params,
-        }),
+        body: JSON.stringify(params),
       });
       if(!res.ok) {
-        const txt = await res.text();
-        throw new Error(`${res.status}: ${txt}`);
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || `HTTP ${res.status}`);
       }
       setSent(true);
     } catch(e) {
