@@ -52,6 +52,8 @@ gs.textContent = `
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}
   .fu{animation:fadeUp .3s ease both}
   .spin{animation:spin 1s linear infinite}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border-width:0}
+  .skip-link{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}.skip-link:focus{left:8px;top:8px;width:auto;height:auto;padding:8px 16px;background:#11CD87;color:#064E3B;font-weight:700;font-size:14px;border-radius:8px;z-index:99999;text-decoration:none}
 
   /* ── iPad / tablet responsive ──────────────────────────────────────────── */
   /* Use dvh (dynamic viewport height) so iOS keyboard shrink is respected   */

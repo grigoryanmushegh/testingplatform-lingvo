@@ -179,10 +179,10 @@ function TopBar({ onAdmin }) {
       position:"sticky", top:0, zIndex:100,
     }}>
       <img src="/logo-ielts.png" alt="LingvoConnect IELTS" className="topbar-logo" style={{height:26,width:"auto",display:"block"}}/>
-      <button onClick={onAdmin} className="topbar-admin-btn" style={{
+      <button type="button" onClick={onAdmin} className="topbar-admin-btn" style={{
         ...btnStyle("ghost"),
         color: C.s600, fontSize:13, border:`1px solid ${C.s200}`,
-        borderRadius:8, padding:"7px 16px",
+        borderRadius:8, padding:"7px 16px", minHeight:44,
       }}>
         Admin Portal →
       </button>
@@ -3462,30 +3462,31 @@ function AdminDashboard({ onExit }) {
           {selected&&<span style={{color:"rgba(255,255,255,.3)",fontSize:12}}>/ {selected.candidate?.name||selected.email||"Profile"}</span>}
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <button onClick={refresh} disabled={refreshing} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.06)",color:"rgba(255,255,255,.7)",border:"1px solid rgba(255,255,255,.12)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600,opacity:refreshing?.6:1}}>
-            <span style={{display:"inline-block",animation:refreshing?"spin 0.6s linear infinite":"none"}}>↻</span>
+          <button type="button" onClick={refresh} disabled={refreshing} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.06)",color:"rgba(255,255,255,.7)",border:"1px solid rgba(255,255,255,.12)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600,opacity:refreshing?.6:1,minHeight:44}}>
+            <span aria-hidden="true" style={{display:"inline-block",animation:refreshing?"spin 0.6s linear infinite":"none"}}>↻</span>
             {refreshing?"Syncing…":"Refresh"}
           </button>
-          <button onClick={onExit} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(225,29,72,.12)",color:"#FDA4AF",border:"1px solid rgba(225,29,72,.25)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>← Exit Admin</button>
+          <button type="button" onClick={onExit} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(225,29,72,.12)",color:"#FDA4AF",border:"1px solid rgba(225,29,72,.25)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600,minHeight:44}}>← Exit Admin</button>
         </div>
       </div>
 
       <div style={{display:"flex",flex:1}}>
         {/* Sidebar */}
-        <div style={{width:220,background:"#fff",borderRight:`1px solid ${C.s200}`,paddingTop:16}}>
+        <nav aria-label="Admin navigation" style={{width:220,background:"#fff",borderRight:`1px solid ${C.s200}`,paddingTop:16}}>
           {navItems.map(([t,icon,lbl])=>(
-            <button key={t} onClick={()=>{setTab(t);closeProfile();}} style={{
-              display:"flex",alignItems:"center",gap:12,width:"100%",padding:"11px 20px",
+            <button type="button" key={t} onClick={()=>{setTab(t);closeProfile();}} aria-current={tab===t?"page":undefined} style={{
+              display:"flex",alignItems:"center",gap:12,width:"100%",padding:"11px 20px",minHeight:44,
               border:"none",cursor:"pointer",textAlign:"left",fontSize:13,transition:"all .15s",
               background:tab===t?C.brandL:"transparent",
               color:tab===t?C.brand:C.s600,fontWeight:tab===t?700:500,
               borderLeft:`3px solid ${tab===t?C.brand:"transparent"}`,
-            }}>{icon} {lbl}</button>
+            }}><span aria-hidden="true">{icon}</span> {lbl}</button>
           ))}
-        </div>
+        </nav>
 
         {/* Content */}
-        <div style={{flex:1,overflow:"auto",padding:32}}>
+        <main id="main-content" style={{flex:1,overflow:"auto",padding:32}}>
+          <h1 className="sr-only">Admin Dashboard</h1>
 
           {tab==="overview"&&(
             <div>
@@ -3660,7 +3661,7 @@ function AdminDashboard({ onExit }) {
           {tab==="assign"&&<AssignManager/>}
           {tab==="speaking"&&<AISpeakingManager onRefresh={refresh}/>}
           {tab==="addtest"&&<AddTestManager/>}
-        </div>
+        </main>
       </div>
     </div>
   );
@@ -3710,7 +3711,9 @@ function ParticipantTable({ profiles, onSelect }) {
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.writingBand} pending={latest.writingBand==null&&latest.writingTexts!=null}/></td>
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.speakingBand}/></td>
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.overall} large/></td>
-                <td style={{padding:"11px 14px",color:C.brand,fontWeight:700,fontSize:13}}>→</td>
+                <td style={{padding:"11px 14px"}}>
+                  <button type="button" onClick={e=>{e.stopPropagation();onSelect(profile);}} aria-label={`View ${profile.candidate?.name||profile.email}`} style={{background:"none",border:"none",color:C.brand,fontWeight:700,fontSize:13,cursor:"pointer",padding:"4px 8px",minHeight:44,minWidth:44}}>→</button>
+                </td>
               </tr>
             );
           })}
@@ -6029,13 +6032,13 @@ function Home({ onStart, onAdmin }) {
   return (
     <div className="home-hero" style={{minHeight:"calc(100vh - 64px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px"}}>
       <div style={{maxWidth:680,width:"100%",textAlign:"center"}}>
-        <h1 className="home-h1" style={{fontSize:52,fontWeight:900,color:C.s900,letterSpacing:"-0.04em",lineHeight:1.1,marginBottom:16}}>
+        <h1 className="home-h1" aria-label="IELTS Academic Practice Test" style={{fontSize:52,fontWeight:900,color:C.s900,letterSpacing:"-0.04em",lineHeight:1.1,marginBottom:16}}>
           IELTS Academic<br/>
           <span style={{background:`linear-gradient(135deg,${C.lc},#11CD87,${C.lc})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>
             Practice Test
           </span>
         </h1>
-        <p className="home-sub" style={{color:C.s400,fontSize:16,lineHeight:1.8,maxWidth:480,margin:"0 auto 44px",fontWeight:500}}>
+        <p className="home-sub" style={{color:C.s600,fontSize:16,lineHeight:1.8,maxWidth:480,margin:"0 auto 44px",fontWeight:500}}>
           Real IELTS questions. AI-powered writing feedback. Instant band scores. Speaking test booking.
         </p>
 
@@ -6047,14 +6050,14 @@ function Home({ onStart, onAdmin }) {
             ["🗓️","Speaking","Book with Examiner"],
           ].map(([icon,title,sub])=>(
             <div key={title} className="home-grid-card" style={{...cardStyle({padding:20,transition:"all .2s",cursor:"default"})}}>
-              <div style={{fontSize:26,marginBottom:10}}>{icon}</div>
+              <div style={{fontSize:26,marginBottom:10}} aria-hidden="true">{icon}</div>
               <div style={{fontWeight:800,color:C.s900,marginBottom:4,fontSize:14}}>{title}</div>
               <div style={{color:C.lc,fontSize:12,fontWeight:700}}>{sub}</div>
             </div>
           ))}
         </div>
 
-        <button onClick={onStart} className="home-cta" style={{
+        <button type="button" onClick={onStart} className="home-cta" style={{
           ...btnStyle("primary"),
           padding:"15px 56px",fontSize:16,borderRadius:14,
           background:`linear-gradient(135deg,${C.lc},#11CD87)`,
@@ -6382,24 +6385,24 @@ export default function App() {
     <div style={{minHeight:"100vh",background:"#0F172A",display:"flex",flexDirection:"column",
       alignItems:"center",justifyContent:"center",gap:20}}>
       {loadError?(
-        <>
-          <div style={{fontSize:40}}>⚠️</div>
+        <div role="alert">
+          <div style={{fontSize:40}} aria-hidden="true">⚠️</div>
           <div style={{color:"#fff",fontSize:16,fontWeight:700}}>Could not connect</div>
           <div style={{color:"rgba(255,255,255,.5)",fontSize:13,textAlign:"center",maxWidth:340,lineHeight:1.6}}>
             Check your internet connection and try again.
           </div>
-          <button onClick={()=>window.location.reload()} style={{
+          <button type="button" onClick={()=>window.location.reload()} style={{
             background:"#11CD87",color:"#064E3B",border:"none",borderRadius:12,
-            padding:"12px 32px",fontSize:14,fontWeight:800,cursor:"pointer"
+            padding:"12px 32px",fontSize:14,fontWeight:800,cursor:"pointer",minHeight:44,
           }}>Try Again</button>
-        </>
+        </div>
       ):(
-        <>
-          <div style={{width:48,height:48,border:"4px solid rgba(17,205,135,.2)",borderTopColor:"#11CD87",
+        <div role="status" aria-live="polite" aria-label="Loading platform">
+          <div aria-hidden="true" style={{width:48,height:48,border:"4px solid rgba(17,205,135,.2)",borderTopColor:"#11CD87",
             borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
-          <div style={{color:"rgba(255,255,255,.5)",fontSize:14,fontWeight:600}}>Loading platform…</div>
+          <div aria-hidden="true" style={{color:"rgba(255,255,255,.5)",fontSize:14,fontWeight:600}}>Loading platform…</div>
           <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-        </>
+        </div>
       )}
     </div>
   );
@@ -6489,13 +6492,16 @@ export default function App() {
 
   return (
     <div style={{minHeight:"100vh",background:C.bg}}>
+      <a href="#main-content" className="skip-link">Skip to content</a>
       {offline&&(
-        <div style={{position:"fixed",top:0,left:0,right:0,zIndex:99999,background:"#B45309",
+        <div role="alert" style={{position:"fixed",top:0,left:0,right:0,zIndex:99999,background:"#B45309",
           color:"#fff",textAlign:"center",padding:"10px",fontSize:13,fontWeight:700}}>
-          ⚠️ No internet connection — your answers are saved locally and will sync when reconnected.
+          <span aria-hidden="true">⚠️</span> No internet connection — your answers are saved locally and will sync when reconnected.
         </div>
       )}
-      <TopBar onAdmin={()=>setView("admin")}/>
+      <header>
+        <TopBar onAdmin={()=>setView("admin")}/>
+      </header>
 
       {/* Exit Exam button is now inline in each SectionHeader */}
 
@@ -6530,13 +6536,13 @@ export default function App() {
               </>
             )}
             <div style={{display:"flex",gap:12}}>
-              <button onClick={()=>{ setExitConfirm(false); if(exitReason==="fullscreen") enterFullscreen(); }} style={{
+              <button type="button" onClick={()=>{ setExitConfirm(false); if(exitReason==="fullscreen") enterFullscreen(); }} style={{
                 flex:1,padding:"13px",borderRadius:12,border:`2px solid ${C.s200}`,
                 background:"#fff",color:C.s800,fontSize:14,fontWeight:700,cursor:"pointer",
               }}>
                 {exitReason==="fullscreen"?"↩ Return to Full-Screen":"← Continue Exam"}
               </button>
-              <button onClick={handleExitExam} style={{
+              <button type="button" onClick={handleExitExam} style={{
                 flex:1,padding:"13px",borderRadius:12,border:"none",
                 background:C.rose,color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",
               }}>
@@ -6547,6 +6553,7 @@ export default function App() {
         </div>
       )}
 
+      <main id="main-content">
       {view==="home"&&<Home onStart={()=>setView("test")} onAdmin={()=>setView("admin")}/>}
       {view==="test"&&(
         <>
@@ -6602,6 +6609,7 @@ export default function App() {
           )}
         </>
       )}
+      </main>
       <SpeedInsights />
     </div>
   );
