@@ -3724,9 +3724,9 @@ function ParticipantTable({ profiles, onSelect }) {
 }
 
 // ── SEND RESULTS EMAIL MODAL ──────────────────────────────────────────────────
-const EMAILJS_SERVICE  = import.meta.env.VITE_EMAILJS_SERVICE  || "";
-const EMAILJS_TEMPLATE = import.meta.env.VITE_EMAILJS_TEMPLATE || "";
-const EMAILJS_KEY      = import.meta.env.VITE_EMAILJS_KEY      || "";
+const EMAILJS_SERVICE  = import.meta.env.VITE_EMAILJS_SERVICE  || "service_pkjnqeg";
+const EMAILJS_TEMPLATE = import.meta.env.VITE_EMAILJS_TEMPLATE || "template_s4l22xj";
+const EMAILJS_KEY      = import.meta.env.VITE_EMAILJS_KEY      || "w3EVomJS4Qe3Chfan";
 
 function SendResultsModal({ profile, attempt, onClose }) {
   const [feedback, setFeedback] = useState("");
