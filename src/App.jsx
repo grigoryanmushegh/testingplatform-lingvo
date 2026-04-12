@@ -4591,7 +4591,8 @@ function TestSuiteManager() {
   const [lId,  setLId]  = useState("");
 
   const refresh = () => { const db=loadDB(); setSuites(db.testSuites||[]); setAllSections(db.tests||[]); };
-  useEffect(()=>{ refresh(); },[]);
+  // Refresh on mount AND every 30s so dropdowns always show the latest tests
+  useEffect(()=>{ refresh(); const t=setInterval(refresh,30000); return()=>clearInterval(t); },[]);
 
   const rSecs  = allSections.filter(s=>s.type==="Reading");
   const w1Secs = allSections.filter(s=>s.type==="Writing"&&(s.taskType==="task1"||(!s.taskType&&s.task1Prompt)));
@@ -4610,12 +4611,14 @@ function TestSuiteManager() {
   const saveSuite = async () => {
     if(!name.trim()) return;
     setSaving(true);
+    // Always read fresh from DB to avoid overwriting externally-added suites
+    const freshSuites = loadDB().testSuites||[];
     let updated;
     if(editId) {
-      updated = suites.map(s=>s.id===editId?{...s,name:name.trim(),readingId:rId||null,writing1Id:w1Id||null,writing2Id:w2Id||null,listeningId:lId||null}:s);
+      updated = freshSuites.map(s=>s.id===editId?{...s,name:name.trim(),readingId:rId||null,writing1Id:w1Id||null,writing2Id:w2Id||null,listeningId:lId||null}:s);
     } else {
       const ns = {id:genId("SUITE"),name:name.trim(),status:"draft",readingId:rId||null,writing1Id:w1Id||null,writing2Id:w2Id||null,listeningId:lId||null,createdAt:new Date().toLocaleDateString("en-GB")};
-      updated = [...suites, ns];
+      updated = [...freshSuites, ns];
     }
     setSuites(updated);
     await dbSaveNow("testSuites",updated);
@@ -4624,10 +4627,11 @@ function TestSuiteManager() {
   };
 
   const togglePublish = async id => {
-    const updated = suites.map(s=>s.id===id?{...s,status:s.status==="published"?"draft":"published"}:s);
+    const freshSuites = loadDB().testSuites||[];
+    const updated = freshSuites.map(s=>s.id===id?{...s,status:s.status==="published"?"draft":"published"}:s);
     setSuites(updated); await dbSaveNow("testSuites",updated);
   };
-  const deleteSuite = async id => { const u=suites.filter(s=>s.id!==id); setSuites(u); await dbSaveNow("testSuites",u); };
+  const deleteSuite = async id => { const fresh=loadDB().testSuites||[]; const u=fresh.filter(s=>s.id!==id); setSuites(u); await dbSaveNow("testSuites",u); };
   const secName = id => id ? (allSections.find(s=>s.id===id)?.title||"—") : "Built-in";
   const pubCount = suites.filter(s=>s.status==="published").length;
 
@@ -5615,6 +5619,13 @@ function AddTestManager() {
   const [saved, setSaved]         = useState(false);
   const [editingId, setEditingId] = useState(null);
 
+  // Sync displayed list from DB on mount + every 30s (picks up any externally-added tests)
+  useEffect(()=>{
+    setTests(loadDB().tests||[]);
+    const t = setInterval(()=>setTests(loadDB().tests||[]), 30000);
+    return ()=>clearInterval(t);
+  }, []);
+
   // Reading: multi-passage
   const [rTitle, setRTitle]       = useState("");
   const [rPassages, setRPassages] = useState([newPassage(0)]);
@@ -5668,12 +5679,14 @@ function AddTestManager() {
   };
 
   const doSave = t => {
+    // Always read fresh from DB before writing — prevents overwriting externally-added tests
+    const fresh = loadDB().tests||[];
     let updated;
     if(editingId) {
-      updated = tests.map(x => x.id===editingId ? {...t, id:editingId, createdAt:x.createdAt} : x);
+      updated = fresh.map(x => x.id===editingId ? {...t, id:editingId, createdAt:x.createdAt} : x);
       setEditingId(null);
     } else {
-      updated = [...tests, t];
+      updated = [...fresh, t];
     }
     setTests(updated); dbSave("tests", updated);
     setSaved(true); setTimeout(()=>setSaved(false),2500);
@@ -5753,7 +5766,7 @@ function AddTestManager() {
     doSave({id:genId("TEST"),type:"Listening",title:lTitle,sections:lSections.map(s=>({...s})),audioUrl:lAudioUrl||null,audioMode:lAudioMode,createdAt:new Date().toLocaleDateString("en-GB")});
     setLTitle(""); setLSections([newSection(0)]);
   };
-  const deleteTest = id => { const u=tests.filter(t=>t.id!==id); setTests(u); dbSave("tests",u); };
+  const deleteTest = id => { const fresh=loadDB().tests||[]; const u=fresh.filter(t=>t.id!==id); setTests(u); dbSave("tests",u); };
   const typeColor  = t  => t==="Reading"?C.teal:t==="Writing"?C.violet:C.amber;
 
   return (
