@@ -1063,7 +1063,7 @@ function FormTableGroup({ questions, answers, submitted, scoreQ, onChange }) {
 }
 
 // ── READING TEST ──────────────────────────────────────────────────────────────
-function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
+function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }) {
   const [ready, setReady]         = useState(false);
   const [pIdx, setPIdx]           = useState(0);
   const [answers, setAnswers]     = useState({});
@@ -1198,7 +1198,10 @@ function ReadingTest({ onComplete, testData, onExit, candidateInfo }) {
     setSubmitted(true);
     let correct=0;
     allQ.forEach(q=>{ if(scoreQ(q,answers[q.id])) correct++; });
+    const result = {correct, total:allQ.length, answers, allQuestions:allQ};
     setScore({correct, total:allQ.length});
+    // Auto-save immediately so data is never lost if candidate closes browser before clicking Continue
+    if(onAutoSave) onAutoSave(result);
   };
   const handleContinue = () => onComplete({correct:score.correct, total:score.total, answers, allQuestions:allQ});
 
@@ -6587,7 +6590,7 @@ export default function App() {
             <BreakScreen nextSection={breakNext.label} onContinue={()=>{ setStep(breakNext.step); setBreakNext(null); }}/>
           )}
           {!breakNext&&step===2&&<ListeningTest testData={activeSuite?.listeningData} candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{const ns={...scoresRef.current,listening:r}; setScores(ns); autoSave(ns); activeSuite?.singleModule?setStep(7):setBreakNext({label:"Reading Test",step:3});}}/>}
-          {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{const ns={...scoresRef.current,reading:r};  setScores(ns); autoSave(ns); activeSuite?.singleModule?setStep(7):setBreakNext({label:"Writing Test",step:4});}}/>}
+          {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onAutoSave={r=>{const ns={...scoresRef.current,reading:r}; setScores(ns); autoSave(ns);}} onComplete={r=>{const ns={...scoresRef.current,reading:r};  setScores(ns); autoSave(ns); activeSuite?.singleModule?setStep(7):setBreakNext({label:"Writing Test",step:4});}}/>}
           {!breakNext&&step===4&&<WritingTest   testData={activeSuite?.writingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={w=>{const ns={...scoresRef.current,writing:w};  setScores(ns); autoSave(ns); activeSuite?.singleModule?setStep(6):setStep(5);}}/>}
           {!breakNext&&step===5&&!speakingExamDone&&(()=>{
             const aiSpeakingOn = !!(loadDB().aiSpeakingEnabled);
