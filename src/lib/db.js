@@ -32,7 +32,7 @@ export const _insertParticipant = async item => {
     const email = ((item.candidate?.email||item.email)||"").toLowerCase().trim();
     const type  = item.listeningBand!=null ? "attempt" : "registration";
     // upsert: overwrites same id (partial→complete save uses same sessionId)
-    const {error} = await supabase.from("participants").upsert({id:item.id, email, type, data:item});
+    const {error} = await supabase.from("participants").upsert({id:item.id, email, type, data:item},{onConflict:"id"});
     if(error){ console.warn("[DB] participant upsert error:",error.message); return false; }
     return true;
   } catch(e){ console.warn("[DB] participant upsert failed:",e); return false; }
@@ -100,7 +100,9 @@ export async function initDB() {
       if(cfg?.data || pts.length){
         const seen = new Set();
         const deduped = pts.filter(p=>{ const k=p.id||p.email; if(seen.has(k)) return false; seen.add(k); return true; });
-        _db = {..._emptyDB(), ...base, participants: deduped};
+        const overrides = base.scoreOverrides||{};
+        const withOverrides = deduped.map(p=> overrides[p.id] ? {...p,...overrides[p.id]} : p);
+        _db = {..._emptyDB(), ...base, participants: withOverrides};
         localStorage.setItem(DB_KEY,JSON.stringify(_db));
         return;
       }

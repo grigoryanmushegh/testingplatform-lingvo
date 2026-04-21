@@ -62,6 +62,19 @@ const tagStyle = (color=C.brand) => ({
   padding:"3px 10px", borderRadius:99, textTransform:"uppercase",
 });
 
+// ── YOUTUBE AUDIO HELPERS ─────────────────────────────────────────────────────
+const isYouTubeUrl = url => /(?:youtube\.com\/(?:watch|embed|shorts)|youtu\.be\/)/.test(url||"");
+const getYouTubeId = url => {
+  if(!url) return null;
+  const m = url.match(/(?:v=|embed\/|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/);
+  return m ? m[1] : null;
+};
+const youTubeEmbedUrl = (url, autoplay=true) => {
+  const id = getYouTubeId(url);
+  if(!id) return null;
+  return `https://www.youtube.com/embed/${id}?autoplay=${autoplay?1:0}&rel=0&modestbranding=1&enablejsapi=1`;
+};
+
 // ── LISTENING DATA ────────────────────────────────────────────────────────────
 const LISTENING_SECTIONS = [
   {
@@ -510,6 +523,7 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
   const questRef                    = useRef(null);
   const audioRef                    = useRef(null);
   const lastTimeRef                 = useRef(0);
+  const seekingGuardRef             = useRef(false); // prevent onSeeking infinite loop
   const testActiveRef               = useRef(false);
 
   const onQMouseUp = () => {
@@ -672,10 +686,25 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                       <span style={{fontSize:16}}>🎵</span>
                       <span style={{color:"rgba(255,255,255,.7)",fontSize:12,fontWeight:600}}>Full Test Audio</span>
                     </div>
-                    <audio ref={audioRef} controls autoPlay src={testData.audioUrl} style={{width:"100%",height:36}}
-                      controlsList="nodownload noplaybackrate" preload="auto"
-                      onTimeUpdate={e=>{ lastTimeRef.current = e.target.currentTime; }}
-                      onSeeking={e=>{ e.target.currentTime = lastTimeRef.current; }}/>
+                    {isYouTubeUrl(testData.audioUrl)?(
+                      <iframe
+                        src={youTubeEmbedUrl(testData.audioUrl,true)}
+                        style={{width:"100%",height:120,border:"none",borderRadius:8}}
+                        allow="autoplay; encrypted-media" allowFullScreen={false}
+                        title="Listening Audio"/>
+                    ):(
+                      <audio ref={audioRef} controls autoPlay src={testData.audioUrl} style={{width:"100%",height:36}}
+                        controlsList="nodownload noplaybackrate" preload="auto"
+                        onTimeUpdate={e=>{ lastTimeRef.current = e.target.currentTime; }}
+                        onSeeking={e=>{
+                          if(seekingGuardRef.current) return;
+                          if(e.target.currentTime < lastTimeRef.current - 1) {
+                            seekingGuardRef.current = true;
+                            e.target.currentTime = lastTimeRef.current;
+                            seekingGuardRef.current = false;
+                          }
+                        }}/>
+                    )}
                   </div>
                   <div style={{marginTop:8,padding:"6px 10px",background:"rgba(13,148,136,.12)",border:"1px solid rgba(13,148,136,.25)",borderRadius:7}}>
                     <p style={{color:"rgba(100,255,220,.8)",fontSize:11,lineHeight:1.5}}>🎧 One continuous recording for all sections — do not pause.</p>
@@ -697,11 +726,26 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                       <span style={{fontSize:16}}>🎵</span>
                       <span style={{color:"rgba(255,255,255,.7)",fontSize:12,fontWeight:600}}>{sec.label}</span>
                     </div>
-                    <audio ref={audioRef} controls autoPlay src={sec.audioUrl} style={{width:"100%",height:36}}
-                      controlsList="nodownload noplaybackrate" preload="auto"
-                      onTimeUpdate={e=>{ lastTimeRef.current = e.target.currentTime; }}
-                      onSeeking={e=>{ e.target.currentTime = lastTimeRef.current; }}
-                      onEnded={()=>{ if(secIdx < sections.length-1) setTimeout(()=>setSecIdx(i=>i+1), 800); }}/>
+                    {isYouTubeUrl(sec.audioUrl)?(
+                      <iframe
+                        src={youTubeEmbedUrl(sec.audioUrl,true)}
+                        style={{width:"100%",height:120,border:"none",borderRadius:8}}
+                        allow="autoplay; encrypted-media" allowFullScreen={false}
+                        title={`${sec.label} Audio`}/>
+                    ):(
+                      <audio ref={audioRef} controls autoPlay src={sec.audioUrl} style={{width:"100%",height:36}}
+                        controlsList="nodownload noplaybackrate" preload="auto"
+                        onTimeUpdate={e=>{ lastTimeRef.current = e.target.currentTime; }}
+                        onSeeking={e=>{
+                          if(seekingGuardRef.current) return;
+                          if(e.target.currentTime < lastTimeRef.current - 1) {
+                            seekingGuardRef.current = true;
+                            e.target.currentTime = lastTimeRef.current;
+                            seekingGuardRef.current = false;
+                          }
+                        }}
+                        onEnded={()=>{ if(secIdx < sections.length-1) setTimeout(()=>setSecIdx(i=>i+1), 800); }}/>
+                    )}
                   </div>
                   <div style={{marginTop:8,padding:"6px 10px",background:"rgba(13,148,136,.12)",border:"1px solid rgba(13,148,136,.25)",borderRadius:7}}>
                     <p style={{color:"rgba(100,255,220,.8)",fontSize:11,lineHeight:1.5}}>▶ Press play to start. Audio changes with each section.</p>
@@ -2860,36 +2904,38 @@ function exportResultsPDF({ candidateInfo, lBand, rBand, wBand, overall, L, R, W
 
 // ── RESULTS ───────────────────────────────────────────────────────────────────
 function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId }) {
-  // Null-safe score access in case of partial data
-  const L = scores.listening||{correct:0,total:40,answers:{},allQuestions:[]};
-  const R = scores.reading  ||{correct:0,total:40,answers:{},allQuestions:[]};
-  const W = scores.writing  ||{texts:{},taskData:null,band:null,aiFeedback:null,aiDetection:null};
-  const lBand = listeningBand(L.correct, L.total);
-  const rBand = readingBand(R.correct,   R.total);
+  // Use raw (may be null) for sections not taken — avoids saving fake 0-scores
+  const Lraw = scores.listening||null;
+  const Rraw = scores.reading  ||null;
+  const Wraw = scores.writing  ||null;
+  // Display fallbacks (for rendering only, not saved)
+  const L = Lraw||{correct:0,total:40,answers:{},allQuestions:[]};
+  const R = Rraw||{correct:0,total:40,answers:{},allQuestions:[]};
+  const W = Wraw||{texts:{},taskData:null,band:null,aiFeedback:null,aiDetection:null};
+  const lBand = Lraw ? listeningBand(L.correct, L.total) : null;
+  const rBand = Rraw ? readingBand(R.correct,   R.total) : null;
   const wBand = W.band ?? null;  // null if AI didn't check
   const aiChecked = wBand != null;
-  const overall = aiChecked ? overallBand([lBand, rBand, wBand]) : overallBand([lBand, rBand]);
+  const allBands = [lBand, rBand, wBand].filter(b=>b!=null);
+  const overall = allBands.length ? overallBand(allBands) : 0;
   const bc = bandColor(overall);
   const info = candidateInfo||{name:"Candidate",email:""};
 
   useEffect(()=>{
-    dbPushNow("participants",{
-      id:sessionId||genId("IELTS"), candidate:info, status:"complete",
+    const finalId = sessionId||genId("IELTS");
+    const record = {
+      id:finalId, candidate:info, status:"complete",
       date:new Date().toLocaleDateString("en-GB"),
       timestamp:Date.now(),
       suiteId: suiteId||null,
-      listeningScore:`${L.correct}/${L.total}`,
-      readingScore:`${R.correct}/${R.total}`,
-      listeningBand:lBand, readingBand:rBand, writingBand:wBand, overall,
-      writingTexts:W.texts,
-      writingFeedback:W.aiFeedback,
-      writingAiDetection:W.aiDetection,
+      overall: allBands.length ? overall : null,
       speakingBooking:booking,
-      listeningAnswers:L.answers,
-      readingAnswers:R.answers,
-      allListeningQuestions:L.allQuestions||[],
-      allReadingQuestions:R.allQuestions||[],
-    });
+      // Only save sections that were actually taken
+      ...(Lraw ? {listeningScore:`${L.correct}/${L.total}`, listeningBand:lBand, listeningAnswers:L.answers, allListeningQuestions:L.allQuestions||[]} : {}),
+      ...(Rraw ? {readingScore:`${R.correct}/${R.total}`,   readingBand:rBand,   readingAnswers:R.answers,   allReadingQuestions:R.allQuestions||[]}   : {}),
+      ...(Wraw ? {writingBand:wBand, writingTexts:W.texts, writingFeedback:W.aiFeedback, writingAiDetection:W.aiDetection} : {}),
+    };
+    dbPushNow("participants", record);
   },[]);
 
   const sections=[
@@ -3261,10 +3307,22 @@ function AdminDashboard({ onExit }) {
   const [selected, setSelected] = useState(null);
 
   // Push history when opening/closing a profile so back button works inside admin
-  const openProfile = profile => {
+  const openProfile = async profile => {
     window.history.pushState({adminProfile:true},"");
     setSelected(profile);
     setTab("participants");
+    // Refresh from Supabase so the detail view shows the latest attempt data
+    await reloadDB();
+    const freshDb = loadDB();
+    setDb({...freshDb});
+    // Re-select with fresh data for this candidate
+    const email = (profile.email||"").toLowerCase();
+    const freshPts = freshDb.participants||[];
+    const freshAttempts = freshPts.filter(p=>{
+      const cand=p.candidate||p;
+      return (cand?.email||p.email||"").toLowerCase()===email;
+    }).sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
+    if(freshAttempts.length>0) setSelected(s=>s?{...s,attempts:freshAttempts}:s);
   };
   const closeProfile = () => {
     setSelected(null);
@@ -3520,8 +3578,8 @@ function AdminDashboard({ onExit }) {
               <h3 style={{fontSize:11,color:C.s400,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:12}}>Recent Candidates</h3>
               {(()=>{
                 const byEmail={};
-                pts.forEach(p=>{const cand=p.candidate||p;const key=(cand?.email||p.email||p.id||"").toLowerCase();if(!byEmail[key])byEmail[key]={email:key,candidate:cand,attempts:[]};byEmail[key].attempts.push(p);});
-                const recentProfiles=Object.values(byEmail).map(g=>({...g,attempts:g.attempts.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0))})).sort((a,b)=>(b.attempts[0]?.timestamp||0)-(a.attempts[0]?.timestamp||0)).slice(0,8);
+                pts.forEach(p=>{const cand=p.candidate||p;const key=(cand?.email||p.email||p.id||"").toLowerCase();if(!byEmail[key])byEmail[key]={email:key,candidate:cand,attempts:[]};else byEmail[key].candidate=cand;byEmail[key].attempts.push(p);});
+                const recentProfiles=Object.values(byEmail).map(g=>{const sorted=g.attempts.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));return{...g,candidate:sorted[0]?.candidate||g.candidate,attempts:sorted};}).sort((a,b)=>(b.attempts[0]?.timestamp||0)-(a.attempts[0]?.timestamp||0)).slice(0,8);
                 return <ParticipantTable profiles={recentProfiles} onSelect={openProfile}/>;
               })()}
             </div>
@@ -3536,10 +3594,11 @@ function AdminDashboard({ onExit }) {
                   const cand = p.candidate || p;
                   const key = (cand?.email || p.email || p.id || "").toLowerCase();
                   if(!byEmail[key]) byEmail[key] = {email:key, candidate:cand, attempts:[]};
+                  else byEmail[key].candidate = cand; // update to latest candidate info
                   byEmail[key].attempts.push(p);
                 });
                 const profiles = Object.values(byEmail)
-                  .map(g=>({...g, attempts:g.attempts.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0))}))
+                  .map(g=>{const sorted=g.attempts.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));return{...g,candidate:sorted[0]?.candidate||g.candidate,attempts:sorted};})
                   .sort((a,b)=>(b.attempts[0]?.timestamp||0)-(a.attempts[0]?.timestamp||0));
                 return (
                   <div>
@@ -4949,13 +5008,14 @@ function AssignManager() {
   const assign = async () => {
     if(!email.trim()||!suiteId) return;
     const a = {id:genId("ASGN"),email:email.trim().toLowerCase(),suiteId,assignedAt:Date.now(),used:false};
-    const updated = [a,...assignments];
+    const fresh = loadDB().assignments||[];
+    const updated = [a,...fresh];
     setAssignments(updated); await dbSaveNow("assignments",updated);
     setEmail(""); setSuiteId("");
     setSaved(true); setTimeout(()=>setSaved(false),2500);
   };
 
-  const remove = async id => { const u=assignments.filter(a=>a.id!==id); setAssignments(u); await dbSaveNow("assignments",u); };
+  const remove = async id => { const u=(loadDB().assignments||[]).filter(a=>a.id!==id); setAssignments(u); await dbSaveNow("assignments",u); };
   const suiteName = id => (loadDB().testSuites||[]).find(s=>s.id===id)?.name||"(deleted suite)";
 
   const filtered = searchEmail.trim()
@@ -5514,15 +5574,20 @@ function AudioUploader({ onUrl }) {
       )}
 
       {mode==="url"&&(
-        <div style={{display:"flex",gap:8}}>
-          <input value={urlInput} onChange={e=>setUrlInput(e.target.value)}
-            placeholder="https://… direct link to MP3/WAV/OGG file"
-            style={{...inputStyle,flex:1}}/>
-          <button onClick={()=>{ if(urlInput.trim()) onUrl(urlInput.trim()); }}
-            disabled={!urlInput.trim()}
-            style={{...btnStyle("teal",!urlInput.trim()),padding:"0 16px",flexShrink:0,whiteSpace:"nowrap"}}>
-            Use URL
-          </button>
+        <div>
+          <div style={{display:"flex",gap:8}}>
+            <input value={urlInput} onChange={e=>setUrlInput(e.target.value)}
+              placeholder="YouTube link or direct MP3/WAV/OGG URL"
+              style={{...inputStyle,flex:1}}/>
+            <button onClick={()=>{ if(urlInput.trim()) onUrl(urlInput.trim()); }}
+              disabled={!urlInput.trim()}
+              style={{...btnStyle("teal",!urlInput.trim()),padding:"0 16px",flexShrink:0,whiteSpace:"nowrap"}}>
+              Use URL
+            </button>
+          </div>
+          {isYouTubeUrl(urlInput)&&(
+            <div style={{marginTop:6,fontSize:11,color:C.teal,fontWeight:600}}>✓ YouTube link detected — will embed as video player</div>
+          )}
         </div>
       )}
 
@@ -5573,8 +5638,12 @@ function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qS
               {section.audioUrl?(
                 <div>
                   <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.tealL,border:`1.5px solid ${C.teal}40`,borderRadius:10,marginBottom:6}}>
-                    <span style={{fontSize:18}}>🎵</span>
-                    <audio controls src={section.audioUrl} style={{flex:1,height:32,minWidth:0}}/>
+                    <span style={{fontSize:18}}>{isYouTubeUrl(section.audioUrl)?"▶️":"🎵"}</span>
+                    {isYouTubeUrl(section.audioUrl)?(
+                      <span style={{flex:1,fontSize:12,fontWeight:600,color:C.teal,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{section.audioUrl}</span>
+                    ):(
+                      <audio controls src={section.audioUrl} style={{flex:1,height:32,minWidth:0}}/>
+                    )}
                     <button onClick={()=>onUpdate("audioUrl",null)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:7,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700,flexShrink:0}}>✕ Remove</button>
                   </div>
                   {/* Warn if URL is a local blob/data URL — won't work for students */}
@@ -5584,7 +5653,7 @@ function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qS
                       Please click <strong>✕ Remove</strong> above and re-upload the file so it saves to cloud storage.
                     </div>
                   ):(
-                    <div style={{fontSize:11,color:C.teal,fontWeight:600,marginTop:4}}>✓ Saved to cloud — accessible to all students</div>
+                    <div style={{fontSize:11,color:C.teal,fontWeight:600,marginTop:4}}>{isYouTubeUrl(section.audioUrl)?"✓ YouTube link — will play as embedded video during test":"✓ Saved to cloud — accessible to all students"}</div>
                   )}
                 </div>
               ):(
@@ -6198,7 +6267,7 @@ function TestLobby({ candidate, onStart }) {
 
   useEffect(()=>{
     if(info.status==="waiting") {
-      const t = setInterval(recheck, 20000);
+      const t = setInterval(recheck, 10000);
       return ()=>clearInterval(t);
     }
   }, [info.status]);
@@ -6475,14 +6544,19 @@ export default function App() {
     curDbAS.participants = [partial, ...(curDbAS.participants||[]).filter(p=>p.id!==partial.id)];
     try { localStorage.setItem(DB_KEY, JSON.stringify(curDbAS)); } catch{}
     if(supabase) {
-      const email=(candidate.email||"").toLowerCase().trim();
-      await supabase.from("participants").upsert({id:partial.id, email, type:"attempt", data:partial});
+      try {
+        const email=(candidate.email||"").toLowerCase().trim();
+        const {error} = await supabase.from("participants").upsert({id:partial.id, email, type:"attempt", data:partial},{onConflict:"id"});
+        if(error) console.warn("[autoSave] Supabase upsert failed:", error.message);
+      } catch(e) { console.warn("[autoSave] Supabase error:", e); }
     }
   };
 
   // From lobby "Begin Test" → enter fullscreen ONCE for the whole exam → advance to listening
   const handleStartTest = () => {
     sessionIdRef.current = genId("IELTS"); // fresh session ID for each test run
+    scoresRef.current = {};                // clear any stale scores from previous session
+    setScores({});
     const suite = resolveTestSuite(candidate.email);
     setActiveSuite(suite);
     activeSuiteRef.current = suite;
@@ -6611,8 +6685,10 @@ export default function App() {
             <ResultsLoading
               writingTexts={scores.writing?.texts}
               writingTaskData={scores.writing?.taskData||activeSuite?.writingData}
-              onComplete={aiResult=>{
-                setScores(s=>({...s, writing:{...s.writing, band:aiResult.band, aiFeedback:aiResult.aiFeedback, aiDetection:aiResult.aiDetection}}));
+              onComplete={async aiResult=>{
+                const ns = {...scoresRef.current, writing:{...(scoresRef.current.writing||{}), band:aiResult.band, aiFeedback:aiResult.aiFeedback, aiDetection:aiResult.aiDetection}};
+                setScores(ns);
+                await autoSave(ns); // persist AI feedback to Supabase before Results mounts
                 setStep(7);
               }}
             />
