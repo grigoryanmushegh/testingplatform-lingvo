@@ -2930,12 +2930,24 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
       suiteId: suiteId||null,
       overall: allBands.length ? overall : null,
       speakingBooking:booking,
-      // Only save sections that were actually taken
+      // Only save sections that were actually taken (Lraw/Rraw/Wraw are null if skipped)
       ...(Lraw ? {listeningScore:`${L.correct}/${L.total}`, listeningBand:lBand, listeningAnswers:L.answers, allListeningQuestions:L.allQuestions||[]} : {}),
       ...(Rraw ? {readingScore:`${R.correct}/${R.total}`,   readingBand:rBand,   readingAnswers:R.answers,   allReadingQuestions:R.allQuestions||[]}   : {}),
       ...(Wraw ? {writingBand:wBand, writingTexts:W.texts, writingFeedback:W.aiFeedback, writingAiDetection:W.aiDetection} : {}),
     };
+    // Save to local state + push to Supabase
     dbPushNow("participants", record);
+    // Also directly update/insert Supabase row as safety net
+    if(supabase) {
+      const email=(info?.email||"").toLowerCase().trim();
+      supabase.from("participants").update({email, type:"attempt", data:record}).eq("id",finalId)
+        .then(({error:updErr})=>{
+          if(updErr) {
+            supabase.from("participants").insert({id:finalId, email, type:"attempt", data:record})
+              .then(({error:insErr})=>{ if(insErr) console.warn("[Results] Supabase save failed:",insErr.message); });
+          }
+        });
+    }
   },[]);
 
   const sections=[
@@ -6546,8 +6558,12 @@ export default function App() {
     if(supabase) {
       try {
         const email=(candidate.email||"").toLowerCase().trim();
-        const {error} = await supabase.from("participants").upsert({id:partial.id, email, type:"attempt", data:partial},{onConflict:"id"});
-        if(error) console.warn("[autoSave] Supabase upsert failed:", error.message);
+        // Try update first (reliable for existing rows), fall back to insert for first save
+        const {error:updErr} = await supabase.from("participants").update({email, type:"attempt", data:partial}).eq("id",partial.id);
+        if(updErr) {
+          const {error:insErr} = await supabase.from("participants").insert({id:partial.id, email, type:"attempt", data:partial});
+          if(insErr) console.warn("[autoSave] Supabase save failed:", insErr.message);
+        }
       } catch(e) { console.warn("[autoSave] Supabase error:", e); }
     }
   };
@@ -6697,9 +6713,9 @@ export default function App() {
           {step===7&&(
             <Results
               scores={{
-                listening: scores.listening||{correct:0,total:40,answers:{},allQuestions:[]},
-                reading:   scores.reading  ||{correct:0,total:40,answers:{},allQuestions:[]},
-                writing:   scores.writing  ||{texts:{},taskData:null,band:null,aiFeedback:null,aiDetection:null},
+                listening: scores.listening||null,
+                reading:   scores.reading  ||null,
+                writing:   scores.writing  ||null,
               }}
               candidateInfo={candidate||{name:"Candidate",email:""}}
               booking={booking}
