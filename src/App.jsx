@@ -6688,25 +6688,27 @@ export default function App() {
             <SpeakingBooking candidateInfo={candidate} onComplete={b=>{setBooking(b);setStep(6);}}/>
           )}
           {/* Step 6: AI checks writing in background — "results on the way" screen */}
-          {step===6&&scores.writing&&(
+          {/* Use scoresRef.current (not React state) — state may lag after async await */}
+          {step===6&&(
             <ResultsLoading
-              writingTexts={scores.writing?.texts}
-              writingTaskData={scores.writing?.taskData||activeSuite?.writingData}
+              writingTexts={scoresRef.current.writing?.texts}
+              writingTaskData={scoresRef.current.writing?.taskData||activeSuite?.writingData}
               onComplete={async aiResult=>{
                 const ns = {...scoresRef.current, writing:{...(scoresRef.current.writing||{}), band:aiResult.band, aiFeedback:aiResult.aiFeedback, aiDetection:aiResult.aiDetection}};
+                scoresRef.current = ns; // update ref synchronously so step-7 render reads correct data
                 setScores(ns);
-                await autoSave(ns); // persist AI feedback to Supabase before Results mounts
+                await autoSave(ns);
                 setStep(7);
               }}
             />
           )}
-          {/* Step 7: Final results — always attempt to render if step===7 */}
+          {/* Step 7: Final results — pass scoresRef.current (always up-to-date) not stale React state */}
           {step===7&&(
             <Results
               scores={{
-                listening: scores.listening||null,
-                reading:   scores.reading  ||null,
-                writing:   scores.writing  ||null,
+                listening: scoresRef.current.listening||null,
+                reading:   scoresRef.current.reading  ||null,
+                writing:   scoresRef.current.writing  ||null,
               }}
               candidateInfo={candidate||{name:"Candidate",email:""}}
               booking={booking}
