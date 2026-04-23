@@ -2935,18 +2935,13 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
       ...(Rraw ? {readingScore:`${R.correct}/${R.total}`,   readingBand:rBand,   readingAnswers:R.answers,   allReadingQuestions:R.allQuestions||[]}   : {}),
       ...(Wraw ? {writingBand:wBand, writingTexts:W.texts, writingFeedback:W.aiFeedback, writingAiDetection:W.aiDetection} : {}),
     };
-    // Save to local state + push to Supabase
+    // Save to local state + push to Supabase via dbPushNow
     dbPushNow("participants", record);
-    // Also directly update/insert Supabase row as safety net
+    // Direct Supabase upsert as safety net (fire-and-forget)
     if(supabase) {
       const email=(info?.email||"").toLowerCase().trim();
-      supabase.from("participants").update({email, type:"attempt", data:record}).eq("id",finalId)
-        .then(({error:updErr})=>{
-          if(updErr) {
-            supabase.from("participants").insert({id:finalId, email, type:"attempt", data:record})
-              .then(({error:insErr})=>{ if(insErr) console.warn("[Results] Supabase save failed:",insErr.message); });
-          }
-        });
+      supabase.from("participants").upsert({id:finalId, email, type:"attempt", data:record})
+        .then(({error})=>{ if(error) console.warn("[Results] Supabase upsert failed:",error.message); });
     }
   },[]);
 
@@ -6558,12 +6553,8 @@ export default function App() {
     if(supabase) {
       try {
         const email=(candidate.email||"").toLowerCase().trim();
-        // Try update first (reliable for existing rows), fall back to insert for first save
-        const {error:updErr} = await supabase.from("participants").update({email, type:"attempt", data:partial}).eq("id",partial.id);
-        if(updErr) {
-          const {error:insErr} = await supabase.from("participants").insert({id:partial.id, email, type:"attempt", data:partial});
-          if(insErr) console.warn("[autoSave] Supabase save failed:", insErr.message);
-        }
+        const {error} = await supabase.from("participants").upsert({id:partial.id, email, type:"attempt", data:partial});
+        if(error) console.warn("[autoSave] Supabase upsert failed:", error.message);
       } catch(e) { console.warn("[autoSave] Supabase error:", e); }
     }
   };

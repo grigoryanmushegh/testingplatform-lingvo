@@ -31,12 +31,8 @@ export const _insertParticipant = async item => {
   try {
     const email = ((item.candidate?.email||item.email)||"").toLowerCase().trim();
     const type  = item.listeningBand!=null ? "attempt" : "registration";
-    // Try update first (existing row), fall back to insert for first save
-    const {error:updErr} = await supabase.from("participants").update({email, type, data:item}).eq("id", item.id);
-    if(updErr) {
-      const {error:insErr} = await supabase.from("participants").insert({id:item.id, email, type, data:item});
-      if(insErr){ console.warn("[DB] participant insert error:",insErr.message); return false; }
-    }
+    const {error} = await supabase.from("participants").upsert({id:item.id, email, type, data:item});
+    if(error){ console.warn("[DB] participant upsert error:",error.message); return false; }
     return true;
   } catch(e){ console.warn("[DB] participant upsert failed:",e); return false; }
 };
