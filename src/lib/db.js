@@ -31,8 +31,11 @@ export const _insertParticipant = async item => {
   try {
     const email = ((item.candidate?.email||item.email)||"").toLowerCase().trim();
     const type  = item.listeningBand!=null ? "attempt" : "registration";
-    const {error} = await supabase.from("participants").upsert({id:item.id, email, type, data:item});
-    if(error){ console.warn("[DB] participant upsert error:",error.message); return false; }
+    // Always INSERT a fresh row — RLS blocks UPDATE on existing rows with anon key.
+    // data.id holds the session ID for deduplication in reloadDB; the Supabase PK is separate.
+    const rowId = item.id + "-" + Date.now().toString(36);
+    const {error} = await supabase.from("participants").insert({id:rowId, email, type, data:item});
+    if(error){ console.warn("[DB] participant insert error:",error.message); return false; }
     return true;
   } catch(e){ console.warn("[DB] participant upsert failed:",e); return false; }
 };

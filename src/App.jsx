@@ -2937,11 +2937,12 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
     };
     // Save to local state + push to Supabase via dbPushNow
     dbPushNow("participants", record);
-    // Direct Supabase upsert as safety net (fire-and-forget)
+    // Direct Supabase INSERT as safety net — always fresh row ID to avoid RLS UPDATE block
     if(supabase) {
       const email=(info?.email||"").toLowerCase().trim();
-      supabase.from("participants").upsert({id:finalId, email, type:"attempt", data:record})
-        .then(({error})=>{ if(error) console.warn("[Results] Supabase upsert failed:",error.message); });
+      const rowId = finalId + "-" + Date.now().toString(36);
+      supabase.from("participants").insert({id:rowId, email, type:"attempt", data:record})
+        .then(({error})=>{ if(error) console.warn("[Results] Supabase insert failed:",error.message); });
     }
   },[]);
 
@@ -6553,8 +6554,10 @@ export default function App() {
     if(supabase) {
       try {
         const email=(candidate.email||"").toLowerCase().trim();
-        const {error} = await supabase.from("participants").upsert({id:partial.id, email, type:"attempt", data:partial});
-        if(error) console.warn("[autoSave] Supabase upsert failed:", error.message);
+        // Always INSERT fresh row — RLS blocks UPDATE on existing rows with anon key
+        const rowId = partial.id + "-" + Date.now().toString(36);
+        const {error} = await supabase.from("participants").insert({id:rowId, email, type:"attempt", data:partial});
+        if(error) console.warn("[autoSave] Supabase insert failed:", error.message);
       } catch(e) { console.warn("[autoSave] Supabase error:", e); }
     }
   };
