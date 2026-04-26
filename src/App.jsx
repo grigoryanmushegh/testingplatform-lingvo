@@ -4245,6 +4245,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
   const [speakingInputs, setSpeakingInputs] = useState({});
   const [recheckStates, setRecheckStates]   = useState({});
   const [showSendModal, setShowSendModal]   = useState(false);
+  const [manualScores, setManualScores]     = useState({});
 
   // Re-check a single attempt's writing with AI
   const handleRecheckWriting = async (a) => {
@@ -4588,6 +4589,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                       // Enrich stored questions with live answer keys
                       const lQs = (a.allListeningQuestions||[]).map(q=>({...q,correct:liveKey(q)}));
                       const rQs = (a.allReadingQuestions||[]).map(q=>({...q,correct:liveKey(q)}));
+                      const aKey = a.id||a.timestamp||"";
                       const tabs = [["listening","🎧","Listening"],["reading","📖","Reading"],["writing","✍️","Writing"],["speaking","🗣️","Speaking"]];
                       return (
                         <div style={{borderTop:`1px solid ${C.s200}`}}>
@@ -4605,14 +4607,50 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                           <div style={{padding:20,background:"#fff"}}>
 
                             {/* LISTENING */}
-                            {histTab==="listening"&&(
+                            {histTab==="listening"&&(()=>{
+                              const lOvrs=(recheckStates[`ansOvr_${aKey}`]||{}).listening||{};
+                              const hasLOvrs=Object.keys(lOvrs).length>0;
+                              const lSaved=recheckStates[`ansOvr_${aKey}`]?.lSaved;
+                              const lSaving=recheckStates[`ansOvr_${aKey}`]?.lSaving;
+                              const saveL=async()=>{
+                                setRecheckStates(s=>({...s,[`ansOvr_${aKey}`]:{...s[`ansOvr_${aKey}`],lSaving:true}}));
+                                const nCorrect=lQs.filter(q=>{
+                                  if(q.id in lOvrs) return lOvrs[q.id];
+                                  const ansText=rawTxt(lAns[q.id]);
+                                  const cv=(q.correct||"").trim().toLowerCase();
+                                  const av=ansText.trim().toLowerCase();
+                                  return av&&cv&&(av===cv||av.includes(cv)||cv.includes(av)||av.replace(/[^a-h]/g,"")[0]===cv.replace(/[^a-h]/g,"")[0]);
+                                }).length;
+                                const tot=lQs.length||40;
+                                const newLB=listeningBand(nCorrect,tot);
+                                const newLScore=`${nCorrect}/${tot}`;
+                                const newOverall=overallBand([newLB,a.readingBand,a.writingBand,a.speakingBand].filter(b=>b!=null));
+                                const patch={listeningBand:newLB,listeningScore:newLScore,overall:newOverall};
+                                const curDb=loadDB();
+                                const upPts=(curDb.participants||[]).map(p2=>(p2.id&&p2.id===a.id)||(p2.timestamp&&p2.timestamp===a.timestamp)?{...p2,...patch}:p2);
+                                const sOvrs2={...(curDb.scoreOverrides||{})};
+                                sOvrs2[aKey]={...(sOvrs2[aKey]||{}),...patch};
+                                const updDb={...curDb,participants:upPts,scoreOverrides:sOvrs2};
+                                setInternalDb(updDb);try{localStorage.setItem(DB_KEY,JSON.stringify(updDb));}catch{}
+                                await _flushConfig(updDb);
+                                const upAtts=(profile.attempts||[]).map(att=>(att===a||att.timestamp===a.timestamp)?{...att,...patch}:att);
+                                onUpdateProfile?.({...profile,attempts:upAtts});
+                                setRecheckStates(s=>({...s,[`ansOvr_${aKey}`]:{...s[`ansOvr_${aKey}`],lSaving:false,lSaved:true}}));
+                                setTimeout(()=>setRecheckStates(s=>({...s,[`ansOvr_${aKey}`]:{...s[`ansOvr_${aKey}`],lSaved:false}})),3000);
+                              };
+                              return (
                               <div>
-                                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+                                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,flexWrap:"wrap"}}>
                                   <BandBadge val={a.listeningBand} large/>
-                                  <div>
+                                  <div style={{flex:1}}>
                                     <div style={{fontWeight:700,fontSize:13,color:C.s900}}>Listening Score</div>
                                     <div style={{fontSize:12,color:C.s400}}>{a.listeningScore||"—"} correct</div>
                                   </div>
+                                  {lQs.length>0&&hasLOvrs&&(
+                                    <button onClick={saveL} disabled={lSaving} style={{...btnStyle("teal",lSaving),padding:"6px 14px",fontSize:11}}>
+                                      {lSaving?"Saving…":lSaved?"✓ Saved!":"💾 Save Corrections"}
+                                    </button>
+                                  )}
                                 </div>
                                 {lQs.length>0?(
                                   <div>
@@ -4621,8 +4659,10 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                       const ansText = rawTxt(ans);
                                       const cv = (q.correct||"").trim().toLowerCase();
                                       const av = ansText.trim().toLowerCase();
-                                      const correct = av&&cv&&(av===cv||av.includes(cv)||cv.includes(av)||av.replace(/[^a-h]/g,"")[0]===cv.replace(/[^a-h]/g,"")[0]);
-                                      const noKey = !cv;
+                                      const autoCorrect = av&&cv&&(av===cv||av.includes(cv)||cv.includes(av)||av.replace(/[^a-h]/g,"")[0]===cv.replace(/[^a-h]/g,"")[0]);
+                                      const isOverridden = q.id in lOvrs;
+                                      const correct = isOverridden ? lOvrs[q.id] : autoCorrect;
+                                      const noKey = !cv&&!isOverridden;
                                       return (
                                         <div key={qi} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"8px 0",borderBottom:`1px solid ${C.s200}`}}>
                                           <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:4,padding:"2px 6px",flexShrink:0,marginTop:2}}>{q.id}</span>
@@ -4633,27 +4673,75 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                                 {ansText?`Your answer: "${ansText}"`:"Not answered"}
                                               </span>
                                               {noKey&&ansText&&<span style={{fontSize:11,color:"#d97706",fontWeight:600}}>⚠ No answer key set</span>}
-                                              {!noKey&&ansText&&!correct&&<span style={{fontSize:11,color:C.teal,fontWeight:600}}>✓ Correct: "{q.correct}"</span>}
+                                              {!noKey&&ansText&&!correct&&<span style={{fontSize:11,color:C.teal,fontWeight:600}}>✓ Key: "{q.correct}"</span>}
                                               {!noKey&&ansText&&correct&&<span style={{fontSize:11,color:C.teal}}>✓</span>}
+                                              {isOverridden&&<span style={{fontSize:10,color:"#8b5cf6",fontWeight:600}}>· overridden</span>}
                                             </div>
                                           </div>
+                                          <button title={correct?"Mark as incorrect":"Mark as correct"} onClick={()=>{
+                                            setRecheckStates(s=>{
+                                              const prev=s[`ansOvr_${aKey}`]||{};
+                                              const prevL=prev.listening||{};
+                                              return {...s,[`ansOvr_${aKey}`]:{...prev,listening:{...prevL,[q.id]:!correct}}};
+                                            });
+                                          }} style={{flexShrink:0,padding:"3px 9px",borderRadius:6,border:"none",cursor:"pointer",
+                                            fontSize:12,fontWeight:700,marginTop:2,
+                                            background:correct?"#dcfce7":"#fee2e2",color:correct?"#16a34a":"#dc2626",
+                                          }}>{correct?"✓":"✗"}</button>
                                         </div>
                                       );
                                     })}
                                   </div>
                                 ):<div style={{color:C.s400,fontSize:12,fontStyle:"italic",padding:"12px 0"}}>Detailed question data not available for this attempt.</div>}
                               </div>
-                            )}
+                              );
+                            })()}
 
                             {/* READING */}
-                            {histTab==="reading"&&(
+                            {histTab==="reading"&&(()=>{
+                              const rOvrs=(recheckStates[`ansOvr_${aKey}`]||{}).reading||{};
+                              const hasROvrs=Object.keys(rOvrs).length>0;
+                              const rSaved=recheckStates[`ansOvr_${aKey}`]?.rSaved;
+                              const rSaving=recheckStates[`ansOvr_${aKey}`]?.rSaving;
+                              const saveR=async()=>{
+                                setRecheckStates(s=>({...s,[`ansOvr_${aKey}`]:{...s[`ansOvr_${aKey}`],rSaving:true}}));
+                                const nCorrect=rQs.filter(q=>{
+                                  if(q.id in rOvrs) return rOvrs[q.id];
+                                  const ansText=rawTxt(rAns[q.id]);
+                                  const cv=(q.correct||"").trim().toLowerCase();
+                                  const av=ansText.trim().toLowerCase();
+                                  return av&&cv&&(av===cv||av.includes(cv)||cv.includes(av)||av.replace(/[^a-h]/g,"")[0]===cv.replace(/[^a-h]/g,"")[0]);
+                                }).length;
+                                const tot=rQs.length||40;
+                                const newRB=readingBand(nCorrect,tot);
+                                const newRScore=`${nCorrect}/${tot}`;
+                                const newOverall=overallBand([a.listeningBand,newRB,a.writingBand,a.speakingBand].filter(b=>b!=null));
+                                const patch={readingBand:newRB,readingScore:newRScore,overall:newOverall};
+                                const curDb=loadDB();
+                                const upPts=(curDb.participants||[]).map(p2=>(p2.id&&p2.id===a.id)||(p2.timestamp&&p2.timestamp===a.timestamp)?{...p2,...patch}:p2);
+                                const sOvrs2={...(curDb.scoreOverrides||{})};
+                                sOvrs2[aKey]={...(sOvrs2[aKey]||{}),...patch};
+                                const updDb={...curDb,participants:upPts,scoreOverrides:sOvrs2};
+                                setInternalDb(updDb);try{localStorage.setItem(DB_KEY,JSON.stringify(updDb));}catch{}
+                                await _flushConfig(updDb);
+                                const upAtts=(profile.attempts||[]).map(att=>(att===a||att.timestamp===a.timestamp)?{...att,...patch}:att);
+                                onUpdateProfile?.({...profile,attempts:upAtts});
+                                setRecheckStates(s=>({...s,[`ansOvr_${aKey}`]:{...s[`ansOvr_${aKey}`],rSaving:false,rSaved:true}}));
+                                setTimeout(()=>setRecheckStates(s=>({...s,[`ansOvr_${aKey}`]:{...s[`ansOvr_${aKey}`],rSaved:false}})),3000);
+                              };
+                              return (
                               <div>
-                                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+                                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,flexWrap:"wrap"}}>
                                   <BandBadge val={a.readingBand} large/>
-                                  <div>
+                                  <div style={{flex:1}}>
                                     <div style={{fontWeight:700,fontSize:13,color:C.s900}}>Reading Score</div>
                                     <div style={{fontSize:12,color:C.s400}}>{a.readingScore||"—"} correct</div>
                                   </div>
+                                  {rQs.length>0&&hasROvrs&&(
+                                    <button onClick={saveR} disabled={rSaving} style={{...btnStyle("teal",rSaving),padding:"6px 14px",fontSize:11}}>
+                                      {rSaving?"Saving…":rSaved?"✓ Saved!":"💾 Save Corrections"}
+                                    </button>
+                                  )}
                                 </div>
                                 {rQs.length>0?(
                                   <div>
@@ -4662,8 +4750,10 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                       const ansText = rawTxt(ans);
                                       const cv = (q.correct||"").trim().toLowerCase();
                                       const av = ansText.trim().toLowerCase();
-                                      const correct = av&&cv&&(av===cv||av.includes(cv)||cv.includes(av)||av.replace(/[^a-h]/g,"")[0]===cv.replace(/[^a-h]/g,"")[0]);
-                                      const noKey = !cv;
+                                      const autoCorrect = av&&cv&&(av===cv||av.includes(cv)||cv.includes(av)||av.replace(/[^a-h]/g,"")[0]===cv.replace(/[^a-h]/g,"")[0]);
+                                      const isOverridden = q.id in rOvrs;
+                                      const correct = isOverridden ? rOvrs[q.id] : autoCorrect;
+                                      const noKey = !cv&&!isOverridden;
                                       return (
                                         <div key={qi} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"8px 0",borderBottom:`1px solid ${C.s200}`}}>
                                           <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:4,padding:"2px 6px",flexShrink:0,marginTop:2}}>Q{q.id}</span>
@@ -4674,17 +4764,29 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                                 {ansText?`Your answer: "${ansText}"`:"Not answered"}
                                               </span>
                                               {noKey&&ansText&&<span style={{fontSize:11,color:"#d97706",fontWeight:600}}>⚠ No answer key set</span>}
-                                              {!noKey&&ansText&&!correct&&<span style={{fontSize:11,color:C.teal,fontWeight:600}}>✓ Correct: "{q.correct}"</span>}
+                                              {!noKey&&ansText&&!correct&&<span style={{fontSize:11,color:C.teal,fontWeight:600}}>✓ Key: "{q.correct}"</span>}
                                               {!noKey&&ansText&&correct&&<span style={{fontSize:11,color:C.teal}}>✓</span>}
+                                              {isOverridden&&<span style={{fontSize:10,color:"#8b5cf6",fontWeight:600}}>· overridden</span>}
                                             </div>
                                           </div>
+                                          <button title={correct?"Mark as incorrect":"Mark as correct"} onClick={()=>{
+                                            setRecheckStates(s=>{
+                                              const prev=s[`ansOvr_${aKey}`]||{};
+                                              const prevR=prev.reading||{};
+                                              return {...s,[`ansOvr_${aKey}`]:{...prev,reading:{...prevR,[q.id]:!correct}}};
+                                            });
+                                          }} style={{flexShrink:0,padding:"3px 9px",borderRadius:6,border:"none",cursor:"pointer",
+                                            fontSize:12,fontWeight:700,marginTop:2,
+                                            background:correct?"#dcfce7":"#fee2e2",color:correct?"#16a34a":"#dc2626",
+                                          }}>{correct?"✓":"✗"}</button>
                                         </div>
                                       );
                                     })}
                                   </div>
                                 ):<div style={{color:C.s400,fontSize:12,fontStyle:"italic",padding:"12px 0"}}>Detailed question data not available for this attempt.</div>}
                               </div>
-                            )}
+                              );
+                            })()}
 
                             {/* WRITING */}
                             {histTab==="writing"&&(
@@ -5050,6 +5152,91 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
               </div>
             ))}
           </div>
+
+          {/* ── MANUAL SCORE ENTRY ── */}
+          {(()=>{
+            const msKey = p.id||p.timestamp||"";
+            const ms = manualScores[msKey]||{};
+            const setMs = patch => setManualScores(s=>({...s,[msKey]:{...(s[msKey]||{}),...patch}}));
+            const lN = ms.listeningN!==undefined ? ms.listeningN : "";
+            const rN = ms.readingN!==undefined  ? ms.readingN  : "";
+            const wB = ms.writingB!==undefined  ? ms.writingB  : "";
+            const sB = ms.speakingB!==undefined ? ms.speakingB : "";
+            const lBprev = lN!==""&&!isNaN(parseInt(lN)) ? listeningBand(parseInt(lN),40) : null;
+            const rBprev = rN!==""&&!isNaN(parseInt(rN)) ? readingBand(parseInt(rN),40)   : null;
+            const wBprev = wB!==""&&!isNaN(parseFloat(wB)) ? parseFloat(wB) : null;
+            const sBprev = sB!==""&&!isNaN(parseFloat(sB)) ? parseFloat(sB) : null;
+            const validBands=[lBprev,rBprev,wBprev,sBprev].filter(b=>b!=null);
+            const overallPrev=validBands.length ? overallBand(validBands) : null;
+            const bOpts=Array.from({length:17},(_,i)=>((i+2)*0.5).toFixed(1));
+            return (
+              <div style={{...cardStyle({padding:20,marginTop:16})}}>
+                <div style={{fontSize:11,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14}}>Manual Score Entry</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+                  <div>
+                    <label style={labelStyle}>Listening correct (/ 40)</label>
+                    <input type="number" min={0} max={40} value={lN} placeholder="e.g. 28"
+                      onChange={e=>setMs({listeningN:e.target.value})}
+                      style={{...inputStyle,width:"100%",boxSizing:"border-box"}}/>
+                    {lBprev!=null&&<div style={{fontSize:11,color:C.teal,fontWeight:600,marginTop:4}}>→ Band {lBprev}</div>}
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Reading correct (/ 40)</label>
+                    <input type="number" min={0} max={40} value={rN} placeholder="e.g. 32"
+                      onChange={e=>setMs({readingN:e.target.value})}
+                      style={{...inputStyle,width:"100%",boxSizing:"border-box"}}/>
+                    {rBprev!=null&&<div style={{fontSize:11,color:C.teal,fontWeight:600,marginTop:4}}>→ Band {rBprev}</div>}
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Writing Band</label>
+                    <select value={wB} onChange={e=>setMs({writingB:e.target.value})}
+                      style={{...inputStyle,width:"100%",boxSizing:"border-box"}}>
+                      <option value="">— select —</option>
+                      {bOpts.map(o=><option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Speaking Band</label>
+                    <select value={sB} onChange={e=>setMs({speakingB:e.target.value})}
+                      style={{...inputStyle,width:"100%",boxSizing:"border-box"}}>
+                      <option value="">— select —</option>
+                      {bOpts.map(o=><option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {overallPrev!=null&&(
+                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.brandL,borderRadius:10,marginBottom:12}}>
+                    <span style={{fontSize:12,fontWeight:700,color:C.brand}}>Computed Overall:</span>
+                    <BandBadge val={overallPrev} large/>
+                  </div>
+                )}
+                <button disabled={validBands.length===0||ms.saving} onClick={async()=>{
+                  if(validBands.length===0) return;
+                  setMs({saving:true,saved:false});
+                  const patch={};
+                  if(lBprev!=null){patch.listeningBand=lBprev;patch.listeningScore=`${lN}/40`;}
+                  if(rBprev!=null){patch.readingBand=rBprev;patch.readingScore=`${rN}/40`;}
+                  if(wBprev!=null) patch.writingBand=wBprev;
+                  if(sBprev!=null) patch.speakingBand=sBprev;
+                  const fBands=[lBprev??p.listeningBand,rBprev??p.readingBand,wBprev??p.writingBand,sBprev??p.speakingBand].filter(b=>b!=null);
+                  patch.overall=fBands.length?overallBand(fBands):p.overall;
+                  const curDb=loadDB();
+                  const upPts=(curDb.participants||[]).map(pt=>(pt.id&&pt.id===p.id)||(pt.timestamp&&pt.timestamp===p.timestamp)?{...pt,...patch}:pt);
+                  const sOvrs={...(curDb.scoreOverrides||{})};
+                  sOvrs[msKey]={...(sOvrs[msKey]||{}),...patch};
+                  const updDb={...curDb,participants:upPts,scoreOverrides:sOvrs};
+                  setInternalDb(updDb);try{localStorage.setItem(DB_KEY,JSON.stringify(updDb));}catch{}
+                  await _flushConfig(updDb);
+                  const upAtts=(profile.attempts||[]).map(att=>(att===p||att.timestamp===p.timestamp)?{...att,...patch}:att);
+                  onUpdateProfile?.({...profile,attempts:upAtts});
+                  setMs({saving:false,saved:true,listeningN:"",readingN:"",writingB:"",speakingB:""});
+                  setTimeout(()=>setMs({saved:false}),4000);
+                }} style={{...btnStyle("primary",validBands.length===0||ms.saving)}}>
+                  {ms.saving?"Saving…":ms.saved?"✓ Scores Saved!":"Save Scores"}
+                </button>
+              </div>
+            );
+          })()}
         </div>
       </div>
       )}
