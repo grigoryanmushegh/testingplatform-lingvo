@@ -4727,6 +4727,110 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                     No writing responses submitted for this attempt.
                                   </div>
                                 )}
+                                {/* Manual writing upload section */}
+                                {(()=>{
+                                  const mKey = `manual_${a.id||a.timestamp}`;
+                                  const ms = recheckStates[mKey]||{};
+                                  const [mt1, setMt1] = [ms.manualT1||"", v=>setRecheckStates(s=>({...s,[mKey]:{...s[mKey],manualT1:v}}))];
+                                  const [mt2, setMt2] = [ms.manualT2||"", v=>setRecheckStates(s=>({...s,[mKey]:{...s[mKey],manualT2:v}}))];
+                                  const [mp1, setMp1] = [ms.manualP1||"", v=>setRecheckStates(s=>({...s,[mKey]:{...s[mKey],manualP1:v}}))];
+                                  const [mp2, setMp2] = [ms.manualP2||"", v=>setRecheckStates(s=>({...s,[mKey]:{...s[mKey],manualP2:v}}))];
+                                  const [open, setOpen] = [!!ms.open, v=>setRecheckStates(s=>({...s,[mKey]:{...s[mKey],open:v}}))];
+
+                                  const handleManualCheck = async () => {
+                                    if(!mt1.trim()&&!mt2.trim()) return;
+                                    setRecheckStates(s=>({...s,[mKey]:{...s[mKey],loading:true,taskLoading:{0:!!mt1.trim(),1:!!mt2.trim()},msg:"",error:false}}));
+                                    const newFb={...( a.writingFeedback||{})};
+                                    const newDet={...( a.writingAiDetection||{})};
+                                    const errors=[];
+                                    for(const ti of [0,1]){
+                                      const txt=ti===0?mt1:mt2;
+                                      if(!txt.trim()) continue;
+                                      const fb=await runAICheck(txt,{task:`Task ${ti+1}`,prompt:ti===0?mp1:mp2});
+                                      if(fb._error) errors.push(`Task ${ti+1}: ${fb._error}`);
+                                      newFb[ti]=fb;
+                                      if(fb.aiDetection) newDet[`task${ti+1}`]=fb.aiDetection;
+                                      setRecheckStates(s=>({...s,[mKey]:{...s[mKey],taskLoading:{...s[mKey]?.taskLoading,[ti]:false}}}));
+                                    }
+                                    // Save new texts + feedback
+                                    const newTexts={...( a.writingTexts||{})};
+                                    if(mt1.trim()) newTexts[0]=mt1.trim();
+                                    if(mt2.trim()) newTexts[1]=mt2.trim();
+                                    const bands=[newFb[0]?.band,newFb[1]?.band].filter(b=>b!=null&&!isNaN(b));
+                                    const newWBand=bands.length?Math.round(bands.reduce((x,b)=>x+b,0)/bands.length*2)/2:a.writingBand;
+                                    const newOverall=overallBand([a.listeningBand,a.readingBand,newWBand,a.speakingBand].filter(b=>b!=null));
+                                    const patch={writingFeedback:newFb,writingAiDetection:newDet,writingBand:newWBand,overall:newOverall,writingTexts:newTexts};
+                                    const curDb5=loadDB();
+                                    const updatedPts5=(curDb5.participants||[]).map(p=>(p.id&&p.id===a.id)||(p.timestamp&&p.timestamp===a.timestamp)?{...p,...patch}:p);
+                                    const overrides5={...( curDb5.scoreOverrides||{})};
+                                    const k5=a.id||a.timestamp;
+                                    overrides5[k5]={...( overrides5[k5]||{}),...patch};
+                                    const updDb5={...curDb5,participants:updatedPts5,scoreOverrides:overrides5};
+                                    setInternalDb(updDb5);
+                                    try{localStorage.setItem(DB_KEY,JSON.stringify(updDb5));}catch{}
+                                    await _flushConfig(updDb5);
+                                    const updAttempts5=(profile.attempts||[]).map(att=>att===a||att.timestamp===a.timestamp?{...att,...patch}:att);
+                                    onUpdateProfile({...profile,attempts:updAttempts5});
+                                    setRecheckStates(s=>({...s,[mKey]:{...s[mKey],loading:false,msg:errors.length?errors.join(" | "):"✓ Writing evaluated and saved!",error:errors.length>0,open:false,manualT1:"",manualT2:""}}));
+                                  };
+
+                                  return (
+                                    <div style={{marginBottom:16,border:`1.5px dashed ${C.brand}60`,borderRadius:12,overflow:"hidden"}}>
+                                      <button onClick={()=>setOpen(!open)}
+                                        style={{width:"100%",padding:"12px 16px",background:open?C.brandL:"#F8FAFC",border:"none",cursor:"pointer",
+                                          display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:13,fontWeight:700,color:C.brand}}>
+                                        <span>📤 Upload / Paste Writing for AI Evaluation</span>
+                                        <span style={{fontSize:16,transform:open?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
+                                      </button>
+                                      {open&&(
+                                        <div style={{padding:16,background:"#fff"}}>
+                                          <p style={{fontSize:12,color:C.s500,marginBottom:14}}>
+                                            Paste the student's handwritten or typed response below. AI will evaluate and save the score to their profile.
+                                          </p>
+                                          {[0,1].map(ti=>(
+                                            <div key={ti} style={{marginBottom:14,border:`1px solid ${C.s200}`,borderRadius:10,overflow:"hidden"}}>
+                                              <div style={{background:C.s100,padding:"8px 12px",fontWeight:700,fontSize:12,color:C.s800,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                                                <span>Task {ti+1} {ti===0?"(Report / Letter)":"(Essay)"}</span>
+                                                <span style={{fontSize:11,color:C.s400,fontWeight:500}}>{countWords(ti===0?mt1:mt2)} words</span>
+                                              </div>
+                                              <div style={{padding:10}}>
+                                                <input
+                                                  value={ti===0?mp1:mp2}
+                                                  onChange={e=>ti===0?setMp1(e.target.value):setMp2(e.target.value)}
+                                                  placeholder={`Task ${ti+1} prompt / question (optional)`}
+                                                  style={{...inputStyle,fontSize:12,marginBottom:8,background:"#FFFBEB"}}
+                                                />
+                                                <textarea
+                                                  value={ti===0?mt1:mt2}
+                                                  onChange={e=>ti===0?setMt1(e.target.value):setMt2(e.target.value)}
+                                                  placeholder={`Paste Task ${ti+1} student response here…`}
+                                                  rows={5}
+                                                  style={{...inputStyle,resize:"vertical",fontFamily:"inherit",lineHeight:1.7,fontSize:13,width:"100%",boxSizing:"border-box"}}
+                                                />
+                                              </div>
+                                            </div>
+                                          ))}
+                                          {ms.msg&&(
+                                            <div style={{marginBottom:10,padding:"10px 14px",borderRadius:8,fontSize:12,fontWeight:600,
+                                              background:ms.error?"#FEF2F2":"#F0FDF4",color:ms.error?"#DC2626":"#16A34A",
+                                              border:`1.5px solid ${ms.error?"#FCA5A5":"#86EFAC"}`}}>
+                                              {ms.msg}
+                                            </div>
+                                          )}
+                                          <button
+                                            onClick={handleManualCheck}
+                                            disabled={ms.loading||(!mt1.trim()&&!mt2.trim())}
+                                            style={{...btnStyle("primary"),width:"100%",padding:"11px",fontSize:13,fontWeight:700,
+                                              opacity:ms.loading||(!mt1.trim()&&!mt2.trim())?0.5:1,
+                                              cursor:ms.loading||(!mt1.trim()&&!mt2.trim())?"not-allowed":"pointer"}}>
+                                            {ms.loading?"🔄 Evaluating with AI…":"🤖 Evaluate with AI & Save Score"}
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+
                                 {[0,1].map(ti=>{
                                   const det = (a.writingAiDetection||{})[`task${ti+1}`];
                                   const riskColor = !det?null:det.risk<=25?"#16A34A":det.risk<=55?"#D97706":det.risk<=80?"#EA580C":"#DC2626";
