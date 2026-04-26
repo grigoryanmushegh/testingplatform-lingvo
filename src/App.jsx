@@ -831,6 +831,11 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                   while(i<sec.questions.length&&sec.questions[i].type==="note_completion"){grp.push(sec.questions[i]);i++;}
                   rendered.push(<NoteCompletionGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted}
                     scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
+                } else if(q.type==="table_grid"){
+                  const grp=[];
+                  while(i<sec.questions.length&&sec.questions[i].type==="table_grid"){grp.push(sec.questions[i]);i++;}
+                  rendered.push(<TableGridGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted}
+                    scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
                 } else if(q.type==="mcq_multi"){
                   const grp=[];
                   grp.push(sec.questions[i]); i++;
@@ -1326,10 +1331,13 @@ function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }
                 while(i<sec.questions.length&&sec.questions[i].type===q.type){grp.push(sec.questions[i]);i++;}
                 rendered.push(<MatchingGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted} scoreQ={scoreQ} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
               } else if(q.type==="note_completion"){
-                // Collect entire consecutive note_completion run as one visual group
                 const grp=[];
                 while(i<sec.questions.length&&sec.questions[i].type==="note_completion"){grp.push(sec.questions[i]);i++;}
                 rendered.push(<NoteCompletionGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted} scoreQ={scoreQ} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
+              } else if(q.type==="table_grid"){
+                const grp=[];
+                while(i<sec.questions.length&&sec.questions[i].type==="table_grid"){grp.push(sec.questions[i]);i++;}
+                rendered.push(<TableGridGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted} scoreQ={scoreQ} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
               } else if(q.type==="mcq_multi"){
                 const grp=[];
                 grp.push(sec.questions[i]); i++;
@@ -1679,6 +1687,94 @@ function NoteCompletionGroup({ questions, answers, submitted, scoreQ, onChange }
       {instructions&&<TaskInstructionBlock instructions={instructions}/>}
       <div style={{...cardStyle({padding:20,marginBottom:12}),background:"#F8FAFC",border:`1.5px solid ${C.s200}`}}>
         {renderTemplate()}
+      </div>
+    </>
+  );
+}
+
+// ── TABLE GRID GROUP ──────────────────────────────────────────────────────────
+// Renders a proper multi-column table with inline gap inputs.
+// Leader holds tableTitle, tableHeaders (string[]), tableRows (string[][]).
+// Each [Q] in any cell maps to the next question in the group (leader = gap 1).
+function TableGridGroup({ questions, answers, submitted, scoreQ, onChange }) {
+  const leader = questions[0];
+  if (!leader) return null;
+  const title    = leader.tableTitle || "";
+  const subtitle = leader.tableSubtitle || "";
+  const headers  = leader.tableHeaders || [];
+  const rows     = leader.tableRows || [];
+  const instructions = leader.instructions || "";
+  const hint     = leader.hint || "NO MORE THAN TWO WORDS OR A NUMBER";
+
+  let gapIdx = 0;
+
+  const renderCell = (cellText) => {
+    if (!cellText) return null;
+    if (!cellText.includes("[Q]")) return <span>{cellText}</span>;
+    const parts = cellText.split("[Q]");
+    return parts.map((part, pi) => {
+      const els = [<span key={`t${pi}`}>{part}</span>];
+      if (pi < parts.length - 1) {
+        const q   = questions[gapIdx];
+        const idx = gapIdx;
+        gapIdx++;
+        if (!q) return els;
+        const ans     = answers[q.id] || "";
+        const correct = submitted ? scoreQ(q, ans) : null;
+        els.push(
+          <span key={`g${idx}`} style={{display:"inline-flex",flexDirection:"column",alignItems:"center",gap:2,margin:"2px 4px",verticalAlign:"middle"}}>
+            <input
+              value={ans}
+              onChange={e => !submitted && onChange(q.id, e.target.value)}
+              disabled={submitted}
+              placeholder={hint}
+              style={{border:`1.5px solid ${submitted?(correct===true?C.teal:ans?C.rose:C.s300):C.brand}`,
+                borderRadius:6,padding:"4px 8px",fontSize:12,width:130,textAlign:"center",
+                background:submitted?(correct===true?"#F0FDF4":ans?"#FFF1F2":"#f8f9fa"):"#fff",
+                color:C.s900,outline:"none",fontFamily:"inherit"}}
+            />
+            {submitted && (
+              <span style={{fontSize:10,fontWeight:700,color:correct===true?C.teal:C.rose,whiteSpace:"nowrap"}}>
+                {correct===true ? "✓" : ans ? `✗ "${q.correct}"` : `— "${q.correct}"`}
+              </span>
+            )}
+          </span>
+        );
+      }
+      return els;
+    });
+  };
+
+  const thStyle = {border:`1px solid ${C.s300}`,padding:"8px 10px",background:C.s100,
+    fontWeight:700,fontSize:12,color:C.s800,textAlign:"center",whiteSpace:"pre-line",lineHeight:1.4};
+  const tdStyle = (ci) => ({border:`1px solid ${C.s300}`,padding:"10px 12px",fontSize:13,
+    color:C.s800,textAlign:"center",verticalAlign:"middle",
+    background:ci===0?"#F8FAFC":"#fff"});
+
+  return (
+    <>
+      {instructions && <TaskInstructionBlock instructions={instructions}/>}
+      <div style={{marginBottom:12}}>
+        {title    && <div style={{textAlign:"center",fontWeight:700,fontSize:15,color:C.s900,marginBottom:4}}>{title}</div>}
+        {subtitle && <div style={{textAlign:"center",fontWeight:600,fontSize:13,color:C.s700,marginBottom:10}}>{subtitle}</div>}
+        <div style={{overflowX:"auto",borderRadius:8,border:`1px solid ${C.s200}`}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:400}}>
+            {headers.length>0&&(
+              <thead>
+                <tr>{headers.map((h,hi)=><th key={hi} style={thStyle}>{h}</th>)}</tr>
+              </thead>
+            )}
+            <tbody>
+              {rows.map((row,ri)=>(
+                <tr key={ri}>
+                  {(Array.isArray(row)?row:[]).map((cell,ci)=>(
+                    <td key={ci} style={tdStyle(ci)}>{renderCell(cell)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </>
   );
@@ -5249,6 +5345,7 @@ const READING_Q_TYPES = [
   ["matching_features","Matching Features"],["matching_endings","Matching Sentence Endings"],
   ["sentence_completion","Sentence Completion"],["summary_completion","Summary Completion"],
   ["note_completion","Note Completion"],["table_completion","Table Completion"],
+  ["table_grid","Table Grid Completion (Multi-column)"],
   ["flowchart_completion","Flow-chart Completion"],["diagram_label","Diagram Label Completion"],
   ["short_answer","Short Answer Questions"],
 ];
@@ -5258,6 +5355,7 @@ const LISTENING_Q_TYPES = [
   ["diagram_label","Plan / Map / Diagram Labeling"],["form_completion","Form Completion"],
   ["form_table","Form / Table Completion (Visual Table)"],
   ["note_completion","Note Completion"],["table_completion","Table Completion"],
+  ["table_grid","Table Grid Completion (Multi-column)"],
   ["flowchart_completion","Flow-chart Completion"],["summary_completion","Summary Completion"],
   ["sentence_completion","Sentence Completion"],["short_answer","Short Answer Questions"],
 ];
@@ -5327,10 +5425,19 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
         })();
         const noteGapCount = (noteLeaderTemplate.match(/\[Q\]/g)||[]).length;
 
+        // Table Grid group detection
+        const isTableGrid       = q.type==="table_grid";
+        const isTableGridLeader = isTableGrid && (qi===0 || questions[qi-1]?.type!=="table_grid");
+        const isTableGridFollow = isTableGrid && !isTableGridLeader;
+        const tableGridGapNum   = isTableGridFollow ? (()=>{ let n=1; for(let k=qi-1;k>=0&&questions[k]?.type==="table_grid";k--)n++; return n; })() : 0;
+        // Count all [Q] markers in leader's rows
+        const tableGridLeaderRows = isTableGridLeader ? (q.tableRows||[]) : (()=>{ for(let k=qi-1;k>=0;k--){ if(questions[k]?.type==="table_grid") return questions[k].tableRows||[]; } return []; })();
+        const tableGridGapCount   = (tableGridLeaderRows.flat().join("").match(/\[Q\]/g)||[]).length;
+
         return (
           <div key={q.id} style={{...cardStyle({padding:16,marginBottom:10,
-            borderLeft:`3px solid ${(isGroupFollow||isFormTableFollow||isNoteFollow)?C.s300:C.brand}`,
-            background:(isGroupFollow||isFormTableFollow||isNoteFollow)?"#FAFAFA":"#fff"})}}>
+            borderLeft:`3px solid ${(isGroupFollow||isFormTableFollow||isNoteFollow||isTableGridFollow)?C.s300:C.brand}`,
+            background:(isGroupFollow||isFormTableFollow||isNoteFollow||isTableGridFollow)?"#FAFAFA":"#fff"})}}>
             {/* Header row */}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
               <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
@@ -5353,6 +5460,16 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
                 {isNoteFollow&&(
                   <span style={{fontSize:10,color:C.s500,fontWeight:600,background:"#F1F5F9",borderRadius:4,padding:"2px 8px"}}>
                     ↳ Gap {noteGapNum} answer {noteGapCount>0?`(${noteGapCount} gaps total)`:""}
+                  </span>
+                )}
+                {isTableGridLeader&&(
+                  <span style={{fontSize:10,color:"#0369A1",fontWeight:700,background:"#E0F2FE",borderRadius:4,padding:"2px 8px"}}>
+                    ⊞ Table Leader — define columns &amp; rows below
+                  </span>
+                )}
+                {isTableGridFollow&&(
+                  <span style={{fontSize:10,color:C.s500,fontWeight:600,background:"#F1F5F9",borderRadius:4,padding:"2px 8px"}}>
+                    ↳ Table Gap {tableGridGapNum} answer {tableGridGapCount>0?`(${tableGridGapCount} gaps total)`:""}
                   </span>
                 )}
               </div>
@@ -5496,7 +5613,106 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
             {isNoteFollow&&(
               <div style={{background:"#F5F3FF",borderRadius:8,padding:"10px 12px",marginBottom:10,border:"1px solid #DDD6FE"}}>
                 <p style={{fontSize:11,color:"#7C3AED",fontWeight:600,margin:0}}>
-                  ↳ This is Gap {noteGapNum} — enter the correct answer for the {noteGapNum === 1 ? "1st" : noteGapNum === 2 ? "2nd" : noteGapNum === 3 ? "3rd" : `${noteGapNum}th`} [Q] in the notes template above.
+                  ↳ This is Gap {noteGapNum} — enter the correct answer for the {noteGapNum===1?"1st":noteGapNum===2?"2nd":noteGapNum===3?"3rd":`${noteGapNum}th`} [Q] in the notes template above.
+                </p>
+              </div>
+            )}
+
+            {/* Table Grid editor — only on Table Grid Leader */}
+            {isTableGridLeader&&(()=>{
+              const tHeaders = q.tableHeaders || ["","",""];
+              const tRows    = q.tableRows    || [["","",""]];
+              const colCount = tHeaders.length;
+              const updateHeader = (hi,val) => {
+                const nh=[...tHeaders]; nh[hi]=val;
+                qbUpdateQ(setQuestions,q.id,"tableHeaders",nh);
+              };
+              const updateCell = (ri,ci,val) => {
+                const nr=tRows.map((r,i)=>i===ri?(Array.isArray(r)?r:[...Array(colCount).fill("")]).map((c,j)=>j===ci?val:c):r);
+                qbUpdateQ(setQuestions,q.id,"tableRows",nr);
+              };
+              const addCol = () => setQuestions(qs=>qs.map(qx=>qx.id!==q.id?qx:{...qx,
+                tableHeaders:[...(qx.tableHeaders||[]),""],
+                tableRows:(qx.tableRows||[]).map(r=>[...(Array.isArray(r)?r:[]),""])
+              }));
+              const remCol = () => { if(colCount<=1) return; setQuestions(qs=>qs.map(qx=>qx.id!==q.id?qx:{...qx,
+                tableHeaders:(qx.tableHeaders||[]).slice(0,-1),
+                tableRows:(qx.tableRows||[]).map(r=>(Array.isArray(r)?r:[]).slice(0,-1))
+              }));};
+              const addRow = () => qbUpdateQ(setQuestions,q.id,"tableRows",[...tRows,Array(colCount).fill("")]);
+              const remRow = (ri) => qbUpdateQ(setQuestions,q.id,"tableRows",tRows.filter((_,i)=>i!==ri));
+              return (
+                <div style={{marginBottom:10,background:"#E0F2FE",borderRadius:10,padding:"14px 16px",border:"1px dashed #0369A160"}}>
+                  <label style={{...labelStyle,color:"#0369A1",fontWeight:700}}>Table Structure</label>
+                  <p style={{fontSize:11,color:C.s500,marginTop:2,marginBottom:10,lineHeight:1.5}}>
+                    Define column headers and fill in each row. Type <code style={{background:"#fff",borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>[Q]</code> in any cell to create a student gap.
+                    {tableGridGapCount>0&&<span style={{color:"#0369A1",fontWeight:700}}> {tableGridGapCount} gap(s) detected — add {tableGridGapCount} question card(s) total (this card = gap 1).</span>}
+                  </p>
+
+                  {/* Table title + subtitle */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                    <div>
+                      <label style={labelStyle}>Table Title <span style={{color:C.s400,fontWeight:400}}>(e.g. "Internet package overview")</span></label>
+                      <input value={q.tableTitle||""} onChange={e=>qbUpdateQ(setQuestions,q.id,"tableTitle",e.target.value)}
+                        placeholder="e.g. Internet package overview" style={inputStyle}/>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Table Subtitle <span style={{color:C.s400,fontWeight:400}}>(optional)</span></label>
+                      <input value={q.tableSubtitle||""} onChange={e=>qbUpdateQ(setQuestions,q.id,"tableSubtitle",e.target.value)}
+                        placeholder="e.g. New customer form" style={inputStyle}/>
+                    </div>
+                  </div>
+
+                  {/* Column controls */}
+                  <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+                    <span style={{fontSize:12,fontWeight:700,color:C.s700}}>{colCount} column{colCount!==1?"s":""}</span>
+                    <button onClick={addCol} style={{background:"#fff",color:"#0369A1",border:"1px solid #0369A1",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Add Column</button>
+                    {colCount>1&&<button onClick={remCol} style={{background:"#fff",color:C.rose,border:`1px solid ${C.rose}`,borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>− Remove Last Column</button>}
+                  </div>
+
+                  {/* Column headers */}
+                  <div style={{display:"grid",gridTemplateColumns:`repeat(${colCount},1fr)`,gap:6,marginBottom:10,background:"#fff",borderRadius:8,padding:10,border:`1px solid #BAE6FD`}}>
+                    {tHeaders.map((h,hi)=>(
+                      <div key={hi}>
+                        <label style={{fontSize:10,color:"#0369A1",fontWeight:700,display:"block",marginBottom:3}}>Column {hi+1} Header</label>
+                        <textarea value={h} onChange={e=>updateHeader(hi,e.target.value)} rows={2}
+                          placeholder={`e.g. Package`}
+                          style={{...inputStyle,fontSize:12,resize:"vertical",width:"100%",boxSizing:"border-box"}}/>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Data rows */}
+                  <label style={{...labelStyle,color:"#0369A1"}}>Table Rows <span style={{color:C.s400,fontWeight:400}}>(type [Q] in a cell for a student gap)</span></label>
+                  {tRows.map((row,ri)=>(
+                    <div key={ri} style={{display:"flex",gap:6,alignItems:"flex-start",marginBottom:6}}>
+                      <span style={{fontSize:11,color:C.s400,fontWeight:700,width:24,flexShrink:0,paddingTop:8}}>R{ri+1}</span>
+                      <div style={{display:"grid",gridTemplateColumns:`repeat(${colCount},1fr)`,gap:6,flex:1}}>
+                        {Array(colCount).fill(0).map((_,ci)=>(
+                          <input key={ci}
+                            value={Array.isArray(row)?(row[ci]||""):""}
+                            onChange={e=>updateCell(ri,ci,e.target.value)}
+                            placeholder={ci===0?`Row ${ri+1} label`:`Cell or [Q] for gap`}
+                            style={{...inputStyle,fontSize:12,
+                              background:(Array.isArray(row)&&(row[ci]||"").includes("[Q]"))?"#FEF3C7":"#fff",
+                              borderColor:(Array.isArray(row)&&(row[ci]||"").includes("[Q]"))?"#F59E0B":C.s200}}/>
+                        ))}
+                      </div>
+                      {tRows.length>1&&<button onClick={()=>remRow(ri)}
+                        style={{background:C.roseL,color:C.rose,border:"none",borderRadius:5,padding:"5px 8px",fontSize:11,cursor:"pointer",flexShrink:0,marginTop:2}}>✕</button>}
+                    </div>
+                  ))}
+                  <button onClick={addRow} style={{background:"#fff",color:"#0369A1",border:"1px solid #0369A1",borderRadius:5,padding:"5px 14px",fontSize:11,fontWeight:700,cursor:"pointer",marginTop:4}}>+ Add Row</button>
+                  <p style={{fontSize:10,color:"#0369A1",marginTop:8,fontWeight:600}}>
+                    💡 Cells with [Q] are highlighted yellow. Gap order = left to right, top to bottom.
+                  </p>
+                </div>
+              );
+            })()}
+            {isTableGridFollow&&(
+              <div style={{background:"#E0F2FE",borderRadius:8,padding:"10px 12px",marginBottom:10,border:"1px solid #BAE6FD"}}>
+                <p style={{fontSize:11,color:"#0369A1",fontWeight:600,margin:0}}>
+                  ↳ Table Gap {tableGridGapNum} — enter the correct answer for the {tableGridGapNum===1?"1st":tableGridGapNum===2?"2nd":tableGridGapNum===3?"3rd":`${tableGridGapNum}th`} [Q] cell in the table above.
                 </p>
               </div>
             )}
@@ -5568,8 +5784,11 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
             {/* Correct answer */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <div>
-                <label style={labelStyle}>{isNoteLeader?"Gap 1 Correct Answer (first [Q])":isNoteFollow?`Gap ${noteGapNum} Correct Answer`:"Correct Answer"}</label>
+                <label style={labelStyle}>
+                  {isNoteLeader?"Gap 1 Correct Answer (first [Q])":isNoteFollow?`Gap ${noteGapNum} Correct Answer`:isTableGridLeader?"Table Gap 1 Correct Answer (first [Q] cell)":isTableGridFollow?`Table Gap ${tableGridGapNum} Correct Answer`:"Correct Answer"}
+                </label>
                 {isNoteLeader&&<p style={{fontSize:10,color:"#7C3AED",marginTop:2,marginBottom:4,fontWeight:600}}>Answer for the 1st [Q] gap in your template above.</p>}
+                {isTableGridLeader&&<p style={{fontSize:10,color:"#0369A1",marginTop:2,marginBottom:4,fontWeight:600}}>Answer for the 1st [Q] cell in your table above.</p>}
                 {isMcqMulti?(
                   /* mcq_multi: comma-separated letters e.g. "A,C" — syncs to all questions in group */
                   <div>
@@ -5621,7 +5840,7 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
               <div>
                 <label style={labelStyle}>Hint <span style={{color:C.s400,fontWeight:400}}>(shown to candidate)</span></label>
                 <input value={q.hint||""} onChange={e=>qbUpdateQ(setQuestions,q.id,"hint",e.target.value)}
-                  placeholder={isNoteLeader||isNoteFollow?"e.g. NO MORE THAN ONE WORD AND/OR A NUMBER":isMcqMulti?"e.g. Choose ONE letter (A–E)":isGroupMatch?(isHeadings?"e.g. Choose ONE heading":"e.g. Choose ONE letter"):"e.g. NO MORE THAN THREE WORDS"}
+                  placeholder={isNoteLeader||isNoteFollow||isTableGridLeader||isTableGridFollow?"e.g. NO MORE THAN TWO WORDS OR A NUMBER":isMcqMulti?"e.g. Choose ONE letter (A–E)":isGroupMatch?(isHeadings?"e.g. Choose ONE heading":"e.g. Choose ONE letter"):"e.g. NO MORE THAN THREE WORDS"}
                   style={inputStyle}/>
               </div>
             </div>
