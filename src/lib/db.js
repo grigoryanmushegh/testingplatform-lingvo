@@ -16,7 +16,7 @@ export const _flushConfig = async db => {
   if(!supabase) return false;
   try {
     // Config only — no participants (kept in participants table separately for performance)
-    const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||""};
+    const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||"",openaiKey:db.openaiKey||""};
     const {error} = await supabase.from("ielts_store").upsert({id:"main",data:cfg,updated_at:new Date().toISOString()});
     if(error){ console.warn("[DB] config write error:",error.message); return false; }
     return true;
