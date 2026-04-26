@@ -826,6 +826,11 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                   while(i<sec.questions.length&&sec.questions[i].type==="matching"){grp.push(sec.questions[i]);i++;}
                   rendered.push(<MatchingGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted}
                     scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
+                } else if(q.type==="note_completion"){
+                  const grp=[];
+                  while(i<sec.questions.length&&sec.questions[i].type==="note_completion"){grp.push(sec.questions[i]);i++;}
+                  rendered.push(<NoteCompletionGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted}
+                    scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
                 } else if(q.type==="mcq_multi"){
                   const grp=[];
                   grp.push(sec.questions[i]); i++;
@@ -1320,6 +1325,11 @@ function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }
                 const grp=[];
                 while(i<sec.questions.length&&sec.questions[i].type===q.type){grp.push(sec.questions[i]);i++;}
                 rendered.push(<MatchingGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted} scoreQ={scoreQ} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
+              } else if(q.type==="note_completion"){
+                // Collect entire consecutive note_completion run as one visual group
+                const grp=[];
+                while(i<sec.questions.length&&sec.questions[i].type==="note_completion"){grp.push(sec.questions[i]);i++;}
+                rendered.push(<NoteCompletionGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted} scoreQ={scoreQ} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
               } else if(q.type==="mcq_multi"){
                 const grp=[];
                 grp.push(sec.questions[i]); i++;
@@ -1559,6 +1569,118 @@ function MatchingGroup({ questions, answers, submitted, scoreQ, onChange }) {
         })}
       </div>
     </div>
+  );
+}
+
+// ── NOTE COMPLETION GROUP ─────────────────────────────────────────────────────
+// Renders a notes-style template (bold headings + bullet points + inline gap inputs)
+// Leader question holds `notesTemplate` (text with [Q] placeholders); followers hold correct answers.
+function NoteCompletionGroup({ questions, answers, submitted, scoreQ, onChange }) {
+  const leader = questions[0];
+  if (!leader) return null;
+  const template = leader.notesTemplate || "";
+  const instructions = leader.instructions || "";
+  const hint = leader.hint || "NO MORE THAN ONE WORD AND/OR A NUMBER";
+
+  // We walk through [Q] markers in order — gapIdx tracks which question we're on.
+  // Must be a ref-like mutable during one synchronous render pass.
+  let gapIdx = 0;
+
+  const parseInlineContent = (text) => {
+    const parts = text.split("[Q]");
+    return parts.map((part, pi) => {
+      const content = [<span key={`t${pi}`}>{part}</span>];
+      if (pi < parts.length - 1) {
+        const q = questions[gapIdx];
+        const myIdx = gapIdx;
+        gapIdx++;
+        if (!q) return content;
+        const ans = answers[q.id] || "";
+        const correct = submitted ? scoreQ(q, ans) : null;
+        content.push(
+          <span key={`g${myIdx}`} style={{display:"inline-flex",alignItems:"center",gap:4,margin:"0 4px",verticalAlign:"middle"}}>
+            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,
+              color:C.brand,background:C.brandL,borderRadius:4,padding:"1px 5px",flexShrink:0}}>
+              Q{q.id}
+            </span>
+            <input
+              value={ans}
+              onChange={e=>!submitted&&onChange(q.id, e.target.value)}
+              disabled={submitted}
+              placeholder={hint}
+              style={{border:`1.5px solid ${submitted?(correct===true?C.teal:ans?C.rose:C.s300):C.s300}`,
+                borderRadius:6,padding:"3px 8px",fontSize:12,width:160,
+                background:submitted?(correct===true?"#F0FDF4":ans?"#FFF1F2":"#f8f9fa"):"#fff",
+                color:C.s900,outline:"none",fontFamily:"inherit"}}
+            />
+            {submitted&&ans&&(
+              <span style={{fontSize:11,fontWeight:700,color:correct===true?C.teal:C.rose,whiteSpace:"nowrap"}}>
+                {correct===true?"✓":`✗ "${q.correct}"`}
+              </span>
+            )}
+            {submitted&&!ans&&q.correct&&(
+              <span style={{fontSize:11,fontWeight:700,color:C.s400,whiteSpace:"nowrap"}}>
+                {`— "${q.correct}"`}
+              </span>
+            )}
+          </span>
+        );
+      }
+      return content;
+    });
+  };
+
+  const renderTemplate = () => {
+    if (!template.trim()) {
+      // Fallback: render each question as a plain input
+      return questions.map((q,qi) => {
+        const ans = answers[q.id]||"";
+        const correct = submitted?scoreQ(q,ans):null;
+        return (
+          <div key={q.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:5,padding:"2px 7px",flexShrink:0}}>Q{q.id}</span>
+            <span style={{fontSize:13,color:C.s800,flex:1}}>{q.text}</span>
+            <input value={ans} onChange={e=>!submitted&&onChange(q.id,e.target.value)} disabled={submitted}
+              placeholder={hint}
+              style={{border:`1.5px solid ${submitted?(correct===true?C.teal:ans?C.rose:C.s300):C.s300}`,
+                borderRadius:6,padding:"5px 10px",fontSize:13,width:180,
+                background:submitted?(correct===true?"#F0FDF4":ans?"#FFF1F2":"#fff"):"#fff",color:C.s900,outline:"none"}}/>
+            {submitted&&ans&&<span style={{fontSize:11,fontWeight:700,color:correct===true?C.teal:C.rose}}>{correct===true?"✓":`✗ "${q.correct}"`}</span>}
+          </div>
+        );
+      });
+    }
+    return template.split("\n").map((line,li) => {
+      const trimmed = line.trim();
+      if (!trimmed) return <div key={li} style={{height:6}}/>;
+      // Bold section heading: **text** or ## text
+      if ((trimmed.startsWith("**")&&trimmed.endsWith("**")&&trimmed.length>4)||trimmed.startsWith("## ")) {
+        const heading = trimmed.replace(/^\*\*|\*\*$/g,"").replace(/^## /,"");
+        return (
+          <div key={li} style={{fontWeight:700,fontSize:14,color:C.s900,marginTop:li>0?14:0,marginBottom:4,paddingTop:li>0?4:0}}>
+            {heading}
+          </div>
+        );
+      }
+      // Bullet point: • or -
+      const isBullet = trimmed.startsWith("•")||trimmed.startsWith("- ");
+      const bulletText = isBullet ? trimmed.replace(/^[•]\s*|^-\s+/,"") : trimmed;
+      return (
+        <div key={li} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:5,marginLeft:isBullet?0:0}}>
+          {isBullet&&<span style={{color:C.s500,flexShrink:0,marginTop:3,fontSize:13}}>•</span>}
+          <span style={{fontSize:13,lineHeight:1.7,color:C.s800,flex:1}}>{parseInlineContent(bulletText)}</span>
+        </div>
+      );
+    });
+  };
+
+  return (
+    <>
+      {instructions&&<TaskInstructionBlock instructions={instructions}/>}
+      <div style={{...cardStyle({padding:20,marginBottom:12}),background:"#F8FAFC",border:`1.5px solid ${C.s200}`}}>
+        {renderTemplate()}
+      </div>
+    </>
   );
 }
 
@@ -5193,10 +5315,22 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
         const isFormTableLeader = isFormTable && (qi===0 || questions[qi-1]?.type!=="form_table" || q.newTable===true);
         const isFormTableFollow = isFormTable && !isFormTableLeader;
 
+        // Note Completion group detection
+        const isNoteCompletion = q.type==="note_completion";
+        const isNoteLeader = isNoteCompletion && (qi===0 || questions[qi-1]?.type!=="note_completion");
+        const isNoteFollow = isNoteCompletion && !isNoteLeader;
+        // Which gap number is this follower? (1-based, counting from leader)
+        const noteGapNum = isNoteFollow ? (()=>{ let n=1; for(let k=qi-1;k>=0&&questions[k]?.type==="note_completion";k--)n++; return n; })() : 0;
+        // Count [Q] markers in leader's template for validation hint
+        const noteLeaderTemplate = isNoteLeader ? (q.notesTemplate||"") : (()=>{
+          for(let k=qi-1;k>=0;k--){ if(questions[k]?.type==="note_completion") return questions[k].notesTemplate||""; } return "";
+        })();
+        const noteGapCount = (noteLeaderTemplate.match(/\[Q\]/g)||[]).length;
+
         return (
           <div key={q.id} style={{...cardStyle({padding:16,marginBottom:10,
-            borderLeft:`3px solid ${(isGroupFollow||isFormTableFollow)?C.s300:C.brand}`,
-            background:(isGroupFollow||isFormTableFollow)?"#FAFAFA":"#fff"})}}>
+            borderLeft:`3px solid ${(isGroupFollow||isFormTableFollow||isNoteFollow)?C.s300:C.brand}`,
+            background:(isGroupFollow||isFormTableFollow||isNoteFollow)?"#FAFAFA":"#fff"})}}>
             {/* Header row */}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
               <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
@@ -5209,6 +5343,16 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
                 {isGroupFollow&&(
                   <span style={{fontSize:10,color:C.s500,fontWeight:600,background:"#F1F5F9",borderRadius:4,padding:"2px 8px"}}>
                     ↳ Uses shared options from Q{qStart+leaderIdx}
+                  </span>
+                )}
+                {isNoteLeader&&(
+                  <span style={{fontSize:10,color:"#7C3AED",fontWeight:700,background:"#EDE9FE",borderRadius:4,padding:"2px 8px"}}>
+                    📝 Notes Leader — enter template below
+                  </span>
+                )}
+                {isNoteFollow&&(
+                  <span style={{fontSize:10,color:C.s500,fontWeight:600,background:"#F1F5F9",borderRadius:4,padding:"2px 8px"}}>
+                    ↳ Gap {noteGapNum} answer {noteGapCount>0?`(${noteGapCount} gaps total)`:""}
                   </span>
                 )}
               </div>
@@ -5327,6 +5471,36 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
               </div>
             )}
 
+            {/* Notes Completion Template — only on Note Leader */}
+            {isNoteLeader&&(
+              <div style={{marginBottom:10,background:"#EDE9FE",borderRadius:10,padding:"14px 16px",border:"1px dashed #7C3AED60"}}>
+                <label style={{...labelStyle,color:"#7C3AED",fontWeight:700}}>Notes Template</label>
+                <p style={{fontSize:11,color:C.s500,marginTop:2,marginBottom:8,lineHeight:1.5}}>
+                  Write the notes content below. Use <code style={{background:"#fff",borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>**Heading**</code> for bold section titles,{" "}
+                  <code style={{background:"#fff",borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>• bullet text</code> for bullet points,{" "}
+                  and <code style={{background:"#fff",borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>[Q]</code> where a gap (student input) should appear.
+                  Add one follower question per <code style={{background:"#fff",borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>[Q]</code> below this card with its correct answer.
+                  {noteGapCount>0&&<span style={{color:"#7C3AED",fontWeight:700}}> Currently {noteGapCount} gap{noteGapCount!==1?"s":""} detected — add {noteGapCount} follower question{noteGapCount!==1?"s":""}.</span>}
+                </p>
+                <textarea
+                  value={q.notesTemplate||""}
+                  onChange={e=>qbUpdateQ(setQuestions,q.id,"notesTemplate",e.target.value)}
+                  rows={8}
+                  placeholder={`**Colony Collapse Disorder**\n• name arrived at due to reported issues in [Q]\n• bee numbers have fallen to their lowest in decades.\n• in addition to bees, [Q]\n\n**Reasons for Vanishing Bees**\n• climatic changes bring forward flowering of plants to when bees are still in [Q]\n• research shows mass [Q]`}
+                  style={{...inputStyle,resize:"vertical",fontFamily:"'JetBrains Mono',monospace",lineHeight:1.7,fontSize:12,background:"#fff",width:"100%",boxSizing:"border-box"}}/>
+                <p style={{fontSize:10,color:"#7C3AED",marginTop:6,fontWeight:600}}>
+                  💡 Tip: lines without • prefix render as plain text. Leave a blank line between sections for spacing.
+                </p>
+              </div>
+            )}
+            {isNoteFollow&&(
+              <div style={{background:"#F5F3FF",borderRadius:8,padding:"10px 12px",marginBottom:10,border:"1px solid #DDD6FE"}}>
+                <p style={{fontSize:11,color:"#7C3AED",fontWeight:600,margin:0}}>
+                  ↳ This is Gap {noteGapNum} — enter the correct answer for the {noteGapNum === 1 ? "1st" : noteGapNum === 2 ? "2nd" : noteGapNum === 3 ? "3rd" : `${noteGapNum}th`} [Q] in the notes template above.
+                </p>
+              </div>
+            )}
+
             {/* Shared Options List — only on Group Leader */}
             {isGroupLeader&&(
               <div style={{marginBottom:10,background:C.brandL,borderRadius:10,padding:"12px 14px",border:`1px dashed ${C.brand}60`}}>
@@ -5392,9 +5566,10 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
             )}
 
             {/* Correct answer */}
+            {isNoteLeader?null:(
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <div>
-                <label style={labelStyle}>Correct Answer</label>
+                <label style={labelStyle}>{isNoteFollow?`Gap ${noteGapNum} Correct Answer`:"Correct Answer"}</label>
                 {isMcqMulti?(
                   /* mcq_multi: comma-separated letters e.g. "A,C" — syncs to all questions in group */
                   <div>
@@ -5446,10 +5621,11 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
               <div>
                 <label style={labelStyle}>Hint <span style={{color:C.s400,fontWeight:400}}>(shown to candidate)</span></label>
                 <input value={q.hint||""} onChange={e=>qbUpdateQ(setQuestions,q.id,"hint",e.target.value)}
-                  placeholder={isMcqMulti?"e.g. Choose ONE letter (A–E)":isGroupMatch?(isHeadings?"e.g. Choose ONE heading":"e.g. Choose ONE letter"):"e.g. NO MORE THAN THREE WORDS"}
+                  placeholder={isNoteFollow?"e.g. NO MORE THAN ONE WORD AND/OR A NUMBER":isMcqMulti?"e.g. Choose ONE letter (A–E)":isGroupMatch?(isHeadings?"e.g. Choose ONE heading":"e.g. Choose ONE letter"):"e.g. NO MORE THAN THREE WORDS"}
                   style={inputStyle}/>
               </div>
             </div>
+            )}
 
             {/* Map / Diagram image upload — for diagram_label questions */}
             {q.type==="diagram_label"&&(
@@ -6542,19 +6718,20 @@ export default function App() {
       date: new Date().toLocaleDateString("en-GB"),
       timestamp: Date.now(),
       suiteId: activeSuiteRef.current?.id||null,
-      ...(L ? {listeningScore:`${L.correct}/${L.total}`, listeningBand:listeningBand(L.correct,L.total), listeningAnswers:L.answers, allListeningQuestions:L.allQuestions||[]} : {}),
-      ...(R ? {readingScore:`${R.correct}/${R.total}`,   readingBand:readingBand(R.correct,R.total),     readingAnswers:R.answers,   allReadingQuestions:R.allQuestions||[]}   : {}),
+      // Intermediate save: omit heavy question arrays (saved in final Results record)
+      ...(L ? {listeningScore:`${L.correct}/${L.total}`, listeningBand:listeningBand(L.correct,L.total), listeningAnswers:L.answers} : {}),
+      ...(R ? {readingScore:`${R.correct}/${R.total}`,   readingBand:readingBand(R.correct,R.total),     readingAnswers:R.answers}   : {}),
       ...(W ? {writingBand:W.band, writingTexts:W.texts, writingFeedback:W.aiFeedback, writingAiDetection:W.aiDetection} : {}),
       overall: bands.length ? overallBand(bands) : null,
     };
-    // Upsert to participants table (same id = update existing row)
+    // Save to memory + localStorage
     const curDbAS = loadDB();
     curDbAS.participants = [partial, ...(curDbAS.participants||[]).filter(p=>p.id!==partial.id)];
     try { localStorage.setItem(DB_KEY, JSON.stringify(curDbAS)); } catch{}
+    // Supabase INSERT — always fresh row ID to bypass RLS UPDATE block
     if(supabase) {
       try {
         const email=(candidate.email||"").toLowerCase().trim();
-        // Always INSERT fresh row — RLS blocks UPDATE on existing rows with anon key
         const rowId = partial.id + "-" + Date.now().toString(36);
         const {error} = await supabase.from("participants").insert({id:rowId, email, type:"attempt", data:partial});
         if(error) console.warn("[autoSave] Supabase insert failed:", error.message);
