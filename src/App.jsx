@@ -3608,6 +3608,178 @@ function AdminSettings() {
   );
 }
 
+// ── LOOKER STUDIO SETUP ───────────────────────────────────────────────────────
+function LookerStudioSetup({ pts, onExportCSV }) {
+  const [copied, setCopied] = useState("");
+  const copy = (text, key) => { navigator.clipboard.writeText(text).then(()=>{ setCopied(key); setTimeout(()=>setCopied(""),2500); }); };
+
+  const SURL  = "https://ymbncyrgrgtkejeuxmfb.supabase.co";
+  const SKEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltYm5jeXJncmd0a2VqZXV4bWZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MDA1NDksImV4cCI6MjA4OTQ3NjU0OX0.vCwQBV-WJ2yHJIHLWZcbt37odQnKu5P3JiATk8oHc3g";
+
+  const appsScript = `// ──────────────────────────────────────────────────────────────
+// LingvoConnect IELTS → Google Sheets sync (Google Apps Script)
+// ──────────────────────────────────────────────────────────────
+// HOW TO USE:
+//   1. Go to https://script.google.com → New Project
+//   2. Paste this entire script, replacing the script that's there
+//   3. Create a blank Google Sheet, copy its ID from the URL
+//      (the long string between /d/ and /edit)
+//   4. Paste the Sheet ID into SHEET_ID below
+//   5. Click Run → syncToSheets  (accept permissions when prompted)
+//   6. Set a trigger: Triggers → + Add Trigger → syncToSheets
+//      → Time-driven → Hour timer → Every hour  → Save
+
+const SUPABASE_URL  = "${SURL}";
+const SUPABASE_KEY  = "${SKEY}";
+const SHEET_ID      = "PASTE_YOUR_GOOGLE_SHEET_ID_HERE"; // ← change this
+
+function syncToSheets() {
+  const HEADERS = [
+    "Name","Email","Phone","Nationality","Test Type","DOB",
+    "Date","Listening Band","Listening Score",
+    "Reading Band","Reading Score",
+    "Writing Band","Speaking Band","Overall Band","Attempt ID"
+  ];
+
+  const res = UrlFetchApp.fetch(
+    SUPABASE_URL + "/rest/v1/participants?select=data&order=created_at.desc&limit=2000",
+    { headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY } }
+  );
+  if (res.getResponseCode() !== 200) {
+    Logger.log("Supabase error: " + res.getContentText()); return;
+  }
+
+  const rows   = JSON.parse(res.getContentText());
+  const ss     = SpreadsheetApp.openById(SHEET_ID);
+  const sheet  = ss.getSheetByName("IELTS Results") || ss.insertSheet("IELTS Results");
+  sheet.clearContents();
+  sheet.appendRow(HEADERS);
+
+  const seen = {};
+  rows.forEach(function(r) {
+    const p = r.data; if (!p) return;
+    const id = p.id || String(p.timestamp || "");
+    if (seen[id]) return; seen[id] = true;
+    const c = p.candidate || p;
+    sheet.appendRow([
+      c.name        || "",
+      (c.email || p.email || "").toLowerCase(),
+      c.phone       || "",
+      c.nationality || "",
+      c.testType    || "Academic",
+      c.dob         || "",
+      p.date || (p.timestamp ? new Date(p.timestamp).toLocaleDateString("en-GB") : ""),
+      p.listeningBand  || "", p.listeningScore || "",
+      p.readingBand    || "", p.readingScore   || "",
+      p.writingBand    || "",
+      p.speakingBand   || "",
+      p.overall        || "",
+      id,
+    ]);
+  });
+  Logger.log("Synced " + rows.length + " rows.");
+}`;
+
+  const step = (n, title, body) => (
+    <div key={n} style={{display:"flex",gap:16,marginBottom:20}}>
+      <div style={{width:28,height:28,borderRadius:"50%",background:C.brand,color:"#fff",fontSize:13,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}>{n}</div>
+      <div>
+        <div style={{fontWeight:700,fontSize:14,color:C.s900,marginBottom:4}}>{title}</div>
+        <div style={{fontSize:13,color:C.s600,lineHeight:1.6}}>{body}</div>
+      </div>
+    </div>
+  );
+
+  const codeBox = (code, copyKey, label) => (
+    <div style={{position:"relative",marginTop:8}}>
+      <pre style={{background:"#0F172A",color:"#e2e8f0",borderRadius:10,padding:"16px 20px",fontSize:12,overflowX:"auto",lineHeight:1.6,margin:0}}>{code}</pre>
+      <button onClick={()=>copy(code,copyKey)} style={{position:"absolute",top:8,right:8,...btnStyle("primary"),padding:"4px 12px",fontSize:11}}>
+        {copied===copyKey?"✓ Copied!":"Copy"}
+      </button>
+      {label&&<div style={{fontSize:11,color:C.s400,marginTop:4}}>{label}</div>}
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24,flexWrap:"wrap",gap:12}}>
+        <div>
+          <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",margin:0}}>Looker Studio Integration</h2>
+          <div style={{fontSize:13,color:C.s400,marginTop:4}}>Connect your IELTS data to Google Looker Studio for live dashboards</div>
+        </div>
+        <button onClick={onExportCSV} style={{...btnStyle("secondary"),padding:"10px 20px",fontSize:13}}>
+          ⬇ Download CSV ({pts.length} records)
+        </button>
+      </div>
+
+      {/* Quick-start banner */}
+      <div style={{...cardStyle({padding:20,marginBottom:24}),background:"linear-gradient(135deg,#f0fdf4,#dcfce7)",border:`1px solid ${C.brand}40`}}>
+        <div style={{fontSize:13,fontWeight:700,color:C.brand,marginBottom:4}}>📌 Recommended: Google Sheets → Looker Studio</div>
+        <div style={{fontSize:13,color:C.s700,lineHeight:1.6}}>
+          Paste the Apps Script below into <strong>script.google.com</strong>, set it to run hourly, then connect Looker Studio to the Google Sheet it fills.
+          No paid connectors needed — completely free.
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24,alignItems:"start"}}>
+
+        {/* Left: Apps Script setup */}
+        <div style={{...cardStyle({padding:24})}}>
+          <div style={{fontSize:11,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:16}}>Step 1 — Google Apps Script (auto-sync)</div>
+          {step(1,"Go to script.google.com",<>Open <a href="https://script.google.com" target="_blank" rel="noopener noreferrer" style={{color:C.brand}}>script.google.com</a> → <strong>New Project</strong></>)}
+          {step(2,"Paste the script",<>Select all existing code, delete it, paste the script below. Replace <code style={{background:C.s100,padding:"1px 5px",borderRadius:4}}>PASTE_YOUR_GOOGLE_SHEET_ID_HERE</code> with your Sheet ID.</>)}
+          {step(3,"Run once",<>Click <strong>Run → syncToSheets</strong>. Accept the permissions popup. Check the Sheet — it should fill with your data.</>)}
+          {step(4,"Set hourly trigger",<>Triggers (⏱ icon on left sidebar) → <strong>+ Add Trigger</strong> → Function: <em>syncToSheets</em> → Time-driven → Hour timer → Every hour → Save.</>)}
+          {codeBox(appsScript,"gas","This script pulls all participant rows from Supabase and writes them to a Google Sheet called \"IELTS Results\".")}
+        </div>
+
+        {/* Right: Looker Studio connection */}
+        <div style={{...cardStyle({padding:24})}}>
+          <div style={{fontSize:11,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:16}}>Step 2 — Connect Looker Studio</div>
+          {step(1,"Open Looker Studio",<><a href="https://lookerstudio.google.com" target="_blank" rel="noopener noreferrer" style={{color:C.brand}}>lookerstudio.google.com</a> → <strong>Create → Report</strong></>)}
+          {step(2,"Add a data source",<>Choose <strong>Google Sheets</strong> → pick the Sheet the script created → select the <em>IELTS Results</em> tab → click <strong>Add</strong>.</>)}
+          {step(3,"Enable auto-refresh",<>In the data source settings set <strong>Data freshness</strong> to 1 hour. Looker Studio will re-read the Sheet after every Apps Script sync.</>)}
+          {step(4,"Build your charts",<>Drag fields onto the canvas. Suggested charts below ↓</>)}
+
+          <div style={{marginTop:8,padding:16,background:C.s100,borderRadius:10}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.s800,marginBottom:10}}>Suggested charts</div>
+            {[
+              ["Bar chart","Overall Band (dimension) vs Count (metric) → score distribution"],
+              ["Scorecard","AVG(Overall Band) → average band across all students"],
+              ["Time series","Date vs AVG(Overall Band) → score trend over time"],
+              ["Table","Name, Email, Listening Band, Reading Band, Writing Band, Speaking Band, Overall"],
+              ["Pie chart","Nationality → see candidate breakdown by country"],
+              ["Scorecard","COUNT(Attempt ID) → total tests completed"],
+            ].map(([type,desc],i)=>(
+              <div key={i} style={{display:"flex",gap:10,padding:"6px 0",borderBottom:i<5?`1px solid ${C.s200}`:"none",fontSize:12}}>
+                <span style={{...tagStyle(C.brand),fontSize:10,flexShrink:0}}>{type}</span>
+                <span style={{color:C.s600}}>{desc}</span>
+              </div>
+            ))}
+          </div>
+
+          <div style={{marginTop:16,padding:16,background:"#fefce8",borderRadius:10,border:"1px solid #fde68a"}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#92400e",marginBottom:6}}>CSV alternative (one-off)</div>
+            <div style={{fontSize:12,color:"#78350f",lineHeight:1.5}}>
+              If you just need a quick snapshot, use <strong>⬇ Download CSV</strong> above, import it into Google Sheets manually, then connect Looker Studio to that Sheet. No script needed — but you'll need to re-export each time.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Available columns reference */}
+      <div style={{...cardStyle({padding:24,marginTop:24})}}>
+        <div style={{fontSize:11,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14}}>Available columns in the Sheet</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
+          {["Name","Email","Phone","Nationality","Test Type","DOB","Date","Listening Band","Listening Score","Reading Band","Reading Score","Writing Band","Speaking Band","Overall Band","Attempt ID"].map(col=>(
+            <div key={col} style={{background:C.s100,borderRadius:6,padding:"5px 10px",fontSize:12,fontWeight:600,color:C.s700}}>{col}</div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── ADMIN DASHBOARD ───────────────────────────────────────────────────────────
 function AdminDashboard({ onExit }) {
   const [auth, setAuth]       = useState(false);
@@ -3822,7 +3994,30 @@ function AdminDashboard({ onExit }) {
 
   const pts=db.participants||[], bks=db.bookings||[];
   const avg=arr=>arr.length?(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1):"—";
-  const navItems=[["overview","📊","Overview"],["participants","👥","Test Takers"],["bookings","🗓️","Bookings"],["slots","🕐","Speaking Slots"],["analytics","📈","Analytics"],["suites","🧪","Test Suites"],["assign","📋","Assignments"],["speaking","🗣️","AI Speaking"],["addtest","➕","Section Builder"],["settings","⚙️","Settings"]];
+  const navItems=[["overview","📊","Overview"],["participants","👥","Test Takers"],["bookings","🗓️","Bookings"],["slots","🕐","Speaking Slots"],["analytics","📈","Analytics"],["looker","🔗","Looker Studio"],["suites","🧪","Test Suites"],["assign","📋","Assignments"],["speaking","🗣️","AI Speaking"],["addtest","➕","Section Builder"],["settings","⚙️","Settings"]];
+
+  const exportCSV = () => {
+    const rows=[["Name","Email","Phone","Nationality","Test Type","DOB","Date","Listening Band","Listening Score","Reading Band","Reading Score","Writing Band","Speaking Band","Overall Band","Attempt ID"]];
+    const seen=new Set();
+    pts.forEach(p=>{
+      const id=p.id||p.timestamp||"";
+      if(seen.has(id)) return; seen.add(id);
+      const cand=p.candidate||p;
+      const esc=v=>`"${String(v||"").replace(/"/g,'""')}"`;
+      rows.push([
+        esc(cand.name||""),esc((cand.email||p.email||"").toLowerCase()),esc(cand.phone||""),
+        esc(cand.nationality||""),esc(cand.testType||"Academic"),esc(cand.dob||""),
+        esc(p.date||(p.timestamp?new Date(p.timestamp).toLocaleDateString("en-GB"):"")),
+        esc(p.listeningBand||""),esc(p.listeningScore||""),
+        esc(p.readingBand||""),esc(p.readingScore||""),
+        esc(p.writingBand||""),esc(p.speakingBand||""),esc(p.overall||""),esc(id),
+      ]);
+    });
+    const csv=rows.map(r=>r.join(",")).join("\n");
+    const blob=new Blob([csv],{type:"text/csv"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download=`ielts-results-${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
+  };
 
   return (
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",fontFamily:"'Montserrat',sans-serif"}}>
@@ -3919,12 +4114,15 @@ function AdminDashboard({ onExit }) {
                         All Candidates ({profiles.length})
                         <span style={{fontSize:13,color:C.s400,fontWeight:400,marginLeft:10}}>{pts.length} total test{pts.length!==1?"s":""}</span>
                       </h2>
-                      <input
-                        placeholder="🔍  Search by name or email…"
-                        value={candidateSearch}
-                        onChange={e=>setCandidateSearch(e.target.value)}
-                        style={{...inputStyle,width:260,fontSize:13}}
-                      />
+                      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                        <input
+                          placeholder="🔍  Search by name or email…"
+                          value={candidateSearch}
+                          onChange={e=>setCandidateSearch(e.target.value)}
+                          style={{...inputStyle,width:240,fontSize:13}}
+                        />
+                        <button onClick={exportCSV} style={{...btnStyle("secondary"),padding:"9px 16px",fontSize:12,whiteSpace:"nowrap"}}>⬇ Export CSV</button>
+                      </div>
                     </div>
                     {profiles.length===0?<EmptyState icon="👥" text="No candidates yet."/>:
                       <ParticipantTable profiles={profiles.filter(p=>{
@@ -4031,6 +4229,7 @@ function AdminDashboard({ onExit }) {
             </div>
           )}
 
+          {tab==="looker"&&<LookerStudioSetup pts={pts} onExportCSV={exportCSV}/>}
           {tab==="suites"&&<TestSuiteManager/>}
           {tab==="assign"&&<AssignManager/>}
           {tab==="speaking"&&<AISpeakingManager onRefresh={refresh}/>}
