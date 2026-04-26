@@ -5566,10 +5566,10 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
             )}
 
             {/* Correct answer */}
-            {isNoteLeader?null:(
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <div>
-                <label style={labelStyle}>{isNoteFollow?`Gap ${noteGapNum} Correct Answer`:"Correct Answer"}</label>
+                <label style={labelStyle}>{isNoteLeader?"Gap 1 Correct Answer (first [Q])":isNoteFollow?`Gap ${noteGapNum} Correct Answer`:"Correct Answer"}</label>
+                {isNoteLeader&&<p style={{fontSize:10,color:"#7C3AED",marginTop:2,marginBottom:4,fontWeight:600}}>Answer for the 1st [Q] gap in your template above.</p>}
                 {isMcqMulti?(
                   /* mcq_multi: comma-separated letters e.g. "A,C" — syncs to all questions in group */
                   <div>
@@ -5621,11 +5621,10 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
               <div>
                 <label style={labelStyle}>Hint <span style={{color:C.s400,fontWeight:400}}>(shown to candidate)</span></label>
                 <input value={q.hint||""} onChange={e=>qbUpdateQ(setQuestions,q.id,"hint",e.target.value)}
-                  placeholder={isNoteFollow?"e.g. NO MORE THAN ONE WORD AND/OR A NUMBER":isMcqMulti?"e.g. Choose ONE letter (A–E)":isGroupMatch?(isHeadings?"e.g. Choose ONE heading":"e.g. Choose ONE letter"):"e.g. NO MORE THAN THREE WORDS"}
+                  placeholder={isNoteLeader||isNoteFollow?"e.g. NO MORE THAN ONE WORD AND/OR A NUMBER":isMcqMulti?"e.g. Choose ONE letter (A–E)":isGroupMatch?(isHeadings?"e.g. Choose ONE heading":"e.g. Choose ONE letter"):"e.g. NO MORE THAN THREE WORDS"}
                   style={inputStyle}/>
               </div>
             </div>
-            )}
 
             {/* Map / Diagram image upload — for diagram_label questions */}
             {q.type==="diagram_label"&&(
