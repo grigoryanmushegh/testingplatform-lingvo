@@ -7,12 +7,12 @@ export default async function handler(req, res) {
     return res.status(405).json({ _error: "Method not allowed" });
   }
 
-  const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY || "";
+  const { text, taskMeta, openaiKey: bodyKey } = req.body || {};
+  // Key priority: passed from client (stored in Supabase admin settings) → server env vars
+  const OPENAI_KEY = (bodyKey||"").trim() || process.env.OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY || "";
   if (!OPENAI_KEY) {
-    return res.status(500).json({ _error: "OpenAI API key not configured. Add OPENAI_API_KEY to Vercel environment variables." });
+    return res.status(500).json({ _error: "OpenAI API key not configured. Go to Admin → Settings → enter your OpenAI API key." });
   }
-
-  const { text, taskMeta } = req.body || {};
   if (!text) {
     return res.status(400).json({ _error: "No writing text provided." });
   }

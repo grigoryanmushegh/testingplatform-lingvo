@@ -2573,6 +2573,8 @@ async function runAICheck(text, taskMeta) {
     summary:msg, strengths:[], improvements:[], keyTip:"", corrections:[], _error:msg
   });
   if(!text?.trim()) return errFb("No writing text provided.");
+  // Read key from DB (admin settings) with fallback to env var
+  const openaiKey = loadDB().openaiKey || import.meta.env.VITE_OPENAI_API_KEY || "";
   try {
     const controller = new AbortController();
     const timeoutId  = setTimeout(()=>controller.abort(), 60000); // 60s for server round-trip
@@ -2580,7 +2582,7 @@ async function runAICheck(text, taskMeta) {
       signal: controller.signal,
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({text, taskMeta}),
+      body: JSON.stringify({text, taskMeta, openaiKey}),
     });
     clearTimeout(timeoutId);
     const data = await res.json();
@@ -3522,6 +3524,90 @@ function AISpeakingManager({ onRefresh }) {
   );
 }
 
+// ── ADMIN SETTINGS ────────────────────────────────────────────────────────────
+function AdminSettings() {
+  const [openaiKey, setOpenaiKey] = useState(loadDB().openaiKey||"");
+  const [saved, setSaved]         = useState(false);
+  const [testing, setTesting]     = useState(false);
+  const [testResult, setTestResult] = useState(null);
+
+  const handleSave = async () => {
+    const db = loadDB();
+    const updated = {...db, openaiKey: openaiKey.trim()};
+    await saveDBNow(updated);
+    setSaved(true); setTestResult(null);
+    setTimeout(()=>setSaved(false), 3000);
+  };
+
+  const handleTest = async () => {
+    setTesting(true); setTestResult(null);
+    try {
+      const res = await fetch("/api/ai-check", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({text:"This is a test sentence for verifying the API key works correctly.", taskMeta:{task:"Task 2",prompt:"Test"}, openaiKey: openaiKey.trim()}),
+      });
+      const data = await res.json();
+      if(data._error) setTestResult({ok:false, msg: data._error});
+      else setTestResult({ok:true, msg:"✓ API key works! Writing AI is active."});
+    } catch(e) {
+      setTestResult({ok:false, msg:"Connection error: "+e.message});
+    }
+    setTesting(false);
+  };
+
+  return (
+    <div style={{maxWidth:600}}>
+      <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:24}}>⚙️ Settings</h2>
+
+      <div style={{...cardStyle({padding:24}),marginBottom:16}}>
+        <h3 style={{fontSize:15,fontWeight:700,color:C.s900,marginBottom:4}}>OpenAI API Key</h3>
+        <p style={{fontSize:12,color:C.s500,marginBottom:16}}>
+          Used for AI writing evaluation (Nova). Stored securely in Supabase — no need to touch Vercel env vars.
+        </p>
+
+        <label style={labelStyle}>API Key</label>
+        <input
+          type="password"
+          value={openaiKey}
+          onChange={e=>setOpenaiKey(e.target.value)}
+          placeholder="sk-proj-..."
+          style={{...inputStyle, fontFamily:"'JetBrains Mono',monospace", fontSize:12, marginBottom:12}}
+        />
+
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          <button onClick={handleSave}
+            style={{...btnStyle("primary"),padding:"9px 20px"}}>
+            {saved ? "✓ Saved!" : "Save Key"}
+          </button>
+          <button onClick={handleTest} disabled={!openaiKey.trim()||testing}
+            style={{...btnStyle("secondary"),padding:"9px 20px",opacity:(!openaiKey.trim()||testing)?0.5:1}}>
+            {testing ? "Testing…" : "Test Key"}
+          </button>
+        </div>
+
+        {testResult&&(
+          <div style={{marginTop:12,padding:"10px 14px",borderRadius:8,
+            background:testResult.ok?"#F0FDF4":"#FFF1F2",
+            border:`1px solid ${testResult.ok?C.teal:C.rose}`,
+            color:testResult.ok?C.teal:C.rose,fontSize:13,fontWeight:600}}>
+            {testResult.msg}
+          </div>
+        )}
+      </div>
+
+      <div style={{...cardStyle({padding:16}),background:"#FFFBEB",border:`1px solid #FCD34D`}}>
+        <p style={{fontSize:12,color:"#92400E",margin:0}}>
+          <strong>How to get a key:</strong> Go to{" "}
+          <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer"
+            style={{color:C.brand}}>platform.openai.com/api-keys</a>{" "}
+          → Create new secret key → paste it above → Save → Test.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── ADMIN DASHBOARD ───────────────────────────────────────────────────────────
 function AdminDashboard({ onExit }) {
   const [auth, setAuth]       = useState(false);
@@ -3736,7 +3822,7 @@ function AdminDashboard({ onExit }) {
 
   const pts=db.participants||[], bks=db.bookings||[];
   const avg=arr=>arr.length?(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1):"—";
-  const navItems=[["overview","📊","Overview"],["participants","👥","Test Takers"],["bookings","🗓️","Bookings"],["slots","🕐","Speaking Slots"],["analytics","📈","Analytics"],["suites","🧪","Test Suites"],["assign","📋","Assignments"],["speaking","🗣️","AI Speaking"],["addtest","➕","Section Builder"]];
+  const navItems=[["overview","📊","Overview"],["participants","👥","Test Takers"],["bookings","🗓️","Bookings"],["slots","🕐","Speaking Slots"],["analytics","📈","Analytics"],["suites","🧪","Test Suites"],["assign","📋","Assignments"],["speaking","🗣️","AI Speaking"],["addtest","➕","Section Builder"],["settings","⚙️","Settings"]];
 
   return (
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",fontFamily:"'Montserrat',sans-serif"}}>
@@ -3949,6 +4035,7 @@ function AdminDashboard({ onExit }) {
           {tab==="assign"&&<AssignManager/>}
           {tab==="speaking"&&<AISpeakingManager onRefresh={refresh}/>}
           {tab==="addtest"&&<AddTestManager/>}
+          {tab==="settings"&&<AdminSettings/>}
         </main>
       </div>
     </div>
