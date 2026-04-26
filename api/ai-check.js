@@ -7,9 +7,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ _error: "Method not allowed" });
   }
 
-  const OPENAI_KEY = process.env.VITE_OPENAI_API_KEY || "";
+  const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY || "";
   if (!OPENAI_KEY) {
-    return res.status(500).json({ _error: "OpenAI API key not configured on server. Add VITE_OPENAI_API_KEY to Vercel environment variables." });
+    return res.status(500).json({ _error: "OpenAI API key not configured. Add OPENAI_API_KEY to Vercel environment variables." });
   }
 
   const { text, taskMeta } = req.body || {};
