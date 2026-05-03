@@ -76,14 +76,37 @@ export async function reloadDB() {
       ]);
       const base = cfg?.data || {};
       const pts  = (!ptsErr && ptsRows) ? ptsRows.map(r=>r.data) : (_db.participants||[]);
+
+      // ── SAFETY: if Supabase config has no tests/suites (e.g. after a partial wipe),
+      // fall back to localStorage so test data is never lost on a bad config clear.
+      const hasSupabaseConfig = (base.tests?.length||0) > 0 || (base.testSuites?.length||0) > 0;
+      let finalBase = base;
+      if(!hasSupabaseConfig) {
+        try {
+          const local = JSON.parse(localStorage.getItem(DB_KEY)||"{}");
+          if((local.tests?.length||0) > 0 || (local.testSuites?.length||0) > 0) {
+            // Restore tests/suites from localStorage but use Supabase scoreOverrides
+            // (Supabase scoreOverrides may have been intentionally cleared)
+            finalBase = { ...local, scoreOverrides: base.scoreOverrides||{} };
+            console.warn("[DB] Supabase config was empty — restored tests/suites from localStorage");
+          }
+        } catch(e){ console.warn("[DB] localStorage fallback failed:",e); }
+      }
+
       // deduplicate by id
       const seen = new Set();
       const deduped = pts.filter(p=>{ const k=p.id||p.email; if(seen.has(k)) return false; seen.add(k); return true; });
       // Apply scoreOverrides
-      const overrides = base.scoreOverrides||{};
+      const overrides = finalBase.scoreOverrides||{};
       const withOverrides = deduped.map(p=> overrides[p.id] ? {...p,...overrides[p.id]} : p);
-      _db = {..._emptyDB(), ...base, participants: withOverrides};
+      _db = {..._emptyDB(), ...finalBase, participants: withOverrides};
       localStorage.setItem(DB_KEY,JSON.stringify(_db));
+
+      // If we just restored from localStorage, re-save full config to Supabase
+      if(!hasSupabaseConfig && (_db.tests?.length||0) > 0) {
+        console.warn("[DB] Re-saving restored config to Supabase...");
+        await _flushConfig(_db);
+      }
       return;
     }catch(e){ console.warn("[DB] reloadDB error:",e); }
   }

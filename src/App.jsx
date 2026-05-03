@@ -3912,6 +3912,17 @@ function AdminDashboard({ onExit }) {
     [...(loadDB().participants||[]),...freshPts].forEach(p=>{if(p.id)allPtsMap[p.id]=p;});
     const participants=Object.values(allPtsMap);
 
+    // Safety check — if both key maps are empty (e.g. tests failed to load),
+    // abort rather than writing 0-scores for everyone.
+    const hasLKeys = Object.keys(keyByIdL).length > 0 || Object.keys(keyByTextL).length > 0;
+    const hasRKeys = Object.keys(keyByIdR).length > 0 || Object.keys(keyByTextR).length > 0;
+    if(!hasLKeys && !hasRKeys) {
+      setRecalculating(false);
+      setRecalcMsg("⚠ No answer keys found — tests may not have loaded yet. Refresh and try again.");
+      setTimeout(()=>setRecalcMsg(""),8000);
+      return;
+    }
+
     let count=0;
     const scoreOverrides={}; // saved to ielts_store — survives refreshes
     const updatedPts=participants.map(p=>{
@@ -3923,13 +3934,18 @@ function AdminDashboard({ onExit }) {
 
       // Use type-specific key maps — prevents listening Q1 correct answer from
       // being contaminated by reading Q1 correct answer (they share the same IDs).
-      let newLQs=(p.allListeningQuestions||[]).map(q=>({...q,correct:getKeyL(q)}));
-      if(newLQs.length&&p.listeningAnswers&&Object.keys(p.listeningAnswers).length)
-        lc=scoreAll(newLQs,p.listeningAnswers);
+      // Only rescore a section if we actually have answer keys for that section type.
+      if(hasLKeys) {
+        const newLQs=(p.allListeningQuestions||[]).map(q=>({...q,correct:getKeyL(q)}));
+        if(newLQs.length&&p.listeningAnswers&&Object.keys(p.listeningAnswers).length)
+          lc=scoreAll(newLQs,p.listeningAnswers);
+      }
 
-      let newRQs=(p.allReadingQuestions||[]).map(q=>({...q,correct:getKeyR(q)}));
-      if(newRQs.length&&p.readingAnswers&&Object.keys(p.readingAnswers).length)
-        rc=scoreAll(newRQs,p.readingAnswers);
+      if(hasRKeys) {
+        const newRQs=(p.allReadingQuestions||[]).map(q=>({...q,correct:getKeyR(q)}));
+        if(newRQs.length&&p.readingAnswers&&Object.keys(p.readingAnswers).length)
+          rc=scoreAll(newRQs,p.readingAnswers);
+      }
 
       const newLB=listeningBand(lc,lt||40);
       const newRB=readingBand(rc,rt||40);
