@@ -3835,15 +3835,24 @@ function AdminDashboard({ onExit }) {
   const recalculateAllBands = async () => {
     setRecalculating(true);
 
-    // Build answer key maps from ALL current tests (always fresh in _db.tests)
-    const keyByText={}, keyById={};
+    // Build answer key maps SEPARATELY for Listening vs Reading.
+    // Both section types number their questions from 1, so a shared keyById would
+    // cause listening Q1's correct answer to be overwritten by reading Q1 (or vice
+    // versa). Keeping them in separate maps prevents cross-section contamination.
+    const keyByTextL={}, keyByIdL={};  // Listening-only
+    const keyByTextR={}, keyByIdR={};  // Reading-only
     (loadDB().tests||[]).forEach(t=>{
+      const isListening = (t.type||"").toLowerCase()==="listening";
+      const isReading   = (t.type||"").toLowerCase()==="reading";
+      if(!isListening && !isReading) return; // skip Writing / other types
+      const kbt = isListening ? keyByTextL : keyByTextR;
+      const kbi = isListening ? keyByIdL   : keyByIdR;
       let off=0;
       const addQ=(q,idx)=>{
         const c=(q.correct||"").trim(); if(!c) return;
         const txt=(q.text||"").trim().toLowerCase().slice(0,120);
-        if(txt) keyByText[txt]=c;
-        keyById[idx]=c;
+        if(txt) kbt[txt]=c;
+        kbi[idx]=c;
       };
       if(t.sections?.length>0){
         t.sections.forEach(s=>{(s.questions||[]).forEach((q,j)=>addQ(q,off+j+1));off+=s.questions?.length||0;});
@@ -3854,10 +3863,17 @@ function AdminDashboard({ onExit }) {
       }
     });
 
-    const getKey=q=>{
+    // Separate getKey functions — listening questions only look in L maps, reading in R maps
+    const getKeyL=q=>{
       const txt=(q.text||"").trim().toLowerCase().slice(0,120);
-      if(txt&&keyByText[txt]) return keyByText[txt];
-      if(q.id&&keyById[q.id]) return keyById[q.id];
+      if(txt&&keyByTextL[txt]) return keyByTextL[txt];
+      if(q.id&&keyByIdL[q.id]) return keyByIdL[q.id];
+      return q.correct||"";
+    };
+    const getKeyR=q=>{
+      const txt=(q.text||"").trim().toLowerCase().slice(0,120);
+      if(txt&&keyByTextR[txt]) return keyByTextR[txt];
+      if(q.id&&keyByIdR[q.id]) return keyByIdR[q.id];
       return q.correct||"";
     };
 
@@ -3905,11 +3921,13 @@ function AdminDashboard({ onExit }) {
       let lc=Number((p.listeningScore||"0/40").split("/")[0])||0;
       let rc=Number((p.readingScore||"0/40").split("/")[0])||0;
 
-      let newLQs=(p.allListeningQuestions||[]).map(q=>({...q,correct:getKey(q)}));
+      // Use type-specific key maps — prevents listening Q1 correct answer from
+      // being contaminated by reading Q1 correct answer (they share the same IDs).
+      let newLQs=(p.allListeningQuestions||[]).map(q=>({...q,correct:getKeyL(q)}));
       if(newLQs.length&&p.listeningAnswers&&Object.keys(p.listeningAnswers).length)
         lc=scoreAll(newLQs,p.listeningAnswers);
 
-      let newRQs=(p.allReadingQuestions||[]).map(q=>({...q,correct:getKey(q)}));
+      let newRQs=(p.allReadingQuestions||[]).map(q=>({...q,correct:getKeyR(q)}));
       if(newRQs.length&&p.readingAnswers&&Object.keys(p.readingAnswers).length)
         rc=scoreAll(newRQs,p.readingAnswers);
 
@@ -4763,31 +4781,45 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                       const rAns = a.readingAnswers||{};
                       const rawTxt = v => (v&&typeof v==="object")?v.text:(v||"");
 
-                      // Build live answer key from current tests (text-match first, ID fallback)
-                      // This means history ALWAYS shows the latest answer keys even without recalculate
-                      const liveKeyByText={}, liveKeyById={};
+                      // Build live answer key from current tests — SEPARATE maps per section type.
+                      // Listening and Reading both number questions from 1, so a shared liveKeyById
+                      // would let reading Q1's answer overwrite listening Q1's answer (or vice versa).
+                      const liveKeyByTextL={}, liveKeyByIdL={};  // Listening only
+                      const liveKeyByTextR={}, liveKeyByIdR={};  // Reading only
                       (loadDB().tests||[]).forEach(t=>{
+                        const isL=(t.type||"").toLowerCase()==="listening";
+                        const isR=(t.type||"").toLowerCase()==="reading";
+                        if(!isL&&!isR) return;
+                        const kbt=isL?liveKeyByTextL:liveKeyByTextR;
+                        const kbi=isL?liveKeyByIdL:liveKeyByIdR;
                         let off=0;
                         const addQ=(q,idx)=>{
                           const c=(q.correct||"").trim(); if(!c) return;
                           const txt=(q.text||"").trim().toLowerCase().slice(0,120);
-                          if(txt) liveKeyByText[txt]=c;
-                          liveKeyById[idx]=c;
+                          if(txt) kbt[txt]=c;
+                          kbi[idx]=c;
                         };
                         if(t.sections?.length>0){t.sections.forEach(s=>{(s.questions||[]).forEach((q,j)=>addQ(q,off+j+1));off+=s.questions?.length||0;});}
                         else if(t.passages?.length>0){t.passages.forEach(p=>{(p.questions||[]).forEach((q,j)=>addQ(q,off+j+1));off+=p.questions?.length||0;});}
                         else if(t.questions?.length>0){t.questions.forEach((q,i)=>addQ(q,i+1));}
                       });
-                      const liveKey=q=>{
+                      // Section-specific lookups — listening questions only search L maps, reading only R maps
+                      const liveKeyL=q=>{
                         const txt=(q.text||"").trim().toLowerCase().slice(0,120);
-                        if(txt&&liveKeyByText[txt]) return liveKeyByText[txt];
-                        if(q.id&&liveKeyById[q.id]) return liveKeyById[q.id];
+                        if(txt&&liveKeyByTextL[txt]) return liveKeyByTextL[txt];
+                        if(q.id&&liveKeyByIdL[q.id]) return liveKeyByIdL[q.id];
+                        return q.correct||"";
+                      };
+                      const liveKeyR=q=>{
+                        const txt=(q.text||"").trim().toLowerCase().slice(0,120);
+                        if(txt&&liveKeyByTextR[txt]) return liveKeyByTextR[txt];
+                        if(q.id&&liveKeyByIdR[q.id]) return liveKeyByIdR[q.id];
                         return q.correct||"";
                       };
 
-                      // Enrich stored questions with live answer keys
-                      const lQs = (a.allListeningQuestions||[]).map(q=>({...q,correct:liveKey(q)}));
-                      const rQs = (a.allReadingQuestions||[]).map(q=>({...q,correct:liveKey(q)}));
+                      // Enrich stored questions with live answer keys — each section uses its own map
+                      const lQs = (a.allListeningQuestions||[]).map(q=>({...q,correct:liveKeyL(q)}));
+                      const rQs = (a.allReadingQuestions||[]).map(q=>({...q,correct:liveKeyR(q)}));
                       const aKey = a.id||a.timestamp||"";
                       const tabs = [["listening","🎧","Listening"],["reading","📖","Reading"],["writing","✍️","Writing"],["speaking","🗣️","Speaking"]];
                       return (
