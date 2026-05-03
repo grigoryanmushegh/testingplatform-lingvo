@@ -3935,16 +3935,24 @@ function AdminDashboard({ onExit }) {
       // Use type-specific key maps — prevents listening Q1 correct answer from
       // being contaminated by reading Q1 correct answer (they share the same IDs).
       // Only rescore a section if we actually have answer keys for that section type.
+      // Safety: never let rescoring lower a score to 0 if the student had a non-zero
+      // original score (guards against empty/missing answer keys in the test definition).
       if(hasLKeys) {
         const newLQs=(p.allListeningQuestions||[]).map(q=>({...q,correct:getKeyL(q)}));
-        if(newLQs.length&&p.listeningAnswers&&Object.keys(p.listeningAnswers).length)
-          lc=scoreAll(newLQs,p.listeningAnswers);
+        if(newLQs.length&&p.listeningAnswers&&Object.keys(p.listeningAnswers).length){
+          const rescored=scoreAll(newLQs,p.listeningAnswers);
+          // Only update if rescored > 0 OR original was also 0 (don't zero out valid scores)
+          if(rescored>0||lc===0) lc=rescored;
+        }
       }
 
       if(hasRKeys) {
         const newRQs=(p.allReadingQuestions||[]).map(q=>({...q,correct:getKeyR(q)}));
-        if(newRQs.length&&p.readingAnswers&&Object.keys(p.readingAnswers).length)
-          rc=scoreAll(newRQs,p.readingAnswers);
+        if(newRQs.length&&p.readingAnswers&&Object.keys(p.readingAnswers).length){
+          const rescored=scoreAll(newRQs,p.readingAnswers);
+          // Only update if rescored > 0 OR original was also 0 (don't zero out valid scores)
+          if(rescored>0||rc===0) rc=rescored;
+        }
       }
 
       const newLB=listeningBand(lc,lt||40);
