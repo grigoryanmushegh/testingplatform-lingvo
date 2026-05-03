@@ -3936,10 +3936,12 @@ function AdminDashboard({ onExit }) {
       const wBand=p.writingBand??null;
       const newOverall=overallBand(wBand!=null?[newLB,newRB,wBand]:[newLB,newRB]);
       count++;
+      // IMPORTANT: Only save band scores in the patch — NEVER overwrite original question arrays.
+      // allListeningQuestions and allReadingQuestions were captured at test time and
+      // must not be overwritten by recalculate (doing so caused student data corruption).
       const patch={
         listeningScore:`${lc}/${lt||40}`,readingScore:`${rc}/${rt||40}`,
         listeningBand:newLB,readingBand:newRB,overall:newOverall,
-        allListeningQuestions:newLQs,allReadingQuestions:newRQs,
       };
       if(p.id) scoreOverrides[p.id]=patch; // persist via ielts_store
       return {...p,...patch};
