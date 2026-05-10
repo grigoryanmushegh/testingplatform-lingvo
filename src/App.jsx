@@ -1792,6 +1792,15 @@ function ReadingQ({ q, answer, submitted, correct, onChange, flagged, onFlag }) 
   return (
     <>
     {q.instructions&&<TaskInstructionBlock instructions={q.instructions}/>}
+    {q.diagramImage&&(
+      <div style={{marginBottom:8,borderRadius:10,overflow:"hidden",border:`2px solid ${C.brand}`,background:C.s100,cursor:"pointer"}}
+        onClick={()=>{ const w=window.open(); w.document.write(`<img src="${q.diagramImage}" style="max-width:100%;height:auto;display:block;margin:auto;">`); }}>
+        <img src={q.diagramImage} alt="Diagram / Map" style={{width:"100%",maxHeight:340,objectFit:"contain",display:"block",background:"#fff"}}/>
+        <div style={{background:"linear-gradient(transparent,rgba(15,23,42,.6))",padding:"10px",textAlign:"center"}}>
+          <span style={{color:"#fff",fontSize:11,fontWeight:700}}>🔍 Click to open full size</span>
+        </div>
+      </div>
+    )}
     <div style={{...cardStyle({borderLeft:`4px solid ${borderCol}`,marginBottom:10,padding:16}),background:flagged?"#FFFBEB":""}}>
       <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start"}}>
         <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:6,padding:"2px 7px",flexShrink:0,marginTop:1}}>Q{q.id}</span>
