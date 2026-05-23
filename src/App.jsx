@@ -6801,7 +6801,9 @@ function AddTestManager() {
   };
 
   const doSave = async t => {
-    // Always read fresh from DB before writing — prevents overwriting externally-added tests
+    setSaving(true);
+    // Always pull latest from Supabase before writing — prevents overwriting tests saved on other devices
+    await reloadDB();
     const fresh = loadDB().tests||[];
     let updated;
     if(editingId) {
@@ -6811,8 +6813,7 @@ function AddTestManager() {
       updated = [...fresh, t];
     }
     setTests(updated);
-    setSaving(true);
-    await dbSaveNow("tests", updated);  // immediate write — don't risk 60s refresh overwriting before debounce fires
+    await dbSaveNow("tests", updated);  // immediate write to Supabase
     setSaving(false);
     setSaved(true); setTimeout(()=>setSaved(false),2500);
   };
@@ -6891,7 +6892,7 @@ function AddTestManager() {
     await doSave({id:genId("TEST"),type:"Listening",title:lTitle,sections:lSections.map(s=>({...s})),audioUrl:lAudioUrl||null,audioMode:lAudioMode,createdAt:new Date().toLocaleDateString("en-GB")});
     setLTitle(""); setLSections([newSection(0)]);
   };
-  const deleteTest = async id => { const fresh=loadDB().tests||[]; const u=fresh.filter(t=>t.id!==id); setTests(u); await dbSaveNow("tests",u); };
+  const deleteTest = async id => { await reloadDB(); const fresh=loadDB().tests||[]; const u=fresh.filter(t=>t.id!==id); setTests(u); await dbSaveNow("tests",u); };
   const typeColor  = t  => t==="Reading"?C.teal:t==="Writing"?C.violet:C.amber;
 
   return (
