@@ -6739,7 +6739,7 @@ function AddTestManager() {
   const [saved, setSaved]         = useState(false);
   const [saving, setSaving]       = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const isSavingRef = React.useRef(false);
+  const isSavingRef = useRef(false);
 
   // Sync from Supabase on mount + every 10s so changes from other devices appear quickly
   useEffect(()=>{
