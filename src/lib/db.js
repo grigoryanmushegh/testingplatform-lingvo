@@ -14,13 +14,25 @@ export let   _flushTmr = null;
 // ── Config store (admin data: tests, suites, assignments, slots) ──────────────
 export const _flushConfig = async db => {
   if(!supabase) return false;
-  try {
-    // Config only — no participants (kept in participants table separately for performance)
-    const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||"",openaiKey:db.openaiKey||""};
-    const {error} = await supabase.from("ielts_store").upsert({id:"main",data:cfg,updated_at:new Date().toISOString()});
-    if(error){ console.warn("[DB] config write error:",error.message); return false; }
-    return true;
-  } catch(e){ console.warn("[DB] config write failed:",e); return false; }
+  const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||"",openaiKey:db.openaiKey||""};
+  // Retry up to 3 times with backoff
+  for(let attempt=0; attempt<3; attempt++){
+    try {
+      if(attempt>0) await new Promise(r=>setTimeout(r,1000*attempt));
+      const {error} = await supabase.from("ielts_store").upsert({id:"main",data:cfg,updated_at:new Date().toISOString()});
+      if(error){
+        console.warn(`[DB] config write error (attempt ${attempt+1}):`,error.message);
+        if(attempt===2) return false;
+        continue;
+      }
+      if(attempt>0) console.log(`[DB] config write succeeded on attempt ${attempt+1}`);
+      return true;
+    } catch(e){
+      console.warn(`[DB] config write failed (attempt ${attempt+1}):`,e);
+      if(attempt===2) return false;
+    }
+  }
+  return false;
 };
 export const _flush    = db => { clearTimeout(_flushTmr); _flushTmr = setTimeout(()=>_flushConfig(db),300); };
 export const _flushNow = db => _flushConfig(db);
@@ -52,7 +64,7 @@ export const loadDB      = () => _db;
 // setInternalDb: direct mutation for admin bulk-update operations (does not flush to remote)
 export const setInternalDb = newDb => { _db = newDb; };
 export const saveDB  = db => { _db=db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{} _flush(db); };
-export const saveDBNow = async db => { _db=db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{} await _flushNow(db); };
+export const saveDBNow = async db => { _db=db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{} return await _flushNow(db); };
 
 // dbPush for participants → individual row insert (concurrent-safe)
 // dbPush for anything else → full config upsert
@@ -64,7 +76,7 @@ export const dbPushNow = async (col,item) => {
   else { await _flushNow(_db); }
 };
 export const dbSave    = (col,items) => { _db[col]=items; saveDB(_db); };
-export const dbSaveNow = async (col,items) => { _db[col]=items; await saveDBNow(_db); };
+export const dbSaveNow = async (col,items) => { _db[col]=items; return await saveDBNow(_db); };
 
 // ── Smart merge: combine Supabase + localStorage, never lose local-only items ──
 // For each collection, Supabase is the authoritative source for existing IDs,

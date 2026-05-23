@@ -6827,7 +6827,10 @@ function AddTestManager() {
         updated = [...fresh, t];
       }
       setTests(updated);
-      await dbSaveNow("tests", updated);  // immediate write to Supabase
+      const ok = await dbSaveNow("tests", updated);  // immediate write to Supabase (retries 3×)
+      if(!ok) {
+        alert("⚠️ Could not save to cloud. Your test is saved locally — please check your internet connection and try again.");
+      }
     } finally {
       isSavingRef.current = false;
       setSaving(false);
