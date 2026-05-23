@@ -6738,10 +6738,11 @@ function AddTestManager() {
   const [saving, setSaving]       = useState(false);
   const [editingId, setEditingId] = useState(null);
 
-  // Sync displayed list from DB on mount + every 30s (picks up any externally-added tests)
+  // Sync from Supabase on mount + every 10s so changes from other devices appear quickly
   useEffect(()=>{
-    setTests(loadDB().tests||[]);
-    const t = setInterval(()=>setTests(loadDB().tests||[]), 30000);
+    const sync = async () => { await reloadDB(); setTests(loadDB().tests||[]); };
+    sync();
+    const t = setInterval(sync, 10000);
     return ()=>clearInterval(t);
   }, []);
 
