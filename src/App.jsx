@@ -3839,7 +3839,7 @@ function AdminDashboard({ onExit }) {
     setDb({...loadDB()});
     setRefreshing(false);
   };
-  useEffect(()=>{const t=setInterval(refresh,60000);return()=>clearInterval(t);},[]);
+  useEffect(()=>{ refresh(); const t=setInterval(refresh,30000);return()=>clearInterval(t);},[]);
 
   const recalculateAllBands = async () => {
     setRecalculating(true);
@@ -5522,9 +5522,9 @@ function TestSuiteManager() {
   const [w2Id, setW2Id] = useState("");
   const [lId,  setLId]  = useState("");
 
-  const refresh = () => { const db=loadDB(); setSuites(db.testSuites||[]); setAllSections(db.tests||[]); };
-  // Refresh on mount AND every 30s so dropdowns always show the latest tests
-  useEffect(()=>{ refresh(); const t=setInterval(refresh,30000); return()=>clearInterval(t); },[]);
+  const refresh = async () => { await reloadDB(); const db=loadDB(); setSuites(db.testSuites||[]); setAllSections(db.tests||[]); };
+  // Refresh from Supabase on mount AND every 15s so changes from other devices appear quickly
+  useEffect(()=>{ refresh(); const t=setInterval(refresh,15000); return()=>clearInterval(t); },[]);
 
   const rSecs  = allSections.filter(s=>s.type==="Reading");
   const w1Secs = allSections.filter(s=>s.type==="Writing"&&(s.taskType==="task1"||(!s.taskType&&s.task1Prompt)));
@@ -5660,7 +5660,8 @@ function SlotsManager({ onRefresh }) {
   const [bulkMode, setBulkMode] = useState("both");
   const [saved, setSaved]       = useState("");
 
-  const reload = () => {
+  const reload = async () => {
+    await reloadDB();
     const s = (loadDB().speakingSlots||[]).sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
     setSlots(s); onRefresh?.();
   };
@@ -5870,7 +5871,8 @@ function AssignManager() {
   const [saved, setSaved]         = useState(false);
   const [searchEmail, setSearchEmail] = useState("");
 
-  const refresh = () => {
+  const refresh = async () => {
+    await reloadDB();
     setAssignments(loadDB().assignments||[]);
     setPublishedSuites((loadDB().testSuites||[]).filter(s=>s.status==="published"));
   };
