@@ -6739,10 +6739,22 @@ function AddTestManager() {
   const [saved, setSaved]         = useState(false);
   const [saving, setSaving]       = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const isSavingRef = React.useRef(false);
 
   // Sync from Supabase on mount + every 10s so changes from other devices appear quickly
   useEffect(()=>{
-    const sync = async () => { await reloadDB(); setTests(loadDB().tests||[]); };
+    const sync = async () => {
+      if(isSavingRef.current) return; // skip sync while a save is in-flight
+      await reloadDB();
+      if(isSavingRef.current) return; // save started during reload — skip overwrite
+      // Merge: keep any local-state tests not yet confirmed in Supabase (write still in flight)
+      setTests(prev => {
+        const fromDB = loadDB().tests || [];
+        const dbIds = new Set(fromDB.map(t => t.id));
+        const localOnly = prev.filter(t => t.id && !dbIds.has(t.id));
+        return localOnly.length > 0 ? [...fromDB, ...localOnly] : fromDB;
+      });
+    };
     sync();
     const t = setInterval(sync, 10000);
     return ()=>clearInterval(t);
@@ -6801,21 +6813,26 @@ function AddTestManager() {
   };
 
   const doSave = async t => {
+    isSavingRef.current = true;
     setSaving(true);
-    // Always pull latest from Supabase before writing — prevents overwriting tests saved on other devices
-    await reloadDB();
-    const fresh = loadDB().tests||[];
-    let updated;
-    if(editingId) {
-      updated = fresh.map(x => x.id===editingId ? {...t, id:editingId, createdAt:x.createdAt} : x);
-      setEditingId(null);
-    } else {
-      updated = [...fresh, t];
+    try {
+      // Always pull latest from Supabase before writing — prevents overwriting tests saved on other devices
+      await reloadDB();
+      const fresh = loadDB().tests||[];
+      let updated;
+      if(editingId) {
+        updated = fresh.map(x => x.id===editingId ? {...t, id:editingId, createdAt:x.createdAt} : x);
+        setEditingId(null);
+      } else {
+        updated = [...fresh, t];
+      }
+      setTests(updated);
+      await dbSaveNow("tests", updated);  // immediate write to Supabase
+    } finally {
+      isSavingRef.current = false;
+      setSaving(false);
+      setSaved(true); setTimeout(()=>setSaved(false),2500);
     }
-    setTests(updated);
-    await dbSaveNow("tests", updated);  // immediate write to Supabase
-    setSaving(false);
-    setSaved(true); setTimeout(()=>setSaved(false),2500);
   };
 
   const loadForEdit = t => {
