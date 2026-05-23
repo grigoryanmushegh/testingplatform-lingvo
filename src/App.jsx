@@ -6735,6 +6735,7 @@ function AddTestManager() {
   const [tests, setTests]         = useState((loadDB().tests)||[]);
   const [activeType, setActiveType] = useState("Reading");
   const [saved, setSaved]         = useState(false);
+  const [saving, setSaving]       = useState(false);
   const [editingId, setEditingId] = useState(null);
 
   // Sync displayed list from DB on mount + every 30s (picks up any externally-added tests)
@@ -6796,7 +6797,7 @@ function AddTestManager() {
     });
   };
 
-  const doSave = t => {
+  const doSave = async t => {
     // Always read fresh from DB before writing — prevents overwriting externally-added tests
     const fresh = loadDB().tests||[];
     let updated;
@@ -6806,7 +6807,10 @@ function AddTestManager() {
     } else {
       updated = [...fresh, t];
     }
-    setTests(updated); dbSave("tests", updated);
+    setTests(updated);
+    setSaving(true);
+    await dbSaveNow("tests", updated);  // immediate write — don't risk 60s refresh overwriting before debounce fires
+    setSaving(false);
     setSaved(true); setTimeout(()=>setSaved(false),2500);
   };
 
@@ -6831,22 +6835,22 @@ function AddTestManager() {
     window.scrollTo({top:0,behavior:"smooth"});
   };
 
-  const saveReading = () => {
+  const saveReading = async () => {
     if(!rTitle.trim()) return;
     const validPassages = rPassages.filter(p=>p.text.trim());
     if(!validPassages.length) return;
-    doSave({id:genId("TEST"),type:"Reading",title:rTitle,passages:rPassages.map(p=>({...p})),createdAt:new Date().toLocaleDateString("en-GB")});
+    await doSave({id:genId("TEST"),type:"Reading",title:rTitle,passages:rPassages.map(p=>({...p})),createdAt:new Date().toLocaleDateString("en-GB")});
     setRTitle(""); setRPassages([newPassage(0)]);
   };
-  const saveWritingTask1 = () => {
+  const saveWritingTask1 = async () => {
     if(!wT1Prompt.trim()) return;
-    doSave({id:genId("TEST"),type:"Writing",taskType:"task1",title:wT1Title||"Writing Task 1",task1Prompt:wT1Prompt,task1Image:wT1Image,createdAt:new Date().toLocaleDateString("en-GB")});
+    await doSave({id:genId("TEST"),type:"Writing",taskType:"task1",title:wT1Title||"Writing Task 1",task1Prompt:wT1Prompt,task1Image:wT1Image,createdAt:new Date().toLocaleDateString("en-GB")});
     setWT1Title(""); setWT1Prompt(""); setWT1Image(null);
     setWT1Saved(true); setTimeout(()=>setWT1Saved(false),2500);
   };
-  const saveWritingTask2 = () => {
+  const saveWritingTask2 = async () => {
     if(!wT2Prompt.trim()) return;
-    doSave({id:genId("TEST"),type:"Writing",taskType:"task2",title:wT2Title||"Writing Task 2",task2Prompt:wT2Prompt,createdAt:new Date().toLocaleDateString("en-GB")});
+    await doSave({id:genId("TEST"),type:"Writing",taskType:"task2",title:wT2Title||"Writing Task 2",task2Prompt:wT2Prompt,createdAt:new Date().toLocaleDateString("en-GB")});
     setWT2Title(""); setWT2Prompt("");
     setWT2Saved(true); setTimeout(()=>setWT2Saved(false),2500);
   };
@@ -6877,11 +6881,11 @@ function AddTestManager() {
     const db = loadDB(); delete db.listeningAudioUrl; saveDB(db); setLAudioUrl("");
   };
 
-  const saveListening = () => {
+  const saveListening = async () => {
     if(!lTitle.trim()) return;
     // Save audio URL to global config
     const db = loadDB(); if(lAudioUrl) db.listeningAudioUrl = lAudioUrl; saveDB(db);
-    doSave({id:genId("TEST"),type:"Listening",title:lTitle,sections:lSections.map(s=>({...s})),audioUrl:lAudioUrl||null,audioMode:lAudioMode,createdAt:new Date().toLocaleDateString("en-GB")});
+    await doSave({id:genId("TEST"),type:"Listening",title:lTitle,sections:lSections.map(s=>({...s})),audioUrl:lAudioUrl||null,audioMode:lAudioMode,createdAt:new Date().toLocaleDateString("en-GB")});
     setLTitle(""); setLSections([newSection(0)]);
   };
   const deleteTest = id => { const fresh=loadDB().tests||[]; const u=fresh.filter(t=>t.id!==id); setTests(u); dbSave("tests",u); };
@@ -6972,9 +6976,9 @@ function AddTestManager() {
           </div>
 
           <div style={{display:"flex",gap:14,alignItems:"center",marginTop:16,paddingTop:16,borderTop:`1px solid ${C.s200}`}}>
-            <button onClick={saveReading} disabled={!rTitle.trim()||!rPassages.some(p=>p.text.trim())}
-              style={btnStyle("primary",!rTitle.trim()||!rPassages.some(p=>p.text.trim()))}>
-              💾 Save Reading Section
+            <button onClick={saveReading} disabled={saving||!rTitle.trim()||!rPassages.some(p=>p.text.trim())}
+              style={btnStyle("primary",saving||!rTitle.trim()||!rPassages.some(p=>p.text.trim()))}>
+              {saving?"⏳ Saving…":"💾 Save Reading Section"}
             </button>
             {saved&&<span style={{color:C.teal,fontWeight:700,fontSize:14}}>✓ Saved!</span>}
           </div>
@@ -7030,8 +7034,8 @@ function AddTestManager() {
             </div>
 
             <div style={{display:"flex",gap:10,alignItems:"center"}}>
-              <button onClick={saveWritingTask1} disabled={!wT1Prompt.trim()} style={btnStyle("primary",!wT1Prompt.trim())}>
-                💾 Save Task 1
+              <button onClick={saveWritingTask1} disabled={saving||!wT1Prompt.trim()} style={btnStyle("primary",saving||!wT1Prompt.trim())}>
+                {saving?"⏳ Saving…":"💾 Save Task 1"}
               </button>
               {wT1Saved&&<span style={{color:C.teal,fontWeight:700,fontSize:13}}>✓ Saved!</span>}
             </div>
@@ -7062,8 +7066,8 @@ function AddTestManager() {
             </div>
 
             <div style={{display:"flex",gap:10,alignItems:"center"}}>
-              <button onClick={saveWritingTask2} disabled={!wT2Prompt.trim()} style={btnStyle("secondary",!wT2Prompt.trim())}>
-                💾 Save Task 2
+              <button onClick={saveWritingTask2} disabled={saving||!wT2Prompt.trim()} style={btnStyle("secondary",saving||!wT2Prompt.trim())}>
+                {saving?"⏳ Saving…":"💾 Save Task 2"}
               </button>
               {wT2Saved&&<span style={{color:C.teal,fontWeight:700,fontSize:13}}>✓ Saved!</span>}
             </div>
@@ -7156,8 +7160,8 @@ function AddTestManager() {
           </div>
 
           <div style={{display:"flex",gap:14,alignItems:"center",marginTop:16,paddingTop:16,borderTop:`1px solid ${C.s200}`}}>
-            <button onClick={saveListening} disabled={!lTitle.trim()} style={btnStyle("primary",!lTitle.trim())}>
-              💾 Save Listening Section
+            <button onClick={saveListening} disabled={saving||!lTitle.trim()} style={btnStyle("primary",saving||!lTitle.trim())}>
+              {saving?"⏳ Saving…":"💾 Save Listening Section"}
             </button>
             {saved&&<span style={{color:C.teal,fontWeight:700,fontSize:14}}>✓ Saved!</span>}
           </div>
