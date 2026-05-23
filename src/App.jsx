@@ -5667,14 +5667,14 @@ function SlotsManager({ onRefresh }) {
 
   const flash = msg => { setSaved(msg); setTimeout(()=>setSaved(""),2500); };
 
-  const addSlot = () => {
+  const addSlot = async () => {
     if(!newDate||!newTime) return;
     const slot = {id:genId("SLT"),date:newDate,time:newTime,mode:newMode,booked:false,createdAt:Date.now()};
-    const db = loadDB(); db.speakingSlots=[slot,...(db.speakingSlots||[])]; saveDB(db);
+    const db = loadDB(); db.speakingSlots=[slot,...(db.speakingSlots||[])]; await saveDBNow(db);
     setNewDate(""); reload(); flash("✓ Slot added!");
   };
 
-  const addBulk = () => {
+  const addBulk = async () => {
     if(!bulkFrom||!bulkTo||!bulkTimes.length) return;
     const from = new Date(bulkFrom), to = new Date(bulkTo);
     if(from>to) return;
@@ -5688,12 +5688,12 @@ function SlotsManager({ onRefresh }) {
         if(!dup) newSlots.push({id:genId("SLT"),date:dateStr,time:t,mode:bulkMode,booked:false,createdAt:Date.now()});
       });
     }
-    db.speakingSlots=[...newSlots,...existing]; saveDB(db);
+    db.speakingSlots=[...newSlots,...existing]; await saveDBNow(db);
     reload(); flash(`✓ Added ${newSlots.length} slots!`);
   };
 
-  const removeSlot = id => {
-    const db = loadDB(); db.speakingSlots=(db.speakingSlots||[]).filter(s=>s.id!==id); saveDB(db); reload();
+  const removeSlot = async id => {
+    const db = loadDB(); db.speakingSlots=(db.speakingSlots||[]).filter(s=>s.id!==id); await saveDBNow(db); reload();
   };
 
   const toggleTime = t => setBulkTimes(prev=>prev.includes(t)?prev.filter(x=>x!==t):[...prev,t].sort());
@@ -6864,12 +6864,12 @@ function AddTestManager() {
         const {error:upErr} = await supabase.storage.from("ielts-audio").upload(path,file,{upsert:true});
         if(upErr) throw upErr;
         const {data} = supabase.storage.from("ielts-audio").getPublicUrl(path);
-        const db = loadDB(); db.listeningAudioUrl = data.publicUrl; saveDB(db);
+        const db = loadDB(); db.listeningAudioUrl = data.publicUrl; await saveDBNow(db);
         setLAudioUrl(data.publicUrl);
       } else {
         const reader = new FileReader();
-        reader.onload = ev => {
-          const db = loadDB(); db.listeningAudioUrl = ev.target.result; saveDB(db);
+        reader.onload = async ev => {
+          const db = loadDB(); db.listeningAudioUrl = ev.target.result; await saveDBNow(db);
           setLAudioUrl(ev.target.result);
         };
         reader.readAsDataURL(file);
@@ -6877,18 +6877,18 @@ function AddTestManager() {
     } catch(e){ alert("Audio upload failed: "+e.message); }
     setLAudioUploading(false);
   };
-  const removeListeningAudio = () => {
-    const db = loadDB(); delete db.listeningAudioUrl; saveDB(db); setLAudioUrl("");
+  const removeListeningAudio = async () => {
+    const db = loadDB(); delete db.listeningAudioUrl; await saveDBNow(db); setLAudioUrl("");
   };
 
   const saveListening = async () => {
     if(!lTitle.trim()) return;
-    // Save audio URL to global config
-    const db = loadDB(); if(lAudioUrl) db.listeningAudioUrl = lAudioUrl; saveDB(db);
+    // Save audio URL to global config (doSave below will flush everything to Supabase)
+    const db = loadDB(); if(lAudioUrl) db.listeningAudioUrl = lAudioUrl; _db = db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{}
     await doSave({id:genId("TEST"),type:"Listening",title:lTitle,sections:lSections.map(s=>({...s})),audioUrl:lAudioUrl||null,audioMode:lAudioMode,createdAt:new Date().toLocaleDateString("en-GB")});
     setLTitle(""); setLSections([newSection(0)]);
   };
-  const deleteTest = id => { const fresh=loadDB().tests||[]; const u=fresh.filter(t=>t.id!==id); setTests(u); dbSave("tests",u); };
+  const deleteTest = async id => { const fresh=loadDB().tests||[]; const u=fresh.filter(t=>t.id!==id); setTests(u); await dbSaveNow("tests",u); };
   const typeColor  = t  => t==="Reading"?C.teal:t==="Writing"?C.violet:C.amber;
 
   return (

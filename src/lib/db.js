@@ -66,7 +66,42 @@ export const dbPushNow = async (col,item) => {
 export const dbSave    = (col,items) => { _db[col]=items; saveDB(_db); };
 export const dbSaveNow = async (col,items) => { _db[col]=items; await saveDBNow(_db); };
 
-// Force re-fetch from Supabase
+// ── Smart merge: combine Supabase + localStorage, never lose local-only items ──
+// For each collection, Supabase is the authoritative source for existing IDs,
+// but any item that exists locally but NOT in Supabase is preserved and pushed up.
+function _smartMerge(supabaseBase, local) {
+  const MERGE_COLS = ["tests", "testSuites", "assignments", "speakingSlots", "bookings"];
+  let needsPush = false;
+  const merged = { ...supabaseBase };
+
+  for (const col of MERGE_COLS) {
+    const remote = supabaseBase[col] || [];
+    const localItems = local[col] || [];
+    const remoteIds = new Set(remote.map(x => x.id).filter(Boolean));
+    const localOnly = localItems.filter(x => x.id && !remoteIds.has(x.id));
+    if (localOnly.length > 0) {
+      console.warn(`[DB] smartMerge: found ${localOnly.length} local-only ${col} not in Supabase — merging up`);
+      needsPush = true;
+    }
+    merged[col] = [...remote, ...localOnly];
+  }
+
+  // scoreOverrides: merge keys — Supabase wins for existing keys, local adds new ones
+  const remoteOverrides = supabaseBase.scoreOverrides || {};
+  const localOverrides  = local.scoreOverrides || {};
+  const mergedOverrides = { ...localOverrides, ...remoteOverrides }; // remote wins on conflict
+  if (Object.keys(mergedOverrides).length !== Object.keys(remoteOverrides).length) needsPush = true;
+  merged.scoreOverrides = mergedOverrides;
+
+  // Scalar fields: remote wins
+  for (const k of ["listeningAudioUrl", "openaiKey"]) {
+    merged[k] = supabaseBase[k] || local[k] || "";
+  }
+
+  return { merged, needsPush };
+}
+
+// Force re-fetch from Supabase, smart-merging any local-only items back in
 export async function reloadDB() {
   if(supabase){
     try{
@@ -77,23 +112,28 @@ export async function reloadDB() {
       const base = cfg?.data || {};
       const pts  = (!ptsErr && ptsRows) ? ptsRows.map(r=>r.data) : (_db.participants||[]);
 
-      // ── SAFETY: if Supabase config has no tests/suites (e.g. after a partial wipe),
-      // fall back to localStorage so test data is never lost on a bad config clear.
+      // Read local cache for smart merge
+      let local = {};
+      try { local = JSON.parse(localStorage.getItem(DB_KEY)||"{}"); } catch {}
+
+      // If Supabase has no config at all, restore fully from localStorage
       const hasSupabaseConfig = (base.tests?.length||0) > 0 || (base.testSuites?.length||0) > 0;
-      let finalBase = base;
+      let finalBase, needsPush;
       if(!hasSupabaseConfig) {
-        try {
-          const local = JSON.parse(localStorage.getItem(DB_KEY)||"{}");
-          if((local.tests?.length||0) > 0 || (local.testSuites?.length||0) > 0) {
-            // Restore tests/suites from localStorage but use Supabase scoreOverrides
-            // (Supabase scoreOverrides may have been intentionally cleared)
-            finalBase = { ...local, scoreOverrides: base.scoreOverrides||{} };
-            console.warn("[DB] Supabase config was empty — restored tests/suites from localStorage");
-          }
-        } catch(e){ console.warn("[DB] localStorage fallback failed:",e); }
+        if((local.tests?.length||0) > 0 || (local.testSuites?.length||0) > 0) {
+          finalBase = { ...local, scoreOverrides: base.scoreOverrides||{} };
+          needsPush = true;
+          console.warn("[DB] Supabase config was empty — restored tests/suites from localStorage");
+        } else {
+          finalBase = base;
+          needsPush = false;
+        }
+      } else {
+        // Smart merge: Supabase wins for known IDs, local-only items are preserved
+        ({ merged: finalBase, needsPush } = _smartMerge(base, local));
       }
 
-      // deduplicate by id
+      // Deduplicate participants by id
       const seen = new Set();
       const deduped = pts.filter(p=>{ const k=p.id||p.email; if(seen.has(k)) return false; seen.add(k); return true; });
       // Apply scoreOverrides
@@ -102,9 +142,9 @@ export async function reloadDB() {
       _db = {..._emptyDB(), ...finalBase, participants: withOverrides};
       localStorage.setItem(DB_KEY,JSON.stringify(_db));
 
-      // If we just restored from localStorage, re-save full config to Supabase
-      if(!hasSupabaseConfig && (_db.tests?.length||0) > 0) {
-        console.warn("[DB] Re-saving restored config to Supabase...");
+      // Push merged data back to Supabase if we found local-only items
+      if(needsPush) {
+        console.warn("[DB] Re-saving merged config to Supabase...");
         await _flushConfig(_db);
       }
       return;
@@ -122,13 +162,33 @@ export async function initDB() {
       ]);
       const base = cfg?.data || {};
       const pts  = ptsRows ? ptsRows.map(r=>r.data) : [];
+
+      // Read local cache for smart merge
+      let local = {};
+      try { local = JSON.parse(localStorage.getItem(DB_KEY)||"{}"); } catch {}
+
+      const hasSupabaseConfig = (base.tests?.length||0) > 0 || (base.testSuites?.length||0) > 0;
+      let finalBase, needsPush;
       if(cfg?.data || pts.length){
+        if(!hasSupabaseConfig && ((local.tests?.length||0) > 0 || (local.testSuites?.length||0) > 0)) {
+          finalBase = { ...local, scoreOverrides: base.scoreOverrides||{} };
+          needsPush = true;
+        } else if(hasSupabaseConfig) {
+          ({ merged: finalBase, needsPush } = _smartMerge(base, local));
+        } else {
+          finalBase = base;
+          needsPush = false;
+        }
         const seen = new Set();
         const deduped = pts.filter(p=>{ const k=p.id||p.email; if(seen.has(k)) return false; seen.add(k); return true; });
-        const overrides = base.scoreOverrides||{};
+        const overrides = finalBase.scoreOverrides||{};
         const withOverrides = deduped.map(p=> overrides[p.id] ? {...p,...overrides[p.id]} : p);
-        _db = {..._emptyDB(), ...base, participants: withOverrides};
+        _db = {..._emptyDB(), ...finalBase, participants: withOverrides};
         localStorage.setItem(DB_KEY,JSON.stringify(_db));
+        if(needsPush) {
+          console.warn("[DB] initDB: pushing merged local-only items to Supabase...");
+          await _flushConfig(_db);
+        }
         return;
       }
       // First run — seed from localStorage
