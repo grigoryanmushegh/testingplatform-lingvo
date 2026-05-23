@@ -155,48 +155,70 @@ export async function reloadDB() {
 
 export async function initDB() {
   if(supabase){
-    try{
-      const [{data:cfg},{data:ptsRows}] = await Promise.all([
-        supabase.from("ielts_store").select("data").eq("id","main").single(),
-        supabase.from("participants").select("data").order("created_at",{ascending:false}),
-      ]);
-      const base = cfg?.data || {};
-      const pts  = ptsRows ? ptsRows.map(r=>r.data) : [];
+    // Attempt Supabase load — retry once on failure/empty config
+    for(let attempt=0; attempt<2; attempt++){
+      try{
+        if(attempt>0) await new Promise(r=>setTimeout(r,1500));
+        const [{data:cfg,error:cfgErr},{data:ptsRows,error:ptsErr}] = await Promise.all([
+          supabase.from("ielts_store").select("data").eq("id","main").single(),
+          supabase.from("participants").select("data").order("created_at",{ascending:false}),
+        ]);
+        console.log(`[DB] initDB attempt ${attempt+1}: cfg=`,cfg?.data?"ok":"null/empty",
+          "cfgErr=",cfgErr?.message||"none",
+          "pts=",ptsRows?.length||0,"ptsErr=",ptsErr?.message||"none");
 
-      // Read local cache for smart merge
-      let local = {};
-      try { local = JSON.parse(localStorage.getItem(DB_KEY)||"{}"); } catch {}
+        // On error, retry (attempt 0) or fall through to localStorage (attempt 1)
+        if(cfgErr && cfgErr.code !== "PGRST116"){ // PGRST116 = no rows (expected on first run)
+          if(attempt===0) continue;
+          break;
+        }
 
-      const hasSupabaseConfig = (base.tests?.length||0) > 0 || (base.testSuites?.length||0) > 0;
-      let finalBase, needsPush;
-      if(cfg?.data || pts.length){
-        if(!hasSupabaseConfig && ((local.tests?.length||0) > 0 || (local.testSuites?.length||0) > 0)) {
+        const base = cfg?.data || {};
+        const pts  = (!ptsErr && ptsRows) ? ptsRows.map(r=>r.data) : [];
+
+        // Read local cache for smart merge
+        let local = {};
+        try { local = JSON.parse(localStorage.getItem(DB_KEY)||"{}"); } catch {}
+
+        const hasSupabaseConfig = (base.tests?.length||0) > 0 || (base.testSuites?.length||0) > 0;
+
+        // If Supabase config is empty but we got a successful response AND local has data → push local up
+        // If Supabase has config → smart merge
+        // If first run (no config anywhere) → seed empty
+        let finalBase, needsPush;
+        if(hasSupabaseConfig){
+          ({ merged: finalBase, needsPush } = _smartMerge(base, local));
+        } else if((local.tests?.length||0) > 0 || (local.testSuites?.length||0) > 0){
+          // Local has data but Supabase doesn't — push local up
           finalBase = { ...local, scoreOverrides: base.scoreOverrides||{} };
           needsPush = true;
-        } else if(hasSupabaseConfig) {
-          ({ merged: finalBase, needsPush } = _smartMerge(base, local));
+          console.warn("[DB] initDB: Supabase config empty, restoring from localStorage");
         } else {
+          // Truly empty everywhere — first run
           finalBase = base;
           needsPush = false;
         }
+
         const seen = new Set();
         const deduped = pts.filter(p=>{ const k=p.id||p.email; if(seen.has(k)) return false; seen.add(k); return true; });
         const overrides = finalBase.scoreOverrides||{};
         const withOverrides = deduped.map(p=> overrides[p.id] ? {...p,...overrides[p.id]} : p);
         _db = {..._emptyDB(), ...finalBase, participants: withOverrides};
         localStorage.setItem(DB_KEY,JSON.stringify(_db));
-        if(needsPush) {
+        console.log(`[DB] initDB: loaded ${_db.tests?.length||0} tests, ${_db.testSuites?.length||0} suites, ${_db.participants?.length||0} participants`);
+        if(needsPush){
           console.warn("[DB] initDB: pushing merged local-only items to Supabase...");
           await _flushConfig(_db);
         }
-        return;
+        return; // success — exit loop
+      }catch(e){
+        console.warn(`[DB] initDB attempt ${attempt+1} error:`,e);
+        if(attempt===0) continue;
       }
-      // First run — seed from localStorage
-      try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
-      await _flushConfig(_db);
-    }catch{
-      try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
     }
+    // All Supabase attempts failed — fall back to localStorage
+    console.warn("[DB] initDB: Supabase unreachable, falling back to localStorage");
+    try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
   } else {
     try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
   }
