@@ -161,10 +161,11 @@ async function _fetchFromSupabase() {
 }
 
 function _processRows(allRows, fallbackPts) {
-  const rows   = allRows || [];
-  const ptRows = rows.filter(r => r.type === "attempt" || r.type === "registration");
+  const rows    = allRows || [];
   const tstRows = rows.filter(r => r.type === "test_item" || r.type === "test_del");
-  const pts    = ptRows.length > 0 ? ptRows.map(r => r.data) : (fallbackPts||[]);
+  // Treat any non-test row as a participant (backward compat for rows with unexpected/null type)
+  const ptRows  = rows.filter(r => r.type !== "test_item" && r.type !== "test_del" && r.data?.id);
+  const pts     = ptRows.length > 0 ? ptRows.map(r => r.data).filter(Boolean) : (fallbackPts||[]);
   const rowTests = _buildTestsFromRows(tstRows);
   return { pts, rowTests };
 }

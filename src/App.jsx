@@ -3840,7 +3840,9 @@ function AdminDashboard({ onExit }) {
     setDb({...loadDB()});
     setRefreshing(false);
   };
-  useEffect(()=>{ refresh(); const t=setInterval(refresh,30000);return()=>clearInterval(t);},[]);
+  useEffect(()=>{ refresh(); const t=setInterval(refresh,8000);return()=>clearInterval(t);},[]);
+  // Also refresh immediately whenever the admin switches to the participants tab
+  useEffect(()=>{ if(tab==="participants"||tab==="overview") refresh(); },[tab]);
 
   const recalculateAllBands = async () => {
     setRecalculating(true);
