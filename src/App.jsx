@@ -7,6 +7,7 @@ import { C } from "./lib/constants.js";
 import {
   supabase, setInternalDb,
   _flushConfig, _loadParticipants,
+  _upsertTestRow, _markTestDeleted,
   loadDB, saveDB, saveDBNow,
   dbPush, dbPushNow, dbSave, dbSaveNow,
   reloadDB, initDB, genId, DB_KEY,
@@ -6816,21 +6817,27 @@ function AddTestManager() {
     isSavingRef.current = true;
     setSaving(true);
     try {
-      // Always pull latest from Supabase before writing — prevents overwriting tests saved on other devices
-      await reloadDB();
+      // 1. Optimistically update local state immediately so the test appears in the list
+      const testWithId = editingId ? {...t, id:editingId} : t;
+      setTests(prev => {
+        if(editingId) return prev.map(x => x.id===editingId ? {...t, id:editingId, createdAt:x.createdAt} : x);
+        return [...prev, testWithId];
+      });
+      if(editingId) setEditingId(null);
+
+      // 2. Save as individual row — concurrent-safe, no cross-device overwrite
+      const ok = await _upsertTestRow(testWithId);
+      if(!ok){
+        alert("⚠️ Could not save to cloud. Your test is visible here but may not appear on other devices. Please check your internet connection.");
+      }
+
+      // 3. Also update local _db and localStorage so the test survives a page refresh
       const fresh = loadDB().tests||[];
-      let updated;
-      if(editingId) {
-        updated = fresh.map(x => x.id===editingId ? {...t, id:editingId, createdAt:x.createdAt} : x);
-        setEditingId(null);
-      } else {
-        updated = [...fresh, t];
-      }
-      setTests(updated);
-      const ok = await dbSaveNow("tests", updated);  // immediate write to Supabase (retries 3×)
-      if(!ok) {
-        alert("⚠️ Could not save to cloud. Your test is saved locally — please check your internet connection and try again.");
-      }
+      const updated = editingId
+        ? fresh.map(x => x.id===testWithId.id ? testWithId : x)
+        : (fresh.find(x=>x.id===testWithId.id) ? fresh : [...fresh, testWithId]);
+      _db.tests = updated;
+      try{ localStorage.setItem(DB_KEY, JSON.stringify(_db)); }catch{}
     } finally {
       isSavingRef.current = false;
       setSaving(false);
@@ -6912,7 +6919,14 @@ function AddTestManager() {
     await doSave({id:genId("TEST"),type:"Listening",title:lTitle,sections:lSections.map(s=>({...s})),audioUrl:lAudioUrl||null,audioMode:lAudioMode,createdAt:new Date().toLocaleDateString("en-GB")});
     setLTitle(""); setLSections([newSection(0)]);
   };
-  const deleteTest = async id => { await reloadDB(); const fresh=loadDB().tests||[]; const u=fresh.filter(t=>t.id!==id); setTests(u); await dbSaveNow("tests",u); };
+  const deleteTest = async id => {
+    // Optimistic local remove
+    setTests(prev => prev.filter(t => t.id !== id));
+    _db.tests = (_db.tests||[]).filter(t => t.id !== id);
+    try{ localStorage.setItem(DB_KEY, JSON.stringify(_db)); }catch{}
+    // Insert tombstone row — concurrent-safe delete
+    await _markTestDeleted(id);
+  };
   const typeColor  = t  => t==="Reading"?C.teal:t==="Writing"?C.violet:C.amber;
 
   return (
