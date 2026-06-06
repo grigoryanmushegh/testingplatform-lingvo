@@ -271,6 +271,7 @@ export async function reloadDB() {
       }
       // Migrate legacy blob tests to rows in background — never block the caller
       if(blobOnly.length > 0) _migrateBlobTests(blobOnly);
+      _notifyChange(); // tell all subscribed components to re-render
       return;
     }catch(e){ console.warn("[DB] reloadDB error:",e); }
   }
@@ -370,6 +371,7 @@ export async function initDB() {
         }
         // Migrate legacy blob tests to rows in background — never block app startup
         if(blobOnly.length > 0) _migrateBlobTests(blobOnly);
+        _notifyChange(); // update all subscribed components with fresh data
         return;
       }catch(e){
         console.warn(`[DB] initDB attempt ${attempt+1} error:`,e);
@@ -383,3 +385,67 @@ export async function initDB() {
 }
 
 export const genId = p => `${p}-${Date.now().toString(36).toUpperCase()}`;
+
+// ── Change notification + Supabase Realtime ───────────────────────────────────
+// Components subscribe via onDbChange(cb) to get instant updates when _db
+// changes due to a remote write (Realtime push) or a completed poll (reloadDB).
+// This replaces per-component ad-hoc setFoo(loadDB().foo) patterns.
+
+const _changeListeners = new Set();
+let   _realtimeChannel = null;
+
+// Called internally after every remote sync (reloadDB, initDB, Realtime push).
+function _notifyChange() {
+  _changeListeners.forEach(cb => {
+    try { cb(_db); } catch(e) { console.warn("[DB] listener error:", e); }
+  });
+}
+
+// Subscribe to remote DB changes.  Returns an unsubscribe function.
+// Lazily initialises the Supabase Realtime channel on first call.
+export function onDbChange(cb) {
+  _changeListeners.add(cb);
+
+  // Lazy-init: create the Realtime channel once, reuse for all listeners.
+  if (!_realtimeChannel && supabase) {
+    _realtimeChannel = supabase
+      .channel("ielts-store-sync")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "ielts_store", filter: "id=eq.main" },
+        payload => {
+          const incoming = payload.new?.data;
+          if (!incoming) return;
+          console.log("[DB] ⚡ Realtime push — merging remote changes");
+
+          // Merge incoming blob with current _db, preserving local-only items.
+          const remoteTests = incoming.tests || [];
+          const remoteIds   = new Set(remoteTests.map(t => t.id));
+          const localOnly   = (_db.tests || []).filter(t => t.id && !remoteIds.has(t.id));
+
+          const rPts   = incoming.participants || [];
+          const rPtIds = new Set(rPts.map(p => p.id));
+          const lPts   = (_db.participants || []).filter(p => p.id && !rPtIds.has(p.id));
+
+          _db = {
+            ..._db,
+            ...incoming,
+            tests:        [...remoteTests, ...localOnly],
+            participants: [...rPts, ...lPts],
+          };
+          try { localStorage.setItem(DB_KEY, JSON.stringify(_db)); } catch {}
+          _notifyChange();
+        }
+      )
+      .subscribe(status => {
+        if (status === "SUBSCRIBED")
+          console.log("[DB] ✓ Realtime: live sync active on ielts_store");
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT")
+          console.warn("[DB] Realtime: not available (polling-only mode). Status:", status);
+        else
+          console.log("[DB] Realtime status:", status);
+      });
+  }
+
+  return () => _changeListeners.delete(cb);
+}

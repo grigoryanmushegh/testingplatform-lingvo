@@ -10,7 +10,7 @@ import {
   _upsertTestRow, _markTestDeleted,
   loadDB, saveDB, saveDBNow,
   dbPush, dbPushNow, dbSave, dbSaveNow,
-  reloadDB, initDB, quickInit, genId, DB_KEY,
+  reloadDB, initDB, quickInit, onDbChange, genId, DB_KEY,
 } from "./lib/db.js";
 import {
   pad2, fmtTime, countWords,
@@ -3836,11 +3836,16 @@ function AdminDashboard({ onExit }) {
   const [candidateSearch, setCandidateSearch] = useState("");
   const refresh = async () => {
     setRefreshing(true);
-    await reloadDB();
-    setDb({...loadDB()});
+    await reloadDB(); // _notifyChange() is called inside — triggers onDbChange listeners
     setRefreshing(false);
   };
-  useEffect(()=>{ refresh(); const t=setInterval(refresh,8000);return()=>clearInterval(t);},[]);
+  useEffect(()=>{
+    // Instant update on any remote change (Realtime push or completed poll)
+    const unsub = onDbChange(freshDb => setDb({...freshDb}));
+    refresh();
+    const t = setInterval(refresh, 8000);
+    return()=>{ unsub(); clearInterval(t); };
+  },[]);
   // Also refresh immediately whenever the admin switches to participants/overview tab
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(()=>{ if(tab==="participants"||tab==="overview") refresh(); },[tab]);
@@ -5526,9 +5531,13 @@ function TestSuiteManager() {
   const [w2Id, setW2Id] = useState("");
   const [lId,  setLId]  = useState("");
 
-  const refresh = async () => { await reloadDB(); const db=loadDB(); setSuites(db.testSuites||[]); setAllSections(db.tests||[]); };
-  // Refresh from Supabase on mount AND every 15s so changes from other devices appear quickly
-  useEffect(()=>{ refresh(); const t=setInterval(refresh,15000); return()=>clearInterval(t); },[]);
+  const refresh = async () => { await reloadDB(); }; // _notifyChange inside reloadDB triggers listener
+  useEffect(()=>{
+    const unsub = onDbChange(db => { setSuites(db.testSuites||[]); setAllSections(db.tests||[]); });
+    refresh();
+    const t = setInterval(refresh, 8000);
+    return()=>{ unsub(); clearInterval(t); };
+  },[]);
 
   const rSecs  = allSections.filter(s=>s.type==="Reading");
   const w1Secs = allSections.filter(s=>s.type==="Writing"&&(s.taskType==="task1"||(!s.taskType&&s.task1Prompt)));
@@ -5874,11 +5883,16 @@ function AssignManager() {
   const [saved, setSaved]         = useState(false);
   const [searchEmail, setSearchEmail] = useState("");
 
-  const refresh = async () => {
-    await reloadDB();
-    setAssignments(loadDB().assignments||[]);
-    setPublishedSuites((loadDB().testSuites||[]).filter(s=>s.status==="published"));
-  };
+  const refresh = async () => { await reloadDB(); };
+  useEffect(()=>{
+    const unsub = onDbChange(db => {
+      setAssignments(db.assignments||[]);
+      setPublishedSuites((db.testSuites||[]).filter(s=>s.status==="published"));
+    });
+    refresh();
+    const t = setInterval(refresh, 8000);
+    return()=>{ unsub(); clearInterval(t); };
+  },[]);
 
   const assign = async () => {
     if(!email.trim()||!suiteId) return;
@@ -6744,23 +6758,24 @@ function AddTestManager() {
   const [editingId, setEditingId] = useState(null);
   const isSavingRef = useRef(false);
 
-  // Sync from Supabase on mount + every 10s so changes from other devices appear quickly
+  // Sync from Supabase on mount + polling + Realtime push
   useEffect(()=>{
-    const sync = async () => {
-      if(isSavingRef.current) return; // skip sync while a save is in-flight
-      await reloadDB();
-      if(isSavingRef.current) return; // save started during reload — skip overwrite
-      // Merge: keep any local-state tests not yet confirmed in Supabase (write still in flight)
+    // onDbChange fires on: Realtime push from another device, OR completed reloadDB() poll
+    const unsub = onDbChange(freshDb => {
+      if(isSavingRef.current) return; // skip overwrite while a save is in-flight
       setTests(prev => {
-        const fromDB = loadDB().tests || [];
+        const fromDB = freshDb.tests || [];
         const dbIds = new Set(fromDB.map(t => t.id));
+        // Preserve any local tests still in-flight (saved but not yet confirmed in Supabase)
         const localOnly = prev.filter(t => t.id && !dbIds.has(t.id));
         return localOnly.length > 0 ? [...fromDB, ...localOnly] : fromDB;
       });
-    };
-    sync();
-    const t = setInterval(sync, 10000);
-    return ()=>clearInterval(t);
+    });
+    // Poll every 8s as fallback (Realtime handles the instant case)
+    const poll = async () => { if(!isSavingRef.current) await reloadDB(); };
+    poll();
+    const t = setInterval(poll, 8000);
+    return()=>{ unsub(); clearInterval(t); };
   }, []);
 
   // Reading: multi-passage
@@ -7365,11 +7380,17 @@ function TestLobby({ candidate, onStart }) {
   };
 
   useEffect(()=>{
-    if(info.status==="waiting") {
-      const t = setInterval(recheck, 10000);
-      return ()=>clearInterval(t);
-    }
-  }, [info.status]);
+    // Subscribe to Realtime/poll changes — immediately reflects when admin assigns test
+    const unsub = onDbChange(() => {
+      const res = peekAssignment(candidate.email);
+      setInfo(res);
+      setLastChecked(new Date());
+    });
+    // Also keep polling as fallback in case Realtime is not enabled on this project
+    const t = setInterval(recheck, 8000);
+    return()=>{ unsub(); clearInterval(t); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const ready = info.status==="assigned"||info.status==="available";
   const statusColor = ready ? C.teal : C.amber;
