@@ -126,14 +126,13 @@ export const dbPush    = (col,item) => { _db[col]=[item,...(_db[col]||[])]; save
 export const dbPushNow = async (col,item) => {
   _db[col]=[item,...(_db[col]||[])];
   try{localStorage.setItem(DB_KEY,JSON.stringify(_db));}catch{}
-  // Always flush blob (ielts_store) — this is the reliable readable path.
-  // For participants, also insert individual row as belt+suspenders.
-  const flushPromise = _flushNow(_db);
   if(col==="participants") {
-    const [blobOk] = await Promise.all([flushPromise, _insertParticipant(item)]);
-    if(!blobOk) console.warn("[DB] dbPushNow: blob flush failed for participant");
+    // Participants: fire-and-forget Supabase saves — never block the caller
+    _flushNow(_db).catch(e=>console.warn("[DB] dbPushNow blob flush error:",e));
+    _insertParticipant(item).catch(e=>console.warn("[DB] dbPushNow row insert error:",e));
   } else {
-    await flushPromise;
+    // For non-participant data (suites, assignments, etc.) await the blob flush
+    await _flushNow(_db);
   }
 };
 export const dbSave    = (col,items) => { _db[col]=items; saveDB(_db); };

@@ -7605,7 +7605,7 @@ export default function App() {
   );
 
   // After registration form → go to lobby (step 1)
-  const handleRegComplete = async (info) => {
+  const handleRegComplete = (info) => {
     const regId = genId("REG");
     const regRecord = {
       id: regId,
@@ -7615,26 +7615,34 @@ export default function App() {
       timestamp: Date.now(),
       date: new Date().toLocaleDateString("en-GB"),
     };
-    // Primary save via dbPushNow (adds to _db + localStorage + Supabase INSERT)
-    await dbPushNow("participants", regRecord);
-    // Safety-net: direct Supabase INSERT with retries in case primary path fails
-    if(supabase) {
+
+    // 1. Update local state IMMEDIATELY (synchronous) — never block the UI
+    _db.participants = [regRecord, ...(_db.participants||[])];
+    try{ localStorage.setItem(DB_KEY, JSON.stringify(_db)); }catch{}
+
+    // 2. Move student to Lobby instantly — no waiting for Supabase
+    setCand(info);
+    setStep(1);
+
+    // 3. Save to Supabase in background (fire-and-forget — never blocks UI)
+    const saveToCloud = async () => {
       const email = (info?.email||"").toLowerCase().trim();
-      const doInsert = async () => {
+      // Flush full blob (ielts_store) — participants are now in _db so they'll be included
+      _flushConfig(_db).catch(e=>console.warn("[Reg] blob flush error:",e));
+      // Also insert individual row in participants table (belt+suspenders)
+      if(supabase) {
         for(let attempt=0; attempt<3; attempt++){
           try{
             if(attempt>0) await new Promise(r=>setTimeout(r,1000*attempt));
-            const rowId = regId + "-reg-" + Date.now().toString(36);
+            const rowId = regId + "-" + Date.now().toString(36);
             const {error} = await supabase.from("participants").insert({id:rowId, email, type:"registration", data:regRecord});
-            if(!error) return;
-            console.warn(`[Reg] safety-net attempt ${attempt+1} failed:`, error.message);
-          }catch(e){ console.warn(`[Reg] safety-net attempt ${attempt+1} error:`,e); }
+            if(!error){ console.log("[Reg] row saved on attempt",attempt+1); return; }
+            console.warn(`[Reg] row insert attempt ${attempt+1} failed:`, error.message);
+          }catch(e){ console.warn(`[Reg] row insert attempt ${attempt+1} error:`,e); }
         }
-      };
-      doInsert(); // fire-and-forget with retries
-    }
-    setCand(info);
-    setStep(1);
+      }
+    };
+    saveToCloud();
   };
 
   // Auto-save partial results after each module so admin sees data even if student abandons
