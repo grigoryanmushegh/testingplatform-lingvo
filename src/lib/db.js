@@ -171,10 +171,20 @@ function _processRows(allRows, fallbackPts) {
 }
 
 // Merge row-based tests with legacy blob tests (backward compat: existing tests in blob before migration)
+// Also returns blobOnly list so callers can auto-migrate those tests to individual rows.
 function _mergeTests(rowTests, blobTests) {
-  const rowIds = new Set(rowTests.map(t => t.id));
+  const rowIds   = new Set(rowTests.map(t => t.id));
   const blobOnly = (blobTests||[]).filter(t => t.id && !rowIds.has(t.id));
-  return [...rowTests, ...blobOnly];
+  return { tests: [...rowTests, ...blobOnly], blobOnly };
+}
+
+// Auto-migrate legacy blob tests to individual rows (fire-and-forget)
+async function _migrateBlobTests(blobOnly) {
+  if(!blobOnly.length) return;
+  console.log(`[DB] Migrating ${blobOnly.length} legacy blob tests to individual rows...`);
+  const results = await Promise.allSettled(blobOnly.map(t => _upsertTestRow(t)));
+  const ok = results.filter(r=>r.status==="fulfilled"&&r.value===true).length;
+  console.log(`[DB] Migration done: ${ok}/${blobOnly.length} tests moved to rows`);
 }
 
 // ── Force re-fetch from Supabase ───────────────────────────────────────────────
@@ -203,7 +213,8 @@ export async function reloadDB() {
 
       // Tests: row-based (concurrent-safe) + blob legacy fallback
       const blobTests  = base.tests || local.tests || [];
-      finalBase.tests  = _mergeTests(rowTests, blobTests);
+      const { tests: mergedTests, blobOnly } = _mergeTests(rowTests, blobTests);
+      finalBase.tests  = mergedTests;
 
       // Deduplicate participants & apply score overrides
       const seen = new Set();
@@ -213,12 +224,14 @@ export async function reloadDB() {
 
       _db = {..._emptyDB(), ...finalBase, participants: withOverrides};
       localStorage.setItem(DB_KEY,JSON.stringify(_db));
-      console.log(`[DB] reloadDB: ${_db.tests?.length||0} tests (${rowTests.length} from rows), ${_db.participants?.length||0} participants`);
+      console.log(`[DB] reloadDB: ${_db.tests?.length||0} tests (${rowTests.length} rows + ${blobOnly.length} legacy), ${_db.participants?.length||0} participants`);
 
       if(needsPush){
         console.warn("[DB] reloadDB: pushing merged config to Supabase...");
         await _flushConfig(_db);
       }
+      // Migrate any legacy blob tests to individual rows so they survive blob overwrites
+      if(blobOnly.length > 0) await _migrateBlobTests(blobOnly);
       return;
     }catch(e){ console.warn("[DB] reloadDB error:",e); }
   }
@@ -261,7 +274,8 @@ export async function initDB() {
 
         // Tests: row-based + blob legacy
         const blobTests = base.tests || local.tests || [];
-        finalBase.tests = _mergeTests(rowTests, blobTests);
+        const { tests: mergedTests, blobOnly } = _mergeTests(rowTests, blobTests);
+        finalBase.tests = mergedTests;
 
         const seen = new Set();
         const deduped = pts.filter(p=>{ const k=p.id||p.email; if(seen.has(k)) return false; seen.add(k); return true; });
@@ -270,12 +284,14 @@ export async function initDB() {
 
         _db = {..._emptyDB(), ...finalBase, participants: withOverrides};
         localStorage.setItem(DB_KEY,JSON.stringify(_db));
-        console.log(`[DB] initDB: ${_db.tests?.length||0} tests (${rowTests.length} from rows), ${_db.participants?.length||0} participants`);
+        console.log(`[DB] initDB: ${_db.tests?.length||0} tests (${rowTests.length} rows + ${blobOnly.length} legacy), ${_db.participants?.length||0} participants`);
 
         if(needsPush){
           console.warn("[DB] initDB: pushing merged config to Supabase...");
           await _flushConfig(_db);
         }
+        // Migrate any legacy blob tests to individual rows so they survive blob overwrites
+        if(blobOnly.length > 0) await _migrateBlobTests(blobOnly);
         return;
       }catch(e){
         console.warn(`[DB] initDB attempt ${attempt+1} error:`,e);
