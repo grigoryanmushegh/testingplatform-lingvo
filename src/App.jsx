@@ -6833,18 +6833,19 @@ function AddTestManager() {
       });
       if(editingId) setEditingId(null);
 
-      // 2. Update local _db.tests immediately (needed before blob flush below)
-      const fresh = loadDB().tests||[];
+      // 2. Update local db.tests immediately (needed before blob flush below)
+      const liveDb = loadDB();
+      const fresh = liveDb.tests||[];
       const updated = editingId
         ? fresh.map(x => x.id===testWithId.id ? testWithId : x)
         : (fresh.find(x=>x.id===testWithId.id) ? fresh : [...fresh, testWithId]);
-      _db.tests = updated;
-      try{ localStorage.setItem(DB_KEY, JSON.stringify(_db)); }catch{}
+      liveDb.tests = updated;
+      try{ localStorage.setItem(DB_KEY, JSON.stringify(liveDb)); }catch{}
 
       // 3. Save to Supabase blob (reliable, always works) AND individual row (concurrent-safe)
       // Both run in parallel; blob is the authoritative source so tests survive on all devices.
       const [blobOk, rowOk] = await Promise.all([
-        _flushConfig(_db),
+        _flushConfig(liveDb),
         _upsertTestRow(testWithId),
       ]);
       if(!blobOk && !rowOk){
@@ -6927,18 +6928,19 @@ function AddTestManager() {
   const saveListening = async () => {
     if(!lTitle.trim()) return;
     // Save audio URL to global config (doSave below will flush everything to Supabase)
-    const db = loadDB(); if(lAudioUrl) db.listeningAudioUrl = lAudioUrl; _db = db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{}
+    const db = loadDB(); if(lAudioUrl) db.listeningAudioUrl = lAudioUrl; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{}
     await doSave({id:genId("TEST"),type:"Listening",title:lTitle,sections:lSections.map(s=>({...s})),audioUrl:lAudioUrl||null,audioMode:lAudioMode,createdAt:new Date().toLocaleDateString("en-GB")});
     setLTitle(""); setLSections([newSection(0)]);
   };
   const deleteTest = async id => {
     // Optimistic local remove
     setTests(prev => prev.filter(t => t.id !== id));
-    _db.tests = (_db.tests||[]).filter(t => t.id !== id);
-    try{ localStorage.setItem(DB_KEY, JSON.stringify(_db)); }catch{}
+    const liveDb2 = loadDB();
+    liveDb2.tests = (liveDb2.tests||[]).filter(t => t.id !== id);
+    try{ localStorage.setItem(DB_KEY, JSON.stringify(liveDb2)); }catch{}
     // Delete from both blob and individual rows
     await Promise.all([
-      _flushConfig(_db),      // removes test from blob
+      _flushConfig(liveDb2),  // removes test from blob
       _markTestDeleted(id),   // tombstone row for concurrent-safe delete
     ]);
   };
@@ -7616,8 +7618,9 @@ export default function App() {
     };
 
     // 1. Update local state IMMEDIATELY (synchronous) — never block the UI
-    _db.participants = [regRecord, ...(_db.participants||[])];
-    try{ localStorage.setItem(DB_KEY, JSON.stringify(_db)); }catch{}
+    const liveDb = loadDB();
+    liveDb.participants = [regRecord, ...(liveDb.participants||[])];
+    try{ localStorage.setItem(DB_KEY, JSON.stringify(liveDb)); }catch{}
 
     // 2. Move student to Lobby instantly — no waiting for Supabase
     setCand(info);
@@ -7627,7 +7630,7 @@ export default function App() {
     const saveToCloud = async () => {
       const email = (info?.email||"").toLowerCase().trim();
       // Flush full blob (ielts_store) — participants are now in _db so they'll be included
-      _flushConfig(_db).catch(e=>console.warn("[Reg] blob flush error:",e));
+      _flushConfig(loadDB()).catch(e=>console.warn("[Reg] blob flush error:",e));
       // Also insert individual row in participants table (belt+suspenders)
       if(supabase) {
         for(let attempt=0; attempt<3; attempt++){
