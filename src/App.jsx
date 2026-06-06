@@ -6819,7 +6819,11 @@ function AddTestManager() {
     isSavingRef.current = true;
     setSaving(true);
     try {
-      // 1. Optimistically update local state immediately so the test appears in the list
+      // 1. Quick sync from Supabase (max 3s) so we have the latest tests before writing.
+      // This prevents overwriting tests another device saved. Never blocks longer than 3s.
+      await Promise.race([reloadDB(), new Promise(r=>setTimeout(r,3000))]);
+
+      // 2. Optimistically update local state immediately so the test appears in the list
       const testWithId = editingId ? {...t, id:editingId} : t;
       setTests(prev => {
         if(editingId) return prev.map(x => x.id===editingId ? {...t, id:editingId, createdAt:x.createdAt} : x);
@@ -6827,7 +6831,7 @@ function AddTestManager() {
       });
       if(editingId) setEditingId(null);
 
-      // 2. Update local db.tests immediately (needed before blob flush below)
+      // 3. Update local db.tests with the freshly-synced list + new test
       const liveDb = loadDB();
       const fresh = liveDb.tests||[];
       const updated = editingId
@@ -6836,8 +6840,7 @@ function AddTestManager() {
       liveDb.tests = updated;
       try{ localStorage.setItem(DB_KEY, JSON.stringify(liveDb)); }catch{}
 
-      // 3. Save to Supabase blob (reliable, always works) AND individual row (concurrent-safe)
-      // Both run in parallel; blob is the authoritative source so tests survive on all devices.
+      // 4. Save to Supabase blob + individual row in parallel
       const [blobOk, rowOk] = await Promise.all([
         _flushConfig(liveDb),
         _upsertTestRow(testWithId),

@@ -15,45 +15,24 @@ export let   _flushTmr = null;
 // Belt-and-suspenders: blob is the authoritative source, rows are cross-device safety net.
 export const _flushConfig = async db => {
   if(!supabase) return false;
-
-  // Read current remote blob first, then MERGE — prevents one device overwriting another's tests
-  let remoteTests = [], remotePts = [];
-  try {
-    const {data, error} = await supabase.from("ielts_store").select("data").eq("id","main").single();
-    if(!error && data?.data) {
-      remoteTests = data.data.tests || [];
-      remotePts   = data.data.participants || [];
-    }
-  } catch {}
-
-  // Merge: local entries win for IDs we know about, remote fills in anything we don't have
-  const localTests  = db.tests || [];
-  const localPts    = db.participants || [];
-  const localTestIds = new Set(localTests.map(t => t.id).filter(Boolean));
-  const localPtIds   = new Set(localPts.map(p => p.id).filter(Boolean));
-  const mergedTests  = [...localTests,  ...remoteTests.filter(t => t.id && !localTestIds.has(t.id))];
-  const mergedPts    = [...localPts,    ...remotePts.filter(p => p.id && !localPtIds.has(p.id))];
-
-  const cfg = {participants:mergedPts,tests:mergedTests,testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||"",openaiKey:db.openaiKey||""};
-
-  // Also update local _db with the merged result so next save has full picture
-  db.tests        = mergedTests;
-  db.participants = mergedPts;
-
+  const cfg = {
+    participants: db.participants||[], tests: db.tests||[],
+    testSuites: db.testSuites||[], assignments: db.assignments||[],
+    speakingSlots: db.speakingSlots||[], bookings: db.bookings||[],
+    scoreOverrides: db.scoreOverrides||{},
+    listeningAudioUrl: db.listeningAudioUrl||"", openaiKey: db.openaiKey||""
+  };
   for(let attempt=0; attempt<3; attempt++){
     try {
-      if(attempt>0) await new Promise(r=>setTimeout(r,1000*attempt));
-      const {error} = await supabase.from("ielts_store").upsert({id:"main",data:cfg,updated_at:new Date().toISOString()});
-      if(error){
-        console.warn(`[DB] config write error (attempt ${attempt+1}):`,error.message);
-        if(attempt===2) return false;
-        continue;
-      }
+      if(attempt>0) await new Promise(r=>setTimeout(r,800*attempt));
+      // Hard 5s timeout per attempt — never hangs indefinitely
+      const {error} = await Promise.race([
+        supabase.from("ielts_store").upsert({id:"main",data:cfg,updated_at:new Date().toISOString()}),
+        new Promise((_,reject)=>setTimeout(()=>reject(new Error("write timeout")),5000))
+      ]);
+      if(error){ console.warn(`[DB] flush error (attempt ${attempt+1}):`,error.message); if(attempt===2) return false; continue; }
       return true;
-    } catch(e){
-      console.warn(`[DB] config write failed (attempt ${attempt+1}):`,e);
-      if(attempt===2) return false;
-    }
+    } catch(e){ console.warn(`[DB] flush failed (attempt ${attempt+1}):`,e.message); if(attempt===2) return false; }
   }
   return false;
 };
