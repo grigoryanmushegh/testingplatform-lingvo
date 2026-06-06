@@ -5547,7 +5547,6 @@ function TestSuiteManager() {
   const saveSuite = async () => {
     if(!name.trim()) return;
     setSaving(true);
-    await reloadDB(); // pull latest before writing — prevents cross-device overwrites
     const freshSuites = loadDB().testSuites||[];
     let updated;
     if(editId) {
@@ -5563,12 +5562,11 @@ function TestSuiteManager() {
   };
 
   const togglePublish = async id => {
-    await reloadDB();
     const freshSuites = loadDB().testSuites||[];
     const updated = freshSuites.map(s=>s.id===id?{...s,status:s.status==="published"?"draft":"published"}:s);
     setSuites(updated); await dbSaveNow("testSuites",updated);
   };
-  const deleteSuite = async id => { await reloadDB(); const fresh=loadDB().testSuites||[]; const u=fresh.filter(s=>s.id!==id); setSuites(u); await dbSaveNow("testSuites",u); };
+  const deleteSuite = async id => { const fresh=loadDB().testSuites||[]; const u=fresh.filter(s=>s.id!==id); setSuites(u); await dbSaveNow("testSuites",u); };
   const secName = id => id ? (allSections.find(s=>s.id===id)?.title||"—") : "Built-in";
   const pubCount = suites.filter(s=>s.status==="published").length;
 
@@ -5675,7 +5673,6 @@ function SlotsManager({ onRefresh }) {
 
   const addSlot = async () => {
     if(!newDate||!newTime) return;
-    await reloadDB();
     const slot = {id:genId("SLT"),date:newDate,time:newTime,mode:newMode,booked:false,createdAt:Date.now()};
     const db = loadDB(); db.speakingSlots=[slot,...(db.speakingSlots||[])]; await saveDBNow(db);
     setNewDate(""); reload(); flash("✓ Slot added!");
@@ -5685,7 +5682,6 @@ function SlotsManager({ onRefresh }) {
     if(!bulkFrom||!bulkTo||!bulkTimes.length) return;
     const from = new Date(bulkFrom), to = new Date(bulkTo);
     if(from>to) return;
-    await reloadDB();
     const db = loadDB(); const existing = db.speakingSlots||[];
     const newSlots = [];
     for(let d=new Date(from);d<=to;d.setDate(d.getDate()+1)) {
@@ -5701,7 +5697,6 @@ function SlotsManager({ onRefresh }) {
   };
 
   const removeSlot = async id => {
-    await reloadDB();
     const db = loadDB(); db.speakingSlots=(db.speakingSlots||[]).filter(s=>s.id!==id); await saveDBNow(db); reload();
   };
 
@@ -5887,7 +5882,6 @@ function AssignManager() {
 
   const assign = async () => {
     if(!email.trim()||!suiteId) return;
-    await reloadDB(); // pull latest before writing
     const a = {id:genId("ASGN"),email:email.trim().toLowerCase(),suiteId,assignedAt:Date.now(),used:false};
     const fresh = loadDB().assignments||[];
     const updated = [a,...fresh];
@@ -5896,7 +5890,7 @@ function AssignManager() {
     setSaved(true); setTimeout(()=>setSaved(false),2500);
   };
 
-  const remove = async id => { await reloadDB(); const u=(loadDB().assignments||[]).filter(a=>a.id!==id); setAssignments(u); await dbSaveNow("assignments",u); };
+  const remove = async id => { const u=(loadDB().assignments||[]).filter(a=>a.id!==id); setAssignments(u); await dbSaveNow("assignments",u); };
   const suiteName = id => (loadDB().testSuites||[]).find(s=>s.id===id)?.name||"(deleted suite)";
 
   const filtered = searchEmail.trim()
