@@ -1,8 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 
 // ── SUPABASE + STORAGE ────────────────────────────────────────────────────────
-export const _SURL = import.meta.env.VITE_SUPABASE_URL  || "https://ymbncyrgrgtkejeuxmfb.supabase.co";
-export const _SKEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltYm5jeXJncmd0a2VqZXV4bWZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MDA1NDksImV4cCI6MjA4OTQ3NjU0OX0.vCwQBV-WJ2yHJIHLWZcbt37odQnKu5P3JiATk8oHc3g";
+export const _SURL = import.meta.env.VITE_SUPABASE_URL  || "https://gwnlssnufqmdiksdjxhu.supabase.co";
+export const _SKEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3bmxzc251ZnFtZGlrc2pkeGh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NzYwMzcsImV4cCI6MjA5NjM1MjAzN30.HO_yAMJUrfCMZGhlvIdgMv7eryt1MbY1mHQwP0g-H-g";
 export const supabase = _SURL && _SKEY ? createClient(_SURL, _SKEY) : null;
 
 export const DB_KEY   = "lv_ielts_v2";
