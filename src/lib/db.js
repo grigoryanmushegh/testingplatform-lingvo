@@ -81,14 +81,25 @@ function _buildTestsFromRows(rows) {
 // ── Participants table — one row per student, no concurrent conflicts ──────────
 export const _insertParticipant = async item => {
   if(!supabase) return false;
-  try {
-    const email = ((item.candidate?.email||item.email)||"").toLowerCase().trim();
-    const type  = item.listeningBand!=null ? "attempt" : "registration";
-    const rowId = item.id + "-" + Date.now().toString(36);
-    const {error} = await supabase.from("participants").insert({id:rowId, email, type, data:item});
-    if(error){ console.warn("[DB] participant insert error:",error.message); return false; }
-    return true;
-  } catch(e){ console.warn("[DB] participant upsert failed:",e); return false; }
+  const email = ((item.candidate?.email||item.email)||"").toLowerCase().trim();
+  const type  = item.listeningBand!=null ? "attempt" : "registration";
+  for(let attempt=0; attempt<3; attempt++){
+    try {
+      if(attempt>0) await new Promise(r=>setTimeout(r,1000*attempt));
+      const rowId = item.id + "-" + Date.now().toString(36);
+      const {error} = await supabase.from("participants").insert({id:rowId, email, type, data:item});
+      if(error){
+        console.warn(`[DB] participant insert error (attempt ${attempt+1}):`,error.message);
+        if(attempt===2) return false;
+        continue;
+      }
+      return true;
+    } catch(e){
+      console.warn(`[DB] participant insert failed (attempt ${attempt+1}):`,e);
+      if(attempt===2) return false;
+    }
+  }
+  return false;
 };
 
 // Load only participant rows (not test rows) — used by admin dashboard

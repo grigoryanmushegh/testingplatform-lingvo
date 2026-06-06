@@ -7599,14 +7599,33 @@ export default function App() {
 
   // After registration form → go to lobby (step 1)
   const handleRegComplete = async (info) => {
-    await dbPushNow("participants", {
-      id: genId("REG"),
+    const regId = genId("REG");
+    const regRecord = {
+      id: regId,
       candidate: info,
       status: "registered",
       registeredAt: new Date().toISOString(),
       timestamp: Date.now(),
       date: new Date().toLocaleDateString("en-GB"),
-    });
+    };
+    // Primary save via dbPushNow (adds to _db + localStorage + Supabase INSERT)
+    await dbPushNow("participants", regRecord);
+    // Safety-net: direct Supabase INSERT with retries in case primary path fails
+    if(supabase) {
+      const email = (info?.email||"").toLowerCase().trim();
+      const doInsert = async () => {
+        for(let attempt=0; attempt<3; attempt++){
+          try{
+            if(attempt>0) await new Promise(r=>setTimeout(r,1000*attempt));
+            const rowId = regId + "-reg-" + Date.now().toString(36);
+            const {error} = await supabase.from("participants").insert({id:rowId, email, type:"registration", data:regRecord});
+            if(!error) return;
+            console.warn(`[Reg] safety-net attempt ${attempt+1} failed:`, error.message);
+          }catch(e){ console.warn(`[Reg] safety-net attempt ${attempt+1} error:`,e); }
+        }
+      };
+      doInsert(); // fire-and-forget with retries
+    }
     setCand(info);
     setStep(1);
   };
