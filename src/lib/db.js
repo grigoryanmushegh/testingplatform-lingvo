@@ -275,6 +275,17 @@ export async function reloadDB() {
   try{ const saved=JSON.parse(localStorage.getItem(DB_KEY)||"null"); if(saved) _db=saved; }catch{}
 }
 
+// Load localStorage synchronously — instant, no network. Call this first so app renders right away.
+export function quickInit() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DB_KEY)||"null");
+    if(saved && Object.keys(saved).length > 0) {
+      _db = {..._emptyDB(), ...saved};
+      console.log(`[DB] quickInit: localStorage loaded (tests=${_db.tests?.length||0}, participants=${_db.participants?.length||0})`);
+    }
+  } catch(e) { console.warn("[DB] quickInit error:",e); }
+}
+
 export async function initDB() {
   // Pre-load localStorage so we always have something to show
   let local = {};

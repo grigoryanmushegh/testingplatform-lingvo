@@ -10,7 +10,7 @@ import {
   _upsertTestRow, _markTestDeleted,
   loadDB, saveDB, saveDBNow,
   dbPush, dbPushNow, dbSave, dbSaveNow,
-  reloadDB, initDB, genId, DB_KEY,
+  reloadDB, initDB, quickInit, genId, DB_KEY,
 } from "./lib/db.js";
 import {
   pad2, fmtTime, countWords,
@@ -7480,17 +7480,16 @@ export default function App() {
   const programmaticExitRef = useRef(false);
 
   useEffect(()=>{
-    const timeout = setTimeout(()=>{ setLoadError(true); }, 12000);
-    initDB().then(()=>{
-      clearTimeout(timeout);
-      setDbReady(true);
-      // Replace initial history entry with current state
-      window.history.replaceState({view:"home",step:0},"");
-      if(window.location.hash==="#admin"||window.location.pathname.endsWith("/admin")){
-        setView("admin");
-      }
-    }).catch(()=>{ clearTimeout(timeout); setLoadError(true); });
-    return ()=>clearTimeout(timeout);
+    // Phase 1: Load localStorage INSTANTLY — show app with cached data right away
+    quickInit();
+    setDbReady(true);
+    window.history.replaceState({view:"home",step:0},"");
+    if(window.location.hash==="#admin"||window.location.pathname.endsWith("/admin")){
+      setView("admin");
+    }
+    // Phase 2: Fetch Supabase in background — silently updates _db with fresh data
+    // Admin dashboard auto-refreshes every 8s so it will pick up the fresh data shortly
+    initDB().catch(e=>console.warn("[App] background initDB error:",e));
   },[]);
 
   useEffect(()=>{
