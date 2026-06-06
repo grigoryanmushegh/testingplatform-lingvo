@@ -162,12 +162,20 @@ function _smartMerge(supabaseBase, local) {
 }
 
 // ── Shared load helper ─────────────────────────────────────────────────────────
-// Fetches config + all participant/test rows in one pass.
-async function _fetchFromSupabase() {
-  const [{data:cfg, error:cfgErr}, {data:allRows, error:rowsErr}] = await Promise.all([
-    supabase.from("ielts_store").select("data").eq("id","main").single(),
-    supabase.from("participants").select("type,data").order("created_at",{ascending:false}),
+// Fetches config + all participant/test rows in one pass, with a hard timeout.
+async function _fetchFromSupabase(timeoutMs=5000) {
+  const withTimeout = promise => Promise.race([
+    promise,
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error("Supabase fetch timeout")),timeoutMs))
   ]);
+  const [cfgResult, rowsResult] = await Promise.allSettled([
+    withTimeout(supabase.from("ielts_store").select("data").eq("id","main").single()),
+    withTimeout(supabase.from("participants").select("type,data").order("created_at",{ascending:false})),
+  ]);
+  const cfg     = cfgResult.status==="fulfilled"   ? cfgResult.value.data   : null;
+  const cfgErr  = cfgResult.status==="fulfilled"   ? cfgResult.value.error  : {message:"timeout",code:"TIMEOUT"};
+  const allRows = rowsResult.status==="fulfilled"  ? rowsResult.value.data  : null;
+  const rowsErr = rowsResult.status==="fulfilled"  ? rowsResult.value.error : {message:"timeout"};
   return { cfg, cfgErr, allRows, rowsErr };
 }
 
@@ -241,8 +249,8 @@ export async function reloadDB() {
         console.warn("[DB] reloadDB: pushing merged config to Supabase...");
         await _flushConfig(_db);
       }
-      // Migrate any legacy blob tests to individual rows so they survive blob overwrites
-      if(blobOnly.length > 0) await _migrateBlobTests(blobOnly);
+      // Migrate legacy blob tests to rows in background — never block the caller
+      if(blobOnly.length > 0) _migrateBlobTests(blobOnly);
       return;
     }catch(e){ console.warn("[DB] reloadDB error:",e); }
   }
@@ -253,7 +261,7 @@ export async function initDB() {
   if(supabase){
     for(let attempt=0; attempt<2; attempt++){
       try{
-        if(attempt>0) await new Promise(r=>setTimeout(r,1500));
+        if(attempt>0) await new Promise(r=>setTimeout(r,800));
         const { cfg, cfgErr, allRows, rowsErr } = await _fetchFromSupabase();
         console.log(`[DB] initDB attempt ${attempt+1}: cfg=`,cfg?.data?"ok":"empty",
           "cfgErr=",cfgErr?.message||"none", "rows=",allRows?.length||0);
@@ -301,8 +309,8 @@ export async function initDB() {
           console.warn("[DB] initDB: pushing merged config to Supabase...");
           await _flushConfig(_db);
         }
-        // Migrate any legacy blob tests to individual rows so they survive blob overwrites
-        if(blobOnly.length > 0) await _migrateBlobTests(blobOnly);
+        // Migrate legacy blob tests to rows in background — never block app startup
+        if(blobOnly.length > 0) _migrateBlobTests(blobOnly);
         return;
       }catch(e){
         console.warn(`[DB] initDB attempt ${attempt+1} error:`,e);

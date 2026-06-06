@@ -7473,7 +7473,7 @@ export default function App() {
   const programmaticExitRef = useRef(false);
 
   useEffect(()=>{
-    const timeout = setTimeout(()=>{ setLoadError(true); }, 10000);
+    const timeout = setTimeout(()=>{ setLoadError(true); }, 12000);
     initDB().then(()=>{
       clearTimeout(timeout);
       setDbReady(true);
