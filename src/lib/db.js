@@ -15,8 +15,9 @@ export let   _flushTmr = null;
 // Belt-and-suspenders: blob is the authoritative source, rows are cross-device safety net.
 export const _flushConfig = async db => {
   if(!supabase) return false;
-  // IMPORTANT: tests MUST be included here — omitting them wipes tests on every suite/slot save
-  const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||"",openaiKey:db.openaiKey||""};
+  // IMPORTANT: participants AND tests MUST be here — omitting them wipes data on every save
+  // participants are stored in blob (reliable ielts_store read) + participants table (belt+suspenders)
+  const cfg = {participants:db.participants||[],tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||"",openaiKey:db.openaiKey||""};
   for(let attempt=0; attempt<3; attempt++){
     try {
       if(attempt>0) await new Promise(r=>setTimeout(r,1000*attempt));
@@ -120,20 +121,27 @@ export const setInternalDb = newDb => { _db = newDb; };
 export const saveDB    = db => { _db=db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{} _flush(db); };
 export const saveDBNow = async db => { _db=db; try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{} return await _flushNow(db); };
 
-// dbPush for participants → individual row insert (concurrent-safe)
+// dbPush for participants → blob (reliable) + individual row (concurrent-safe belt+suspenders)
 export const dbPush    = (col,item) => { _db[col]=[item,...(_db[col]||[])]; saveDB(_db); };
 export const dbPushNow = async (col,item) => {
   _db[col]=[item,...(_db[col]||[])];
   try{localStorage.setItem(DB_KEY,JSON.stringify(_db));}catch{}
-  if(col==="participants") { await _insertParticipant(item); }
-  else { await _flushNow(_db); }
+  // Always flush blob (ielts_store) — this is the reliable readable path.
+  // For participants, also insert individual row as belt+suspenders.
+  const flushPromise = _flushNow(_db);
+  if(col==="participants") {
+    const [blobOk] = await Promise.all([flushPromise, _insertParticipant(item)]);
+    if(!blobOk) console.warn("[DB] dbPushNow: blob flush failed for participant");
+  } else {
+    await flushPromise;
+  }
 };
 export const dbSave    = (col,items) => { _db[col]=items; saveDB(_db); };
 export const dbSaveNow = async (col,items) => { _db[col]=items; return await saveDBNow(_db); };
 
 // ── Smart merge: combine Supabase + localStorage for non-test config ───────────
 function _smartMerge(supabaseBase, local) {
-  const MERGE_COLS = ["testSuites", "assignments", "speakingSlots", "bookings"];
+  const MERGE_COLS = ["testSuites", "assignments", "speakingSlots", "bookings", "participants"];
   let needsPush = false;
   const merged = { ...supabaseBase };
 
@@ -181,17 +189,13 @@ async function _fetchFromSupabase(timeoutMs=8000) {
   return { cfg, cfgErr, allRows, rowsErr };
 }
 
-function _processRows(allRows, fallbackPts) {
-  // allRows === null means the query FAILED (timeout, RLS, network) → use fallback
-  // allRows === [] means query succeeded but table is empty → also use fallback (no data to show)
-  const rows    = allRows || [];
-  const tstRows = rows.filter(r => r.type === "test_item" || r.type === "test_del");
-  // Treat any non-test row as a participant (backward compat for rows with unexpected/null type)
-  const ptRows  = rows.filter(r => r.type !== "test_item" && r.type !== "test_del" && r.data?.id);
-  // Use Supabase pt rows if we got any; otherwise fall back to cached/localStorage data
-  const pts     = ptRows.length > 0 ? ptRows.map(r => r.data).filter(Boolean) : (fallbackPts||[]);
+function _processRows(allRows, _unused) {
+  const rows     = allRows || [];
+  const tstRows  = rows.filter(r => r.type === "test_item" || r.type === "test_del");
+  const ptRows   = rows.filter(r => r.type !== "test_item" && r.type !== "test_del" && r.data?.id);
+  const pts      = ptRows.map(r => r.data).filter(Boolean);
   const rowTests = _buildTestsFromRows(tstRows);
-  console.log(`[DB] processRows: ${ptRows.length} pt rows, ${tstRows.length} test rows (fallback pts=${fallbackPts?.length||0})`);
+  console.log(`[DB] processRows: ${ptRows.length} pt rows from table, ${tstRows.length} test rows from table`);
   return { pts, rowTests };
 }
 
@@ -222,10 +226,6 @@ export async function reloadDB() {
       let local = {};
       try { local = JSON.parse(localStorage.getItem(DB_KEY)||"{}"); } catch {}
 
-      // Best fallback for participants: memory first, then localStorage
-      const cachedPts = _db.participants?.length > 0 ? _db.participants : (local.participants||[]);
-      const { pts, rowTests } = _processRows(allRows, cachedPts);
-
       // Merge config (suites, assignments, etc.) — smart merge with localStorage
       const hasSupabaseConfig = (base.testSuites?.length||0) > 0 || (base.assignments?.length||0) > 0
                               || (base.speakingSlots?.length||0) > 0;
@@ -241,13 +241,22 @@ export async function reloadDB() {
       // Tests: blob is authoritative (always included in _flushConfig now),
       // row-based tests are secondary source for concurrent safety.
       // Merge: rowTests take priority (newest save), blobTests fill in any gaps.
+      const { rowTests } = _processRows(allRows, []);
       const blobTests  = base.tests || local.tests || [];
       const { tests: mergedTests, blobOnly } = _mergeTests(rowTests, blobTests);
       finalBase.tests  = mergedTests;
 
+      // Participants: merge from blob (most reliable), table rows, memory, and localStorage.
+      // Blob is authoritative — always written by _flushConfig which has RLS write access.
+      const blobPts   = base.participants || [];
+      const cachedPts = _db.participants?.length > 0 ? _db.participants : (local.participants||[]);
+      const { pts }   = _processRows(allRows, []);
+      // Merge all sources: blob + table rows + cached, deduped by id (newest blob/row wins)
+      const allPts    = [...pts, ...blobPts, ...cachedPts];
+
       // Deduplicate participants & apply score overrides
       const seen = new Set();
-      const deduped = pts.filter(p=>{ const k=p.id||p.email; if(seen.has(k)) return false; seen.add(k); return true; });
+      const deduped = allPts.filter(p=>{ const k=p.id; if(!k||seen.has(k)) return false; seen.add(k); return true; });
       const overrides = finalBase.scoreOverrides||{};
       const withOverrides = deduped.map(p=> overrides[p.id] ? {...p,...overrides[p.id]} : p);
 
@@ -292,10 +301,6 @@ export async function initDB() {
 
         const base = cfg?.data || {};
 
-        // Participants fallback: use localStorage if Supabase returned nothing
-        const cachedPts = local.participants||[];
-        const { pts, rowTests } = _processRows(allRows, cachedPts);
-
         const hasSupabaseConfig = (base.testSuites?.length||0)>0 || (base.assignments?.length||0)>0
                                 || (base.speakingSlots?.length||0)>0;
         let finalBase, needsPush;
@@ -312,12 +317,19 @@ export async function initDB() {
 
         // Tests: blob is authoritative (now always saved in _flushConfig),
         // row-based tests fill in any that aren't in the blob yet.
+        const { rowTests } = _processRows(allRows, []);
         const blobTests = base.tests || local.tests || [];
         const { tests: mergedTests, blobOnly } = _mergeTests(rowTests, blobTests);
         finalBase.tests = mergedTests;
 
+        // Participants: merge from blob (most reliable), table rows, and localStorage.
+        const blobPts   = base.participants || [];
+        const { pts }   = _processRows(allRows, []);
+        const cachedPts = local.participants || [];
+        const allPts    = [...pts, ...blobPts, ...cachedPts];
+
         const seen = new Set();
-        const deduped = pts.filter(p=>{ const k=p.id||p.email; if(seen.has(k)) return false; seen.add(k); return true; });
+        const deduped = allPts.filter(p=>{ const k=p.id; if(!k||seen.has(k)) return false; seen.add(k); return true; });
         const overrides = finalBase.scoreOverrides||{};
         const withOverrides = deduped.map(p=> overrides[p.id] ? {...p,...overrides[p.id]} : p);
 
