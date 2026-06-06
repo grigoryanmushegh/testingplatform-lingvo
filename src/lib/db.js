@@ -237,20 +237,21 @@ export async function reloadDB() {
         ({ merged: finalBase, needsPush } = _smartMerge(base, local));
       }
 
-      // Tests: blob is authoritative (always included in _flushConfig now),
-      // row-based tests are secondary source for concurrent safety.
-      // Merge: rowTests take priority (newest save), blobTests fill in any gaps.
+      // Tests: blob is authoritative, row-based tests fill gaps.
+      // Also preserve any tests currently in _db memory (saved this session but maybe
+      // not yet confirmed in Supabase) so a periodic reloadDB never loses local work.
       const { rowTests } = _processRows(allRows, []);
-      const blobTests  = base.tests || local.tests || [];
+      const blobTests  = base.tests || [];
       const { tests: mergedTests, blobOnly } = _mergeTests(rowTests, blobTests);
-      finalBase.tests  = mergedTests;
+      const memTests   = _db.tests || local.tests || [];
+      const mergedIds  = new Set(mergedTests.map(t => t.id));
+      const localOnlyTests = memTests.filter(t => t.id && !mergedIds.has(t.id));
+      finalBase.tests  = [...mergedTests, ...localOnlyTests];
 
       // Participants: merge from blob (most reliable), table rows, memory, and localStorage.
-      // Blob is authoritative — always written by _flushConfig which has RLS write access.
       const blobPts   = base.participants || [];
       const cachedPts = _db.participants?.length > 0 ? _db.participants : (local.participants||[]);
       const { pts }   = _processRows(allRows, []);
-      // Merge all sources: blob + table rows + cached, deduped by id (newest blob/row wins)
       const allPts    = [...pts, ...blobPts, ...cachedPts];
 
       // Deduplicate participants & apply score overrides
@@ -328,15 +329,28 @@ export async function initDB() {
         // Tests: blob is authoritative (now always saved in _flushConfig),
         // row-based tests fill in any that aren't in the blob yet.
         const { rowTests } = _processRows(allRows, []);
-        const blobTests = base.tests || local.tests || [];
+        const blobTests = base.tests || [];
         const { tests: mergedTests, blobOnly } = _mergeTests(rowTests, blobTests);
-        finalBase.tests = mergedTests;
 
-        // Participants: merge from blob (most reliable), table rows, and localStorage.
-        const blobPts   = base.participants || [];
-        const { pts }   = _processRows(allRows, []);
-        const cachedPts = local.participants || [];
-        const allPts    = [...pts, ...blobPts, ...cachedPts];
+        // CRITICAL: Re-read localStorage RIGHT NOW (not the snapshot from startup).
+        // The user may have saved tests/participants WHILE we were waiting for Supabase.
+        // We must not overwrite those local changes with older Supabase data.
+        let freshLS = {};
+        try { freshLS = JSON.parse(localStorage.getItem(DB_KEY)||"null") || {}; } catch {}
+        const freshLocalTests = freshLS.tests || local.tests || [];
+        const mergedIds = new Set(mergedTests.map(t => t.id));
+        const localOnlyTests = freshLocalTests.filter(t => t.id && !mergedIds.has(t.id));
+        if(localOnlyTests.length > 0){
+          console.log(`[DB] initDB: preserving ${localOnlyTests.length} local-only tests saved during network fetch`);
+        }
+        finalBase.tests = [...mergedTests, ...localOnlyTests];
+
+        // Participants: merge from blob (most reliable), table rows, localStorage, and fresh localStorage.
+        const blobPts    = base.participants || [];
+        const { pts }    = _processRows(allRows, []);
+        const cachedPts  = local.participants || [];
+        const freshPts   = freshLS.participants || [];
+        const allPts     = [...pts, ...blobPts, ...cachedPts, ...freshPts];
 
         const seen = new Set();
         const deduped = allPts.filter(p=>{ const k=p.id; if(!k||seen.has(k)) return false; seen.add(k); return true; });
