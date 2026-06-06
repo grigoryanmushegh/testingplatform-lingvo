@@ -6819,11 +6819,7 @@ function AddTestManager() {
     isSavingRef.current = true;
     setSaving(true);
     try {
-      // 1. Quick sync from Supabase (max 3s) so we have the latest tests before writing.
-      // This prevents overwriting tests another device saved. Never blocks longer than 3s.
-      await Promise.race([reloadDB(), new Promise(r=>setTimeout(r,3000))]);
-
-      // 2. Optimistically update local state immediately so the test appears in the list
+      // 1. Optimistically update local state immediately
       const testWithId = editingId ? {...t, id:editingId} : t;
       setTests(prev => {
         if(editingId) return prev.map(x => x.id===editingId ? {...t, id:editingId, createdAt:x.createdAt} : x);
@@ -6831,7 +6827,7 @@ function AddTestManager() {
       });
       if(editingId) setEditingId(null);
 
-      // 3. Update local db.tests with the freshly-synced list + new test
+      // 2. Update _db.tests + localStorage
       const liveDb = loadDB();
       const fresh = liveDb.tests||[];
       const updated = editingId
@@ -6840,13 +6836,14 @@ function AddTestManager() {
       liveDb.tests = updated;
       try{ localStorage.setItem(DB_KEY, JSON.stringify(liveDb)); }catch{}
 
-      // 4. Save to Supabase blob + individual row in parallel
-      const [blobOk, rowOk] = await Promise.all([
-        _flushConfig(liveDb),
-        _upsertTestRow(testWithId),
-      ]);
-      if(!blobOk && !rowOk){
-        alert("⚠️ Could not save to cloud. Your test is saved locally but may not appear on other devices. Please check your internet connection.");
+      // 3. Save to Supabase blob (has 5s hard timeout, never hangs)
+      const blobOk = await _flushConfig(liveDb);
+
+      // 4. Individual row insert — fire-and-forget (belt+suspenders, no await to avoid hanging)
+      _upsertTestRow(testWithId).catch(()=>{});
+
+      if(!blobOk){
+        alert("⚠️ Could not save to cloud. Check your internet connection.");
       }
     } finally {
       isSavingRef.current = false;
