@@ -15,9 +15,31 @@ export let   _flushTmr = null;
 // Belt-and-suspenders: blob is the authoritative source, rows are cross-device safety net.
 export const _flushConfig = async db => {
   if(!supabase) return false;
-  // IMPORTANT: participants AND tests MUST be here — omitting them wipes data on every save
-  // participants are stored in blob (reliable ielts_store read) + participants table (belt+suspenders)
-  const cfg = {participants:db.participants||[],tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||"",openaiKey:db.openaiKey||""};
+
+  // Read current remote blob first, then MERGE — prevents one device overwriting another's tests
+  let remoteTests = [], remotePts = [];
+  try {
+    const {data, error} = await supabase.from("ielts_store").select("data").eq("id","main").single();
+    if(!error && data?.data) {
+      remoteTests = data.data.tests || [];
+      remotePts   = data.data.participants || [];
+    }
+  } catch {}
+
+  // Merge: local entries win for IDs we know about, remote fills in anything we don't have
+  const localTests  = db.tests || [];
+  const localPts    = db.participants || [];
+  const localTestIds = new Set(localTests.map(t => t.id).filter(Boolean));
+  const localPtIds   = new Set(localPts.map(p => p.id).filter(Boolean));
+  const mergedTests  = [...localTests,  ...remoteTests.filter(t => t.id && !localTestIds.has(t.id))];
+  const mergedPts    = [...localPts,    ...remotePts.filter(p => p.id && !localPtIds.has(p.id))];
+
+  const cfg = {participants:mergedPts,tests:mergedTests,testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||"",openaiKey:db.openaiKey||""};
+
+  // Also update local _db with the merged result so next save has full picture
+  db.tests        = mergedTests;
+  db.participants = mergedPts;
+
   for(let attempt=0; attempt<3; attempt++){
     try {
       if(attempt>0) await new Promise(r=>setTimeout(r,1000*attempt));
@@ -276,15 +298,17 @@ export async function reloadDB() {
   try{ const saved=JSON.parse(localStorage.getItem(DB_KEY)||"null"); if(saved) _db=saved; }catch{}
 }
 
-// Load localStorage synchronously — instant, no network. Call this first so app renders right away.
+// Load localStorage synchronously — instant, no network. Returns true if cached data existed.
 export function quickInit() {
   try {
     const saved = JSON.parse(localStorage.getItem(DB_KEY)||"null");
     if(saved && Object.keys(saved).length > 0) {
       _db = {..._emptyDB(), ...saved};
       console.log(`[DB] quickInit: localStorage loaded (tests=${_db.tests?.length||0}, participants=${_db.participants?.length||0})`);
+      return true; // cache hit — app can render immediately
     }
   } catch(e) { console.warn("[DB] quickInit error:",e); }
+  return false; // no cache — caller should wait for initDB() before rendering
 }
 
 export async function initDB() {

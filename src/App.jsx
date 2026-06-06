@@ -7476,16 +7476,32 @@ export default function App() {
   const programmaticExitRef = useRef(false);
 
   useEffect(()=>{
-    // Phase 1: Load localStorage INSTANTLY — show app with cached data right away
-    quickInit();
-    setDbReady(true);
-    window.history.replaceState({view:"home",step:0},"");
-    if(window.location.hash==="#admin"||window.location.pathname.endsWith("/admin")){
-      setView("admin");
+    const setupRouting = () => {
+      window.history.replaceState({view:"home",step:0},"");
+      if(window.location.hash==="#admin"||window.location.pathname.endsWith("/admin")){
+        setView("admin");
+      }
+    };
+
+    const hasCachedData = quickInit(); // true if localStorage had data
+
+    if(hasCachedData) {
+      // Returning visitor: show instantly with cached data, refresh Supabase in background
+      setDbReady(true);
+      setupRouting();
+      initDB().catch(e=>console.warn("[App] background initDB error:",e));
+    } else {
+      // First visit / incognito: wait for Supabase so screen isn't blank
+      setupRouting();
+      const timeout = setTimeout(()=>setDbReady(true), 12000); // failsafe
+      initDB().then(()=>{
+        clearTimeout(timeout);
+        setDbReady(true);
+      }).catch(()=>{
+        clearTimeout(timeout);
+        setDbReady(true);
+      });
     }
-    // Phase 2: Fetch Supabase in background — silently updates _db with fresh data
-    // Admin dashboard auto-refreshes every 8s so it will pick up the fresh data shortly
-    initDB().catch(e=>console.warn("[App] background initDB error:",e));
   },[]);
 
   useEffect(()=>{
