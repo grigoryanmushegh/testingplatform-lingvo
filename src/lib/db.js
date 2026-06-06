@@ -10,12 +10,13 @@ export const _emptyDB = () => ({participants:[],bookings:[],tests:[],testSuites:
 export let   _db      = _emptyDB();
 export let   _flushTmr = null;
 
-// ── Config store (suites, assignments, slots — NOT tests) ─────────────────────
-// Tests are stored as individual rows (see below) to prevent cross-device overwrites.
+// ── Config store (suites, assignments, slots, AND tests) ──────────────────────
+// Tests are in BOTH the blob (reliable) AND individual rows (concurrent-safe).
+// Belt-and-suspenders: blob is the authoritative source, rows are cross-device safety net.
 export const _flushConfig = async db => {
   if(!supabase) return false;
-  // Tests excluded from blob — they live in individual rows now
-  const cfg = {testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||"",openaiKey:db.openaiKey||""};
+  // IMPORTANT: tests MUST be included here — omitting them wipes tests on every suite/slot save
+  const cfg = {tests:db.tests||[],testSuites:db.testSuites||[],assignments:db.assignments||[],speakingSlots:db.speakingSlots||[],bookings:db.bookings||[],scoreOverrides:db.scoreOverrides||{},listeningAudioUrl:db.listeningAudioUrl||"",openaiKey:db.openaiKey||""};
   for(let attempt=0; attempt<3; attempt++){
     try {
       if(attempt>0) await new Promise(r=>setTimeout(r,1000*attempt));
@@ -163,29 +164,34 @@ function _smartMerge(supabaseBase, local) {
 
 // ── Shared load helper ─────────────────────────────────────────────────────────
 // Fetches config + all participant/test rows in one pass, with a hard timeout.
-async function _fetchFromSupabase(timeoutMs=5000) {
+async function _fetchFromSupabase(timeoutMs=8000) {
   const withTimeout = promise => Promise.race([
     promise,
     new Promise((_,reject)=>setTimeout(()=>reject(new Error("Supabase fetch timeout")),timeoutMs))
   ]);
   const [cfgResult, rowsResult] = await Promise.allSettled([
     withTimeout(supabase.from("ielts_store").select("data").eq("id","main").single()),
-    withTimeout(supabase.from("participants").select("type,data").order("created_at",{ascending:false})),
+    withTimeout(supabase.from("participants").select("id,email,type,data").order("id",{ascending:false})),
   ]);
   const cfg     = cfgResult.status==="fulfilled"   ? cfgResult.value.data   : null;
   const cfgErr  = cfgResult.status==="fulfilled"   ? cfgResult.value.error  : {message:"timeout",code:"TIMEOUT"};
   const allRows = rowsResult.status==="fulfilled"  ? rowsResult.value.data  : null;
   const rowsErr = rowsResult.status==="fulfilled"  ? rowsResult.value.error : {message:"timeout"};
+  if(rowsErr) console.warn("[DB] participants query error:",rowsErr.message);
   return { cfg, cfgErr, allRows, rowsErr };
 }
 
 function _processRows(allRows, fallbackPts) {
+  // allRows === null means the query FAILED (timeout, RLS, network) → use fallback
+  // allRows === [] means query succeeded but table is empty → also use fallback (no data to show)
   const rows    = allRows || [];
   const tstRows = rows.filter(r => r.type === "test_item" || r.type === "test_del");
   // Treat any non-test row as a participant (backward compat for rows with unexpected/null type)
   const ptRows  = rows.filter(r => r.type !== "test_item" && r.type !== "test_del" && r.data?.id);
+  // Use Supabase pt rows if we got any; otherwise fall back to cached/localStorage data
   const pts     = ptRows.length > 0 ? ptRows.map(r => r.data).filter(Boolean) : (fallbackPts||[]);
   const rowTests = _buildTestsFromRows(tstRows);
+  console.log(`[DB] processRows: ${ptRows.length} pt rows, ${tstRows.length} test rows (fallback pts=${fallbackPts?.length||0})`);
   return { pts, rowTests };
 }
 
@@ -216,7 +222,9 @@ export async function reloadDB() {
       let local = {};
       try { local = JSON.parse(localStorage.getItem(DB_KEY)||"{}"); } catch {}
 
-      const { pts, rowTests } = _processRows(allRows, _db.participants||[]);
+      // Best fallback for participants: memory first, then localStorage
+      const cachedPts = _db.participants?.length > 0 ? _db.participants : (local.participants||[]);
+      const { pts, rowTests } = _processRows(allRows, cachedPts);
 
       // Merge config (suites, assignments, etc.) — smart merge with localStorage
       const hasSupabaseConfig = (base.testSuites?.length||0) > 0 || (base.assignments?.length||0) > 0
@@ -230,7 +238,9 @@ export async function reloadDB() {
         ({ merged: finalBase, needsPush } = _smartMerge(base, local));
       }
 
-      // Tests: row-based (concurrent-safe) + blob legacy fallback
+      // Tests: blob is authoritative (always included in _flushConfig now),
+      // row-based tests are secondary source for concurrent safety.
+      // Merge: rowTests take priority (newest save), blobTests fill in any gaps.
       const blobTests  = base.tests || local.tests || [];
       const { tests: mergedTests, blobOnly } = _mergeTests(rowTests, blobTests);
       finalBase.tests  = mergedTests;
@@ -242,40 +252,49 @@ export async function reloadDB() {
       const withOverrides = deduped.map(p=> overrides[p.id] ? {...p,...overrides[p.id]} : p);
 
       _db = {..._emptyDB(), ...finalBase, participants: withOverrides};
-      localStorage.setItem(DB_KEY,JSON.stringify(_db));
-      console.log(`[DB] reloadDB: ${_db.tests?.length||0} tests (${rowTests.length} rows + ${blobOnly.length} legacy), ${_db.participants?.length||0} participants`);
+      try{ localStorage.setItem(DB_KEY,JSON.stringify(_db)); }catch{}
+      console.log(`[DB] reloadDB ✓ tests=${_db.tests?.length||0} (rows=${rowTests.length} blob=${blobTests.length} legacy=${blobOnly.length}), participants=${_db.participants?.length||0}`);
 
       if(needsPush){
         console.warn("[DB] reloadDB: pushing merged config to Supabase...");
-        await _flushConfig(_db);
+        _flushConfig(_db); // fire-and-forget, don't block reload
       }
       // Migrate legacy blob tests to rows in background — never block the caller
       if(blobOnly.length > 0) _migrateBlobTests(blobOnly);
       return;
     }catch(e){ console.warn("[DB] reloadDB error:",e); }
   }
-  try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
+  try{ const saved=JSON.parse(localStorage.getItem(DB_KEY)||"null"); if(saved) _db=saved; }catch{}
 }
 
 export async function initDB() {
+  // Pre-load localStorage so we always have something to show
+  let local = {};
+  try { local = JSON.parse(localStorage.getItem(DB_KEY)||"null") || {}; } catch {}
+  if(local && Object.keys(local).length > 0) {
+    _db = {..._emptyDB(), ...local};
+    console.log(`[DB] initDB: pre-loaded localStorage (tests=${_db.tests?.length||0}, participants=${_db.participants?.length||0})`);
+  }
+
   if(supabase){
     for(let attempt=0; attempt<2; attempt++){
       try{
-        if(attempt>0) await new Promise(r=>setTimeout(r,800));
-        const { cfg, cfgErr, allRows, rowsErr } = await _fetchFromSupabase();
-        console.log(`[DB] initDB attempt ${attempt+1}: cfg=`,cfg?.data?"ok":"empty",
-          "cfgErr=",cfgErr?.message||"none", "rows=",allRows?.length||0);
+        if(attempt>0) await new Promise(r=>setTimeout(r,1200));
+        const { cfg, cfgErr, allRows, rowsErr } = await _fetchFromSupabase(10000);
+        console.log(`[DB] initDB attempt ${attempt+1}: cfg=${cfg?.data?"ok":"empty"} cfgErr=${cfgErr?.message||"none"} rows=${allRows?.length??'null'} rowsErr=${rowsErr?.message||"none"}`);
 
+        // PGRST116 = no rows found (config not yet created) — that's OK, continue
         if(cfgErr && cfgErr.code !== "PGRST116"){
+          console.warn("[DB] initDB: config fetch error, attempt",attempt+1,":",cfgErr.message);
           if(attempt===0) continue;
           break;
         }
 
         const base = cfg?.data || {};
-        let local = {};
-        try { local = JSON.parse(localStorage.getItem(DB_KEY)||"{}"); } catch {}
 
-        const { pts, rowTests } = _processRows(allRows, []);
+        // Participants fallback: use localStorage if Supabase returned nothing
+        const cachedPts = local.participants||[];
+        const { pts, rowTests } = _processRows(allRows, cachedPts);
 
         const hasSupabaseConfig = (base.testSuites?.length||0)>0 || (base.assignments?.length||0)>0
                                 || (base.speakingSlots?.length||0)>0;
@@ -287,11 +306,12 @@ export async function initDB() {
           needsPush = true;
           console.warn("[DB] initDB: Supabase config empty, restoring from localStorage");
         } else {
-          finalBase = base;
+          finalBase = {...base};
           needsPush = false;
         }
 
-        // Tests: row-based + blob legacy
+        // Tests: blob is authoritative (now always saved in _flushConfig),
+        // row-based tests fill in any that aren't in the blob yet.
         const blobTests = base.tests || local.tests || [];
         const { tests: mergedTests, blobOnly } = _mergeTests(rowTests, blobTests);
         finalBase.tests = mergedTests;
@@ -302,12 +322,12 @@ export async function initDB() {
         const withOverrides = deduped.map(p=> overrides[p.id] ? {...p,...overrides[p.id]} : p);
 
         _db = {..._emptyDB(), ...finalBase, participants: withOverrides};
-        localStorage.setItem(DB_KEY,JSON.stringify(_db));
-        console.log(`[DB] initDB: ${_db.tests?.length||0} tests (${rowTests.length} rows + ${blobOnly.length} legacy), ${_db.participants?.length||0} participants`);
+        try{ localStorage.setItem(DB_KEY,JSON.stringify(_db)); }catch{}
+        console.log(`[DB] initDB ✓ tests=${_db.tests?.length||0} (rows=${rowTests.length} blob=${blobTests.length} legacy=${blobOnly.length}), participants=${_db.participants?.length||0}, suites=${_db.testSuites?.length||0}`);
 
         if(needsPush){
           console.warn("[DB] initDB: pushing merged config to Supabase...");
-          await _flushConfig(_db);
+          _flushConfig(_db); // fire-and-forget — don't block app startup
         }
         // Migrate legacy blob tests to rows in background — never block app startup
         if(blobOnly.length > 0) _migrateBlobTests(blobOnly);
@@ -317,11 +337,10 @@ export async function initDB() {
         if(attempt===0) continue;
       }
     }
-    console.warn("[DB] initDB: Supabase unreachable, falling back to localStorage");
-    try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
-  } else {
-    try{ _db=JSON.parse(localStorage.getItem(DB_KEY))||_emptyDB(); }catch{ _db=_emptyDB(); }
+    console.warn("[DB] initDB: Supabase unreachable, using localStorage data");
+    // _db already pre-loaded from localStorage above
   }
+  // If no supabase, _db is already set from localStorage pre-load above
 }
 
 export const genId = p => `${p}-${Date.now().toString(36).toUpperCase()}`;

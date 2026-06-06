@@ -6833,19 +6833,23 @@ function AddTestManager() {
       });
       if(editingId) setEditingId(null);
 
-      // 2. Save as individual row — concurrent-safe, no cross-device overwrite
-      const ok = await _upsertTestRow(testWithId);
-      if(!ok){
-        alert("⚠️ Could not save to cloud. Your test is visible here but may not appear on other devices. Please check your internet connection.");
-      }
-
-      // 3. Also update local _db and localStorage so the test survives a page refresh
+      // 2. Update local _db.tests immediately (needed before blob flush below)
       const fresh = loadDB().tests||[];
       const updated = editingId
         ? fresh.map(x => x.id===testWithId.id ? testWithId : x)
         : (fresh.find(x=>x.id===testWithId.id) ? fresh : [...fresh, testWithId]);
       _db.tests = updated;
       try{ localStorage.setItem(DB_KEY, JSON.stringify(_db)); }catch{}
+
+      // 3. Save to Supabase blob (reliable, always works) AND individual row (concurrent-safe)
+      // Both run in parallel; blob is the authoritative source so tests survive on all devices.
+      const [blobOk, rowOk] = await Promise.all([
+        _flushConfig(_db),
+        _upsertTestRow(testWithId),
+      ]);
+      if(!blobOk && !rowOk){
+        alert("⚠️ Could not save to cloud. Your test is saved locally but may not appear on other devices. Please check your internet connection.");
+      }
     } finally {
       isSavingRef.current = false;
       setSaving(false);
@@ -6932,8 +6936,11 @@ function AddTestManager() {
     setTests(prev => prev.filter(t => t.id !== id));
     _db.tests = (_db.tests||[]).filter(t => t.id !== id);
     try{ localStorage.setItem(DB_KEY, JSON.stringify(_db)); }catch{}
-    // Insert tombstone row — concurrent-safe delete
-    await _markTestDeleted(id);
+    // Delete from both blob and individual rows
+    await Promise.all([
+      _flushConfig(_db),      // removes test from blob
+      _markTestDeleted(id),   // tombstone row for concurrent-safe delete
+    ]);
   };
   const typeColor  = t  => t==="Reading"?C.teal:t==="Writing"?C.violet:C.amber;
 
