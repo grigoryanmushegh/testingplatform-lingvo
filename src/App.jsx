@@ -1,4 +1,33 @@
 import { useState, useEffect, useRef, useLayoutEffect } from "react";
+
+// ── MAINTENANCE MODE ──────────────────────────────────────────────────────────
+// Set to true to show maintenance screen to all visitors (admin still works via #admin)
+const MAINTENANCE_MODE = false;
+
+function MaintenanceScreen() {
+  return (
+    <div style={{minHeight:"100vh",background:"#0F172A",display:"flex",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"system-ui,sans-serif"}}>
+      <div style={{textAlign:"center",maxWidth:480}}>
+        <div style={{fontSize:64,marginBottom:24}}>🔧</div>
+        <h1 style={{fontSize:28,fontWeight:800,color:"#F8FAFC",marginBottom:12,letterSpacing:"-0.03em"}}>
+          Platform Update in Progress
+        </h1>
+        <p style={{fontSize:15,color:"#94A3B8",lineHeight:1.7,marginBottom:32}}>
+          We are currently updating the LingvoConnect IELTS platform to serve you better.
+          <br/><br/>
+          <strong style={{color:"#E2E8F0"}}>The platform will be back online shortly.</strong><br/>
+          Please check back in a few minutes.
+        </p>
+        <div style={{display:"inline-flex",alignItems:"center",gap:10,background:"rgba(99,102,241,0.15)",
+          border:"1px solid rgba(99,102,241,0.3)",borderRadius:12,padding:"12px 20px"}}>
+          <div style={{width:8,height:8,borderRadius:"50%",background:"#6366F1",animation:"pulse 1.5s infinite"}}/>
+          <span style={{fontSize:13,color:"#A5B4FC",fontWeight:600}}>Maintenance in progress — estimated time: a few minutes</span>
+        </div>
+        <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}`}</style>
+      </div>
+    </div>
+  );
+}
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import emailjs from "@emailjs/browser";
@@ -7754,6 +7783,9 @@ export default function App() {
 
   // Is the exam actively running (steps 2–5 = Listening/Reading/Writing/Speaking, or on break)
   const examActive = view==="test" && (step>=2 && step<=5 || breakNext!==null);
+
+  // Maintenance mode — admin can still access via #admin in URL
+  if(MAINTENANCE_MODE && view !== "admin") return <MaintenanceScreen />;
 
   return (
     <div style={{minHeight:"100vh",background:C.bg}}>
