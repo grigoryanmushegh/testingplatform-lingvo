@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useLayoutEffect } from "react";
 
 // ── MAINTENANCE MODE ──────────────────────────────────────────────────────────
 // Set to true to show maintenance screen to all visitors (admin still works via #admin)
-const MAINTENANCE_MODE = false;
+const MAINTENANCE_MODE = true;
 
 function MaintenanceScreen() {
   return (
