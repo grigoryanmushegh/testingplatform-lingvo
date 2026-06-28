@@ -21,7 +21,7 @@ function MaintenanceScreen() {
         <div style={{display:"inline-flex",alignItems:"center",gap:10,background:"rgba(99,102,241,0.15)",
           border:"1px solid rgba(99,102,241,0.3)",borderRadius:12,padding:"12px 20px"}}>
           <div style={{width:8,height:8,borderRadius:"50%",background:"#6366F1",animation:"pulse 1.5s infinite"}}/>
-          <span style={{fontSize:13,color:"#A5B4FC",fontWeight:600}}>Maintenance in progress — estimated time: a few minutes</span>
+          <span style={{fontSize:13,color:"#A5B4FC",fontWeight:600}}>Maintenance in progress — estimated time: 4 hours</span>
         </div>
         <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}`}</style>
       </div>
