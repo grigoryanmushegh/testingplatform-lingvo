@@ -15,13 +15,12 @@ function MaintenanceScreen() {
         <p style={{fontSize:15,color:"#94A3B8",lineHeight:1.7,marginBottom:32}}>
           We are currently updating the LingvoConnect IELTS platform to serve you better.
           <br/><br/>
-          <strong style={{color:"#E2E8F0"}}>The platform will be back online shortly.</strong><br/>
-          Please check back in a few minutes.
+          <strong style={{color:"#E2E8F0"}}>The platform will be back online shortly.</strong>
         </p>
         <div style={{display:"inline-flex",alignItems:"center",gap:10,background:"rgba(99,102,241,0.15)",
           border:"1px solid rgba(99,102,241,0.3)",borderRadius:12,padding:"12px 20px"}}>
           <div style={{width:8,height:8,borderRadius:"50%",background:"#6366F1",animation:"pulse 1.5s infinite"}}/>
-          <span style={{fontSize:13,color:"#A5B4FC",fontWeight:600}}>Maintenance in progress — estimated time: 4 hours</span>
+          <span style={{fontSize:13,color:"#A5B4FC",fontWeight:600}}>Deployment in progress — estimated time: 4 hours</span>
         </div>
         <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}`}</style>
       </div>
