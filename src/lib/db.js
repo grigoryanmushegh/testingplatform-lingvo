@@ -265,6 +265,12 @@ export async function reloadDB() {
       const localOnlyTests = memTests.filter(t => t.id && !mergedIds.has(t.id));
       finalBase.tests  = [...mergedTests, ...localOnlyTests];
 
+      // adminUsers: same memory-preservation as tests — if a user was just saved to _db
+      // but the polling fetch raced before localStorage/Supabase was updated, keep them.
+      const mergedAdminIds = new Set((finalBase.adminUsers||[]).map(u=>u.id).filter(Boolean));
+      const memAdminOnly = (_db.adminUsers||[]).filter(u=>u.id && !mergedAdminIds.has(u.id));
+      if(memAdminOnly.length > 0) finalBase.adminUsers = [...(finalBase.adminUsers||[]), ...memAdminOnly];
+
       // Participants: merge from blob (most reliable), table rows, memory, and localStorage.
       const blobPts   = base.participants || [];
       const cachedPts = _db.participants?.length > 0 ? _db.participants : (local.participants||[]);
