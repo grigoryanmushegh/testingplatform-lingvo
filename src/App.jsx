@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useLayoutEffect } from "react";
 
 // ── MAINTENANCE MODE ──────────────────────────────────────────────────────────
 // Set to true to show maintenance screen to all visitors (admin still works via #admin)
-const MAINTENANCE_MODE = true;
+const MAINTENANCE_MODE = false;
 
 function MaintenanceScreen() {
   return (
@@ -39,6 +39,7 @@ import {
   loadDB, saveDB, saveDBNow,
   dbPush, dbPushNow, dbSave, dbSaveNow,
   reloadDB, initDB, quickInit, onDbChange, genId, DB_KEY,
+  hashPassword, getAdminSession, setAdminSession,
 } from "./lib/db.js";
 import {
   pad2, fmtTime, countWords,
@@ -3818,12 +3819,148 @@ function syncToSheets() {
   );
 }
 
+// ── SUPER ADMIN PANEL ─────────────────────────────────────────────────────────
+function SuperAdminPanel({ currentUser }) {
+  const [users, setUsers]   = useState(loadDB().adminUsers||[]);
+  const [creating, setCreating] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [uname, setUname]   = useState("");
+  const [uDisplay, setUDisplay] = useState("");
+  const [uPw, setUPw]       = useState("");
+  const [uRole, setURole]   = useState("admin");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg]       = useState("");
+
+  useEffect(()=>{
+    const unsub = onDbChange(db=>setUsers(db.adminUsers||[]));
+    return unsub;
+  },[]);
+
+  const openCreate = () => { setUname(""); setUDisplay(""); setUPw(""); setURole("admin"); setEditId(null); setCreating(true); setMsg(""); };
+  const openEdit   = u => { setUname(u.username); setUDisplay(u.name||""); setUPw(""); setURole(u.role); setEditId(u.id); setCreating(true); setMsg(""); };
+
+  const saveUser = async () => {
+    if(!uname.trim()) return;
+    setSaving(true);
+    const existing = loadDB().adminUsers||[];
+    let updated;
+    if(editId) {
+      const patch = {name:uDisplay.trim()||uname.trim(), role:uRole, updatedAt:new Date().toISOString()};
+      if(uPw.trim()) patch.passwordHash = await hashPassword(uPw.trim());
+      updated = existing.map(u=>u.id===editId?{...u,...patch}:u);
+    } else {
+      if(!uPw.trim()){ setMsg("Password is required"); setSaving(false); return; }
+      if(existing.find(u=>u.username.toLowerCase()===uname.trim().toLowerCase())){ setMsg("Username already exists"); setSaving(false); return; }
+      const nu = {
+        id:genId("ADM"), username:uname.trim().toLowerCase(), name:uDisplay.trim()||uname.trim(),
+        passwordHash: await hashPassword(uPw.trim()), role:uRole,
+        createdAt:new Date().toISOString(), createdBy:currentUser?.username||"system"
+      };
+      updated = [...existing, nu];
+    }
+    const liveDb = loadDB(); liveDb.adminUsers = updated;
+    setInternalDb(liveDb);
+    try{ localStorage.setItem(DB_KEY,JSON.stringify(liveDb)); }catch{}
+    await _flushConfig(liveDb);
+    setUsers(updated);
+    setSaving(false); setCreating(false); setEditId(null);
+    setMsg(editId?"✓ User updated":"✓ User created");
+    setTimeout(()=>setMsg(""),3000);
+  };
+
+  const deleteUser = async id => {
+    if(id===currentUser?.id){ alert("Cannot delete your own account"); return; }
+    if(!confirm("Delete this admin user?")) return;
+    const updated = (loadDB().adminUsers||[]).filter(u=>u.id!==id);
+    const liveDb = loadDB(); liveDb.adminUsers = updated;
+    setInternalDb(liveDb);
+    try{ localStorage.setItem(DB_KEY,JSON.stringify(liveDb)); }catch{}
+    await _flushConfig(liveDb);
+    setUsers(updated);
+  };
+
+  const card = {background:"#fff",borderRadius:12,border:"1px solid #E2E8F0",padding:20,marginBottom:12};
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
+        <div>
+          <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:4}}>Admin Users</h2>
+          <p style={{color:C.s400,fontSize:13}}>Manage who can access the admin dashboard.</p>
+        </div>
+        <button onClick={openCreate} style={btnStyle("primary")}>+ New Admin</button>
+      </div>
+      {msg&&<div style={{marginBottom:14,padding:"10px 16px",background:msg.startsWith("✓")?C.tealL:C.roseL,borderRadius:8,color:msg.startsWith("✓")?C.teal:C.rose,fontWeight:700,fontSize:13}}>{msg}</div>}
+      {creating&&(
+        <div style={{...card,border:`2px solid ${C.brand}`,marginBottom:20}}>
+          <div style={{fontSize:15,fontWeight:800,color:C.s900,marginBottom:16}}>{editId?"Edit Admin User":"Create Admin User"}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+            <div>
+              <label style={labelStyle}>Username *</label>
+              <input value={uname} onChange={e=>setUname(e.target.value)} disabled={!!editId}
+                placeholder="e.g. john.doe" style={{...inputStyle,background:editId?"#f8fafc":"#fff"}}/>
+            </div>
+            <div>
+              <label style={labelStyle}>Display Name</label>
+              <input value={uDisplay} onChange={e=>setUDisplay(e.target.value)} placeholder="e.g. John Doe" style={inputStyle}/>
+            </div>
+            <div>
+              <label style={labelStyle}>{editId?"New Password (leave blank to keep)":"Password *"}</label>
+              <input type="password" value={uPw} onChange={e=>setUPw(e.target.value)} placeholder="Enter password" style={inputStyle}/>
+            </div>
+            <div>
+              <label style={labelStyle}>Role</label>
+              <select value={uRole} onChange={e=>setURole(e.target.value)} style={{...inputStyle,cursor:"pointer"}}>
+                <option value="admin">Admin</option>
+                <option value="superadmin">Super Admin</option>
+              </select>
+            </div>
+          </div>
+          {msg&&!msg.startsWith("✓")&&<div style={{marginBottom:10,color:C.rose,fontSize:13,fontWeight:600}}>{msg}</div>}
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={saveUser} disabled={saving} style={btnStyle("primary")}>{saving?"Saving…":"Save User"}</button>
+            <button onClick={()=>setCreating(false)} style={btnStyle("secondary")}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {users.length===0?(
+        <div style={{...card,textAlign:"center",padding:40}}>
+          <div style={{fontSize:32,marginBottom:12}}>👤</div>
+          <div style={{color:C.s400,fontSize:14}}>No admin users yet. Create the first one above.</div>
+        </div>
+      ):users.map(u=>(
+        <div key={u.id} style={{...card,display:"flex",alignItems:"center",gap:16}}>
+          <div style={{width:40,height:40,borderRadius:12,background:u.role==="superadmin"?C.brandL:C.s100,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>
+            {u.role==="superadmin"?"👑":"👤"}
+          </div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:700,fontSize:14,color:C.s900}}>{u.name||u.username} <span style={{fontSize:11,color:C.s400,fontWeight:400}}>@{u.username}</span></div>
+            <div style={{fontSize:12,color:C.s400,marginTop:2}}>
+              <span style={{background:u.role==="superadmin"?C.brandL:C.s100,color:u.role==="superadmin"?C.brand:C.s600,padding:"1px 7px",borderRadius:4,fontWeight:600,fontSize:11}}>{u.role}</span>
+              {u.createdAt&&<span style={{marginLeft:8}}>Created {new Date(u.createdAt).toLocaleDateString("en-GB")}</span>}
+              {u.createdBy&&<span style={{marginLeft:8}}>by {u.createdBy}</span>}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>openEdit(u)} style={btnStyle("secondary")}>Edit</button>
+            {u.id!==currentUser?.id&&<button onClick={()=>deleteUser(u.id)} style={{...btnStyle("secondary"),color:C.rose,borderColor:C.rose}}>Delete</button>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── ADMIN DASHBOARD ───────────────────────────────────────────────────────────
 function AdminDashboard({ onExit }) {
-  const [auth, setAuth]       = useState(false);
-  const [pw, setPw]           = useState("");
+  const LEGACY_PW = import.meta.env.VITE_ADMIN_PASSWORD || "Lingvo.2025!";
+  const [session, setSession] = useState(()=>getAdminSession());
+  const [loginUser, setLoginUser] = useState("");
+  const [loginPw, setLoginPw]   = useState("");
+  const [loginErr, setLoginErr] = useState("");
   const [failCount, setFailCount] = useState(0);
   const [lockedUntil, setLockedUntil] = useState(0);
+  const [loggingIn, setLoggingIn] = useState(false);
   const [tab, setTab]         = useState("overview");
   const [db, setDb]           = useState(loadDB());
   const [selected, setSelected] = useState(null);
@@ -4029,24 +4166,58 @@ function AdminDashboard({ onExit }) {
     setTimeout(()=>setRecalcMsg(""),5000);
   };
 
-  const ADMIN_PW = import.meta.env.VITE_ADMIN_PASSWORD || "Lingvo.2025!";
-  const tryLogin = () => {
+  const handleLogin = async () => {
     const now = Date.now();
     if(now < lockedUntil) return;
-    if(pw === ADMIN_PW) {
-      setAuth(true);
-      setFailCount(0);
-    } else {
-      const next = failCount + 1;
-      setFailCount(next);
-      setPw("");
-      if(next >= 5) {
-        setLockedUntil(now + 5 * 60 * 1000); // lock 5 minutes
-        setFailCount(0);
+    setLoggingIn(true);
+    setLoginErr("");
+    try {
+      await reloadDB();
+      const freshDb = loadDB();
+      const adminUsers = freshDb.adminUsers || [];
+      let matched = null;
+
+      // Check named admin users first
+      if(loginUser.trim()) {
+        const hashed = await hashPassword(loginPw);
+        matched = adminUsers.find(u => u.username === loginUser.trim() && u.passwordHash === hashed);
       }
+
+      // Legacy fallback: blank username + legacy password acts as superadmin
+      if(!matched && !loginUser.trim() && loginPw === LEGACY_PW) {
+        matched = { username: "admin", role: "superadmin", legacy: true };
+      }
+      // Also allow "admin" username with legacy password if no admin users exist yet
+      if(!matched && loginUser.trim() === "admin" && loginPw === LEGACY_PW && adminUsers.length === 0) {
+        matched = { username: "admin", role: "superadmin", legacy: true };
+      }
+
+      if(matched) {
+        const sess = { username: matched.username, role: matched.role || "admin", legacy: matched.legacy || false };
+        setAdminSession(sess);
+        setSession(sess);
+        setFailCount(0);
+        setLoginErr("");
+      } else {
+        const next = failCount + 1;
+        setFailCount(next);
+        setLoginPw("");
+        if(next >= 5) {
+          setLockedUntil(now + 5 * 60 * 1000);
+          setFailCount(0);
+          setLoginErr("Too many failed attempts. Locked for 5 minutes.");
+        } else {
+          setLoginErr(`Incorrect credentials (${5 - next} attempt${5-next!==1?"s":""} left)`);
+        }
+      }
+    } catch(e) {
+      setLoginErr("Login error — please try again.");
+    } finally {
+      setLoggingIn(false);
     }
   };
-  if(!auth) {
+
+  if(!session) {
     const now = Date.now();
     const locked = now < lockedUntil;
     const remaining = locked ? Math.ceil((lockedUntil - now) / 1000) : 0;
@@ -4059,21 +4230,25 @@ function AdminDashboard({ onExit }) {
         </div>
         {locked ? (
           <div style={{textAlign:"center",padding:"18px",background:C.roseL,borderRadius:10,color:C.rose,fontWeight:700,fontSize:14}}>
-            🔒 Too many failed attempts.<br/>
+            Too many failed attempts.<br/>
             <span style={{fontWeight:400,fontSize:12}}>Try again in {Math.floor(remaining/60)}m {remaining%60}s</span>
           </div>
         ) : (
           <>
-            {failCount>0&&<div style={{marginBottom:10,padding:"10px 14px",background:C.roseL,borderRadius:8,color:C.rose,fontSize:13,fontWeight:600}}>
-              ✗ Incorrect password ({5-failCount} attempt{5-failCount!==1?"s":""} left)
+            {loginErr&&<div style={{marginBottom:10,padding:"10px 14px",background:C.roseL,borderRadius:8,color:C.rose,fontSize:13,fontWeight:600}}>
+              {loginErr}
             </div>}
+            <label style={labelStyle}>Username</label>
+            <input type="text" value={loginUser} onChange={e=>setLoginUser(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+              placeholder="Username" style={{...inputStyle,marginBottom:12}} autoFocus/>
             <label style={labelStyle}>Password</label>
-            <input type="password" value={pw} onChange={e=>setPw(e.target.value)}
-              onKeyDown={e=>e.key==="Enter"&&tryLogin()}
-              placeholder="Enter password" style={inputStyle} autoFocus/>
-            <button onClick={tryLogin}
-              style={{...btnStyle("primary"),width:"100%",marginTop:14,padding:"12px",borderRadius:10,fontSize:15}}>
-              Sign In →
+            <input type="password" value={loginPw} onChange={e=>setLoginPw(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+              placeholder="Password" style={inputStyle}/>
+            <button onClick={handleLogin} disabled={loggingIn}
+              style={{...btnStyle("primary"),width:"100%",marginTop:14,padding:"12px",borderRadius:10,fontSize:15,opacity:loggingIn?0.7:1}}>
+              {loggingIn ? "Signing in…" : "Sign In →"}
             </button>
           </>
         )}
@@ -4084,7 +4259,14 @@ function AdminDashboard({ onExit }) {
 
   const pts=db.participants||[], bks=db.bookings||[];
   const avg=arr=>arr.length?(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1):"—";
-  const navItems=[["overview","📊","Overview"],["participants","👥","Test Takers"],["bookings","🗓️","Bookings"],["slots","🕐","Speaking Slots"],["analytics","📈","Analytics"],["looker","🔗","Looker Studio"],["suites","🧪","Test Suites"],["assign","📋","Assignments"],["speaking","🗣️","AI Speaking"],["addtest","➕","Section Builder"],["settings","⚙️","Settings"]];
+  const isSuperAdmin = session?.role === "superadmin";
+  const navItems=[
+    ["overview","📊","Overview"],["participants","👥","Test Takers"],["bookings","🗓️","Bookings"],
+    ["slots","🕐","Speaking Slots"],["analytics","📈","Analytics"],["looker","🔗","Looker Studio"],
+    ["suites","🧪","Test Suites"],["assign","📋","Assignments"],["speaking","🗣️","AI Speaking"],
+    ["addtest","➕","Section Builder"],["settings","⚙️","Settings"],
+    ...(isSuperAdmin ? [["users","👤","Admin Users"]] : []),
+  ];
 
   const exportCSV = () => {
     const rows=[["Name","Email","Phone","Nationality","Test Type","DOB","Date","Listening Band","Listening Score","Reading Band","Reading Score","Writing Band","Speaking Band","Overall Band","Attempt ID"]];
@@ -4120,10 +4302,14 @@ function AdminDashboard({ onExit }) {
           {selected&&<span style={{color:"rgba(255,255,255,.3)",fontSize:12}}>/ {selected.candidate?.name||selected.email||"Profile"}</span>}
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {session&&<span style={{color:"rgba(255,255,255,.5)",fontSize:12,padding:"0 4px"}}>
+            {session.username} <span style={{color:isSuperAdmin?"#11CD87":"rgba(255,255,255,.3)",fontSize:10,fontWeight:700,marginLeft:4}}>{isSuperAdmin?"SUPER ADMIN":"ADMIN"}</span>
+          </span>}
           <button type="button" onClick={refresh} disabled={refreshing} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.06)",color:"rgba(255,255,255,.7)",border:"1px solid rgba(255,255,255,.12)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600,opacity:refreshing?.6:1,minHeight:44}}>
             <span aria-hidden="true" style={{display:"inline-block",animation:refreshing?"spin 0.6s linear infinite":"none"}}>↻</span>
             {refreshing?"Syncing…":"Refresh"}
           </button>
+          <button type="button" onClick={()=>{setAdminSession(null);setSession(null);}} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.06)",color:"rgba(255,255,255,.5)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600,minHeight:44}}>Sign Out</button>
           <button type="button" onClick={onExit} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(225,29,72,.12)",color:"#FDA4AF",border:"1px solid rgba(225,29,72,.25)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600,minHeight:44}}>← Exit Admin</button>
         </div>
       </div>
@@ -4325,6 +4511,7 @@ function AdminDashboard({ onExit }) {
           {tab==="speaking"&&<AISpeakingManager onRefresh={refresh}/>}
           {tab==="addtest"&&<AddTestManager/>}
           {tab==="settings"&&<AdminSettings/>}
+          {tab==="users"&&isSuperAdmin&&<SuperAdminPanel currentUser={session}/>}
         </main>
       </div>
     </div>
@@ -6863,9 +7050,14 @@ function AddTestManager() {
     setSaving(true);
     try {
       // 1. Optimistically update local state immediately
-      const testWithId = editingId ? {...t, id:editingId} : t;
+      const adminSess = getAdminSession();
+      const now = Date.now();
+      const existingTest = editingId ? (loadDB().tests||[]).find(x=>x.id===editingId) : null;
+      const testWithId = editingId
+        ? {...t, id:editingId, createdBy:existingTest?.createdBy||adminSess?.username||"admin", createdAt:existingTest?.createdAt||now, modifiedBy:adminSess?.username||"admin", modifiedAt:now}
+        : {...t, createdBy:adminSess?.username||"admin", createdAt:now, modifiedBy:adminSess?.username||"admin", modifiedAt:now};
       setTests(prev => {
-        if(editingId) return prev.map(x => x.id===editingId ? {...t, id:editingId, createdAt:x.createdAt} : x);
+        if(editingId) return prev.map(x => x.id===editingId ? testWithId : x);
         return [...prev, testWithId];
       });
       if(editingId) setEditingId(null);

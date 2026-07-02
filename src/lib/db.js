@@ -6,9 +6,25 @@ export const _SKEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1
 export const supabase = _SURL && _SKEY ? createClient(_SURL, _SKEY) : null;
 
 export const DB_KEY   = "lv_ielts_v2";
-export const _emptyDB = () => ({participants:[],bookings:[],tests:[],testSuites:[],assignments:[],speakingSlots:[]});
+export const _emptyDB = () => ({
+  participants:[], bookings:[], tests:[], testSuites:[], assignments:[],
+  speakingSlots:[], adminUsers:[], scoreOverrides:{}, listeningAudioUrl:"", openaiKey:""
+});
 export let   _db      = _emptyDB();
 export let   _flushTmr = null;
+
+// ── Admin auth helpers ─────────────────────────────────────────────────────────
+export async function hashPassword(pw) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pw + "lv_salt_2025"));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+export function getAdminSession() {
+  try { return JSON.parse(sessionStorage.getItem("lv_admin_sess")||"null"); } catch { return null; }
+}
+export function setAdminSession(s) {
+  if(s) sessionStorage.setItem("lv_admin_sess", JSON.stringify(s));
+  else   sessionStorage.removeItem("lv_admin_sess");
+}
 
 // ── Config store (suites, assignments, slots, AND tests) ──────────────────────
 // Tests are in BOTH the blob (reliable) AND individual rows (concurrent-safe).
@@ -19,7 +35,7 @@ export const _flushConfig = async db => {
     participants: db.participants||[], tests: db.tests||[],
     testSuites: db.testSuites||[], assignments: db.assignments||[],
     speakingSlots: db.speakingSlots||[], bookings: db.bookings||[],
-    scoreOverrides: db.scoreOverrides||{},
+    scoreOverrides: db.scoreOverrides||{}, adminUsers: db.adminUsers||[],
     listeningAudioUrl: db.listeningAudioUrl||"", openaiKey: db.openaiKey||""
   };
   for(let attempt=0; attempt<3; attempt++){
@@ -141,7 +157,7 @@ export const dbSaveNow = async (col,items) => { _db[col]=items; return await sav
 
 // ── Smart merge: combine Supabase + localStorage for non-test config ───────────
 function _smartMerge(supabaseBase, local) {
-  const MERGE_COLS = ["testSuites", "assignments", "speakingSlots", "bookings", "participants"];
+  const MERGE_COLS = ["testSuites", "assignments", "speakingSlots", "bookings", "participants", "adminUsers"];
   let needsPush = false;
   const merged = { ...supabaseBase };
 
