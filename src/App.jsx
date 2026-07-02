@@ -3820,24 +3820,52 @@ function syncToSheets() {
 }
 
 // ── SUPER ADMIN PANEL ─────────────────────────────────────────────────────────
+const ALL_TABS = [
+  {key:"overview",   label:"Dashboard Overview"},
+  {key:"participants",label:"Test Takers"},
+  {key:"bookings",   label:"Bookings"},
+  {key:"slots",      label:"Speaking Slots"},
+  {key:"analytics",  label:"Analytics"},
+  {key:"looker",     label:"Looker Studio"},
+  {key:"suites",     label:"Test Suites"},
+  {key:"assign",     label:"Assignments"},
+  {key:"speaking",   label:"AI Speaking"},
+  {key:"addtest",    label:"Section Builder"},
+  {key:"settings",   label:"Settings"},
+];
+
 function SuperAdminPanel({ currentUser }) {
-  const [users, setUsers]   = useState(loadDB().adminUsers||[]);
+  const [users, setUsers]       = useState(loadDB().adminUsers||[]);
   const [creating, setCreating] = useState(false);
-  const [editId, setEditId] = useState(null);
-  const [uname, setUname]   = useState("");
+  const [editId, setEditId]     = useState(null);
+  const [uname, setUname]       = useState("");
   const [uDisplay, setUDisplay] = useState("");
-  const [uPw, setUPw]       = useState("");
-  const [uRole, setURole]   = useState("admin");
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg]       = useState("");
+  const [uPw, setUPw]           = useState("");
+  const [uRole, setURole]       = useState("admin");
+  const [uAccess, setUAccess]   = useState(ALL_TABS.map(t=>t.key)); // all checked by default
+  const [saving, setSaving]     = useState(false);
+  const [msg, setMsg]           = useState("");
+  const [accessUser, setAccessUser] = useState(null); // user whose access panel is open
 
   useEffect(()=>{
     const unsub = onDbChange(db=>setUsers(db.adminUsers||[]));
     return unsub;
   },[]);
 
-  const openCreate = () => { setUname(""); setUDisplay(""); setUPw(""); setURole("admin"); setEditId(null); setCreating(true); setMsg(""); };
-  const openEdit   = u => { setUname(u.username); setUDisplay(u.name||""); setUPw(""); setURole(u.role); setEditId(u.id); setCreating(true); setMsg(""); };
+  const openCreate = () => {
+    setUname(""); setUDisplay(""); setUPw(""); setURole("admin");
+    setUAccess(ALL_TABS.map(t=>t.key));
+    setEditId(null); setCreating(true); setMsg(""); setAccessUser(null);
+  };
+  const openEdit = u => {
+    setUname(u.username); setUDisplay(u.name||""); setUPw(""); setURole(u.role);
+    setUAccess(u.access || ALL_TABS.map(t=>t.key));
+    setEditId(u.id); setCreating(true); setMsg(""); setAccessUser(null);
+  };
+
+  const toggleAccess = key => setUAccess(prev =>
+    prev.includes(key) ? prev.filter(k=>k!==key) : [...prev, key]
+  );
 
   const saveUser = async () => {
     if(!uname.trim()) return;
@@ -3845,7 +3873,11 @@ function SuperAdminPanel({ currentUser }) {
     const existing = loadDB().adminUsers||[];
     let updated;
     if(editId) {
-      const patch = {name:uDisplay.trim()||uname.trim(), role:uRole, updatedAt:new Date().toISOString()};
+      const patch = {
+        name:uDisplay.trim()||uname.trim(), role:uRole,
+        access: uRole==="superadmin" ? null : uAccess,
+        updatedAt:new Date().toISOString()
+      };
       if(uPw.trim()) patch.passwordHash = await hashPassword(uPw.trim());
       updated = existing.map(u=>u.id===editId?{...u,...patch}:u);
     } else {
@@ -3854,6 +3886,7 @@ function SuperAdminPanel({ currentUser }) {
       const nu = {
         id:genId("ADM"), username:uname.trim().toLowerCase(), name:uDisplay.trim()||uname.trim(),
         passwordHash: await hashPassword(uPw.trim()), role:uRole,
+        access: uRole==="superadmin" ? null : uAccess,
         createdAt:new Date().toISOString(), createdBy:currentUser?.username||"system"
       };
       updated = [...existing, nu];
@@ -3877,16 +3910,65 @@ function SuperAdminPanel({ currentUser }) {
     try{ localStorage.setItem(DB_KEY,JSON.stringify(liveDb)); }catch{}
     await _flushConfig(liveDb);
     setUsers(updated);
+    setAccessUser(null);
+  };
+
+  const saveAccess = async (userId, newAccess) => {
+    const existing = loadDB().adminUsers||[];
+    const updated = existing.map(u=>u.id===userId?{...u,access:newAccess,updatedAt:new Date().toISOString()}:u);
+    const liveDb = loadDB(); liveDb.adminUsers = updated;
+    setInternalDb(liveDb);
+    try{ localStorage.setItem(DB_KEY,JSON.stringify(liveDb)); }catch{}
+    await _flushConfig(liveDb);
+    setUsers(updated);
+    setAccessUser(u=>({...u,access:newAccess}));
+    setMsg("✓ Permissions saved");
+    setTimeout(()=>setMsg(""),3000);
   };
 
   const card = {background:"#fff",borderRadius:12,border:"1px solid #E2E8F0",padding:20,marginBottom:12};
+
+  // Inline access editor panel
+  const AccessEditor = ({u}) => {
+    const [localAccess, setLocalAccess] = useState(u.access || ALL_TABS.map(t=>t.key));
+    const [savingAcc, setSavingAcc] = useState(false);
+    const toggle = key => setLocalAccess(prev=>prev.includes(key)?prev.filter(k=>k!==key):[...prev,key]);
+    const allSelected = localAccess.length === ALL_TABS.length;
+    return (
+      <div style={{marginTop:16,borderTop:`1px solid ${C.s200}`,paddingTop:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.s700}}>Section Access</div>
+          <button onClick={()=>setLocalAccess(allSelected?[]:ALL_TABS.map(t=>t.key))}
+            style={{fontSize:11,color:C.brand,background:"none",border:"none",cursor:"pointer",fontWeight:600,padding:"2px 6px"}}>
+            {allSelected?"Deselect all":"Select all"}
+          </button>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:14}}>
+          {ALL_TABS.map(t=>(
+            <label key={t.key} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",padding:"7px 10px",borderRadius:8,
+              background:localAccess.includes(t.key)?C.brandL:"#f8fafc",
+              border:`1px solid ${localAccess.includes(t.key)?C.brand:C.s200}`,fontSize:13,userSelect:"none"}}>
+              <input type="checkbox" checked={localAccess.includes(t.key)} onChange={()=>toggle(t.key)}
+                style={{accentColor:C.brand,width:15,height:15,cursor:"pointer"}}/>
+              <span style={{color:localAccess.includes(t.key)?C.brand:C.s700,fontWeight:localAccess.includes(t.key)?600:400}}>{t.label}</span>
+            </label>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button disabled={savingAcc} onClick={async()=>{setSavingAcc(true);await saveAccess(u.id,localAccess);setSavingAcc(false);}}
+            style={btnStyle("primary")}>{savingAcc?"Saving…":"Save Permissions"}</button>
+          <button onClick={()=>setAccessUser(null)} style={btnStyle("secondary")}>Close</button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
         <div>
           <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:4}}>Admin Users</h2>
-          <p style={{color:C.s400,fontSize:13}}>Manage who can access the admin dashboard.</p>
+          <p style={{color:C.s400,fontSize:13}}>Manage who can access the admin dashboard and which sections they can see.</p>
         </div>
         <button onClick={openCreate} style={btnStyle("primary")}>+ New Admin</button>
       </div>
@@ -3916,6 +3998,33 @@ function SuperAdminPanel({ currentUser }) {
               </select>
             </div>
           </div>
+          {uRole==="admin"&&(
+            <div style={{marginBottom:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <label style={{...labelStyle,marginBottom:0}}>Section Access</label>
+                <button type="button" onClick={()=>setUAccess(uAccess.length===ALL_TABS.length?[]:ALL_TABS.map(t=>t.key))}
+                  style={{fontSize:11,color:C.brand,background:"none",border:"none",cursor:"pointer",fontWeight:600,padding:"2px 6px"}}>
+                  {uAccess.length===ALL_TABS.length?"Deselect all":"Select all"}
+                </button>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                {ALL_TABS.map(t=>(
+                  <label key={t.key} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",padding:"7px 10px",borderRadius:8,
+                    background:uAccess.includes(t.key)?C.brandL:"#f8fafc",
+                    border:`1px solid ${uAccess.includes(t.key)?C.brand:C.s200}`,fontSize:13,userSelect:"none"}}>
+                    <input type="checkbox" checked={uAccess.includes(t.key)} onChange={()=>toggleAccess(t.key)}
+                      style={{accentColor:C.brand,width:15,height:15,cursor:"pointer"}}/>
+                    <span style={{color:uAccess.includes(t.key)?C.brand:C.s700,fontWeight:uAccess.includes(t.key)?600:400}}>{t.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          {uRole==="superadmin"&&(
+            <div style={{marginBottom:14,padding:"10px 14px",background:C.brandL,borderRadius:8,fontSize:13,color:C.brand,fontWeight:600}}>
+              Super Admins have access to all sections automatically.
+            </div>
+          )}
           {msg&&!msg.startsWith("✓")&&<div style={{marginBottom:10,color:C.rose,fontSize:13,fontWeight:600}}>{msg}</div>}
           <div style={{display:"flex",gap:10}}>
             <button onClick={saveUser} disabled={saving} style={btnStyle("primary")}>{saving?"Saving…":"Save User"}</button>
@@ -3929,22 +4038,36 @@ function SuperAdminPanel({ currentUser }) {
           <div style={{color:C.s400,fontSize:14}}>No admin users yet. Create the first one above.</div>
         </div>
       ):users.map(u=>(
-        <div key={u.id} style={{...card,display:"flex",alignItems:"center",gap:16}}>
-          <div style={{width:40,height:40,borderRadius:12,background:u.role==="superadmin"?C.brandL:C.s100,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>
-            {u.role==="superadmin"?"👑":"👤"}
-          </div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontWeight:700,fontSize:14,color:C.s900}}>{u.name||u.username} <span style={{fontSize:11,color:C.s400,fontWeight:400}}>@{u.username}</span></div>
-            <div style={{fontSize:12,color:C.s400,marginTop:2}}>
-              <span style={{background:u.role==="superadmin"?C.brandL:C.s100,color:u.role==="superadmin"?C.brand:C.s600,padding:"1px 7px",borderRadius:4,fontWeight:600,fontSize:11}}>{u.role}</span>
-              {u.createdAt&&<span style={{marginLeft:8}}>Created {new Date(u.createdAt).toLocaleDateString("en-GB")}</span>}
-              {u.createdBy&&<span style={{marginLeft:8}}>by {u.createdBy}</span>}
+        <div key={u.id} style={{...card}}>
+          <div style={{display:"flex",alignItems:"center",gap:16}}>
+            <div style={{width:40,height:40,borderRadius:12,background:u.role==="superadmin"?C.brandL:C.s100,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>
+              {u.role==="superadmin"?"👑":"👤"}
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:700,fontSize:14,color:C.s900}}>{u.name||u.username} <span style={{fontSize:11,color:C.s400,fontWeight:400}}>@{u.username}</span></div>
+              <div style={{fontSize:12,color:C.s400,marginTop:2}}>
+                <span style={{background:u.role==="superadmin"?C.brandL:C.s100,color:u.role==="superadmin"?C.brand:C.s600,padding:"1px 7px",borderRadius:4,fontWeight:600,fontSize:11}}>{u.role}</span>
+                {u.createdAt&&<span style={{marginLeft:8}}>Created {new Date(u.createdAt).toLocaleDateString("en-GB")}</span>}
+                {u.createdBy&&<span style={{marginLeft:8}}>by {u.createdBy}</span>}
+                {u.role==="admin"&&u.access&&(
+                  <span style={{marginLeft:8,color:C.brand}}>{u.access.length}/{ALL_TABS.length} sections</span>
+                )}
+                {u.role==="admin"&&!u.access&&(
+                  <span style={{marginLeft:8,color:C.s400}}>all sections</span>
+                )}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              {u.role!=="superadmin"&&(
+                <button onClick={()=>setAccessUser(accessUser?.id===u.id?null:u)} style={{...btnStyle("secondary"),color:C.brand,borderColor:C.brand}}>
+                  {accessUser?.id===u.id?"Hide Access":"Set Access"}
+                </button>
+              )}
+              <button onClick={()=>openEdit(u)} style={btnStyle("secondary")}>Edit</button>
+              {u.id!==currentUser?.id&&<button onClick={()=>deleteUser(u.id)} style={{...btnStyle("secondary"),color:C.rose,borderColor:C.rose}}>Delete</button>}
             </div>
           </div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>openEdit(u)} style={btnStyle("secondary")}>Edit</button>
-            {u.id!==currentUser?.id&&<button onClick={()=>deleteUser(u.id)} style={{...btnStyle("secondary"),color:C.rose,borderColor:C.rose}}>Delete</button>}
-          </div>
+          {accessUser?.id===u.id&&<AccessEditor u={u}/>}
         </div>
       ))}
     </div>
@@ -4193,7 +4316,7 @@ function AdminDashboard({ onExit }) {
       }
 
       if(matched) {
-        const sess = { username: matched.username, role: matched.role || "admin", legacy: matched.legacy || false };
+        const sess = { username: matched.username, role: matched.role || "admin", legacy: matched.legacy || false, access: matched.access || null };
         setAdminSession(sess);
         setSession(sess);
         setFailCount(0);
@@ -4260,13 +4383,15 @@ function AdminDashboard({ onExit }) {
   const pts=db.participants||[], bks=db.bookings||[];
   const avg=arr=>arr.length?(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1):"—";
   const isSuperAdmin = session?.role === "superadmin";
-  const navItems=[
+  const allowedAccess = isSuperAdmin ? null : (session?.access || null); // null = all
+  const allNavItems=[
     ["overview","📊","Overview"],["participants","👥","Test Takers"],["bookings","🗓️","Bookings"],
     ["slots","🕐","Speaking Slots"],["analytics","📈","Analytics"],["looker","🔗","Looker Studio"],
     ["suites","🧪","Test Suites"],["assign","📋","Assignments"],["speaking","🗣️","AI Speaking"],
     ["addtest","➕","Section Builder"],["settings","⚙️","Settings"],
     ...(isSuperAdmin ? [["users","👤","Admin Users"]] : []),
   ];
+  const navItems = allowedAccess ? allNavItems.filter(([t])=>allowedAccess.includes(t)||t==="users") : allNavItems;
 
   const exportCSV = () => {
     const rows=[["Name","Email","Phone","Nationality","Test Type","DOB","Date","Listening Band","Listening Score","Reading Band","Reading Score","Writing Band","Speaking Band","Overall Band","Attempt ID"]];
