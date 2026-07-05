@@ -3763,21 +3763,29 @@ function AdminSettings() {
   const handleImportTests = async () => {
     setImporting(true); setImportMsg(null);
     try {
+      // Always reload from Supabase first so we work with the freshest data
+      await reloadDB();
       const { listeningTest, readingTest, writing1, writing2 } = buildTodaysTests();
       const liveDb = loadDB();
       const existing = liveDb.tests || [];
       const toAdd = [listeningTest, readingTest, writing1, writing2].filter(
         t => !existing.some(e => e.title === t.title)
       );
+      if (toAdd.length === 0) {
+        setImportMsg({ ok: true, msg: "✅ All tests already exist — nothing to import." });
+        setImporting(false); return;
+      }
       liveDb.tests = [...existing, ...toAdd];
       try { localStorage.setItem(DB_KEY, JSON.stringify(liveDb)); } catch {}
       const ok = await _flushConfig(liveDb);
       if (!ok) throw new Error("Could not save tests — check internet connection.");
       notifyDbChange();
-      // Create + publish suite
+      // Create + publish suite (reload again to get latest suites)
+      await reloadDB();
       const suiteName = "Jul 5 Full Test";
       const freshSuites = loadDB().testSuites || [];
-      if (!freshSuites.find(s => s.name === suiteName)) {
+      const existingSuite = freshSuites.find(s => s.name === suiteName);
+      if (!existingSuite) {
         const newSuite = {
           id: genId("SUITE"), name: suiteName, status: "published",
           readingId: readingTest.id, writing1Id: writing1.id,
@@ -3786,8 +3794,9 @@ function AdminSettings() {
         };
         await dbSaveNow("testSuites", [...freshSuites, newSuite]);
       }
+      notifyDbChange();
       const skipped = 4 - toAdd.length;
-      setImportMsg({ ok: true, msg: `✅ Done! Added ${toAdd.length} test(s)${skipped > 0 ? `, ${skipped} already existed` : ""}. Suite "Jul 5 Full Test" is published and ready to assign.` });
+      setImportMsg({ ok: true, msg: `✅ Done! Added ${toAdd.length} test(s)${skipped > 0 ? `, ${skipped} already existed` : ""}. Suite "Jul 5 Full Test" is published.` });
     } catch(e) {
       setImportMsg({ ok: false, msg: "❌ " + e.message });
     }
@@ -4566,36 +4575,6 @@ function AdminDashboard({ onExit }) {
         setSession(sess);
         setFailCount(0);
         setLoginErr("");
-        // Auto-seed today's tests if not yet imported (fire-and-forget)
-        setTimeout(async () => {
-          try {
-            const db = loadDB();
-            const suiteName = "Jul 5 Full Test";
-            if (!(db.testSuites||[]).find(s => s.name === suiteName)) {
-              const { listeningTest, readingTest, writing1, writing2 } = buildTodaysTests();
-              const existing = db.tests || [];
-              const toAdd = [listeningTest, readingTest, writing1, writing2].filter(
-                t => !existing.some(e => e.title === t.title)
-              );
-              if (toAdd.length > 0) {
-                db.tests = [...existing, ...toAdd];
-                try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch {}
-                await _flushConfig(db);
-              }
-              const freshSuites = loadDB().testSuites || [];
-              if (!freshSuites.find(s => s.name === suiteName)) {
-                const newSuite = {
-                  id: genId("SUITE"), name: suiteName, status: "published",
-                  readingId: readingTest.id, writing1Id: writing1.id,
-                  writing2Id: writing2.id, listeningId: listeningTest.id,
-                  createdAt: new Date().toLocaleDateString("en-GB"),
-                };
-                await dbSaveNow("testSuites", [...freshSuites, newSuite]);
-              }
-              notifyDbChange();
-            }
-          } catch(_) {}
-        }, 1500);
       } else {
         const next = failCount + 1;
         setFailCount(next);
