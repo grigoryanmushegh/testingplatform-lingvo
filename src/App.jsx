@@ -3563,12 +3563,236 @@ function AISpeakingManager({ onRefresh }) {
   );
 }
 
+// ── TODAY'S TEST SEED DATA ────────────────────────────────────────────────────
+function buildTodaysTests() {
+  const now = Date.now();
+  let c = 0;
+  const qid = () => now + (c++);
+  const mkId = () => now + (c++) + Math.random();
+
+  // ── LISTENING: Jul 5 ──────────────────────────────────────────────────────
+  const sec1Q = [
+    { id:qid(), type:"note_completion", mode:"listening",
+      instructions:"Complete the notes below.\nWrite ONE WORD AND/OR A NUMBER for each answer.",
+      notesTemplate:"**Renting a place to live through Frampton Estate Agents**\nHomes are furnished, but people renting must provide their own [Q]\nRenters can have a [Q] in their flat for a short period.\nA deposit (equal to the rent for [Q]) must be paid to reserve a flat.\nFlat owners must change the [Q] after each rental.\nFrampton's website provides information about levels of [Q] across Manchester.",
+      correct:"SHEETS", text:"", hint:"ONE WORD AND/OR A NUMBER" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"guest", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"40 days", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"LOCK", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"CRIME", text:"" },
+    { id:qid(), type:"form_table", mode:"listening", newTable:true,
+      tableTitle:"Frampton Estate Agents — new rental customer details",
+      instructions:"Complete the form.\nWrite ONE WORD AND/OR A NUMBER for each answer.",
+      rowLabel:"Customer's name:", rowBefore:"Yusuf ", rowAfter:"", correct:"YILMAZ" },
+    { id:qid(), type:"form_table", mode:"listening", rowLabel:"Monthly budget:", rowBefore:"up to £ ", rowAfter:"", correct:"1250" },
+    { id:qid(), type:"form_table", mode:"listening", rowLabel:"Proposed move-in date:", rowBefore:"", rowAfter:"", correct:"SEPTEMBER 27" },
+    { id:qid(), type:"form_table", mode:"listening", rowLabel:"Requirements:", rowBefore:"space to store a ", rowAfter:"", correct:"BIKE" },
+    { id:qid(), type:"form_table", mode:"listening", rowLabel:"", rowBefore:"a ", rowAfter:" in the building", correct:"GYM" },
+  ];
+  const o11=["go into the castle","take their dog for a walk","tour the estate in their car","go around the estate with a guide","buy food that was produced there"];
+  const o13=["avoid hurrying","visit as early as possible","come with a large group of friends","read about the estate before visiting","decide which areas you most want to visit"];
+  const o15=["litter bins","big animals","gardeners at work","fences being mended","some areas that look untidy"];
+  const sec2Q = [
+    { id:qid(), type:"mcq_multi", mode:"listening",
+      instructions:"For each question, choose TWO correct options, letters A–E.\nWrite them in any order in answer boxes 11–16.\nWhich TWO things can visitors to Oakwood Rewilding Estate do?",
+      text:"", options:o11, correct:"D,E" },
+    { id:qid(), type:"mcq_multi", mode:"listening", text:"", options:o11, correct:"D,E" },
+    { id:qid(), type:"mcq_multi", mode:"listening", newGroup:true,
+      instructions:"Which TWO pieces of advice does the speaker give to visitors to Oakwood?",
+      text:"", options:o13, correct:"A,B" },
+    { id:qid(), type:"mcq_multi", mode:"listening", text:"", options:o13, correct:"A,B" },
+    { id:qid(), type:"mcq_multi", mode:"listening", newGroup:true,
+      instructions:"Which TWO of the following can visitors expect to see at Oakwood?",
+      text:"", options:o15, correct:"B,E" },
+    { id:qid(), type:"mcq_multi", mode:"listening", text:"", options:o15, correct:"B,E" },
+    { id:qid(), type:"form_completion", mode:"listening",
+      instructions:"Label the map. Write the appropriate letter, A–H.\n(Upload map image via Section Builder → edit this test.)",
+      text:"17  Oakwood Castle", correct:"F" },
+    { id:qid(), type:"form_completion", mode:"listening", text:"18  restaurant", correct:"B" },
+    { id:qid(), type:"form_completion", mode:"listening", text:"19  birdwatching hide", correct:"D" },
+    { id:qid(), type:"form_completion", mode:"listening", text:"20  campsite", correct:"C" },
+  ];
+  const cafeOpts=["inexpensive to rent","next to the railway station","lack of other cafes nearby","plenty of parking in the area","convenient for people travelling","close to where potential customers work"];
+  const bizOpts=["It would be cheap and easy to implement.","People would appreciate the kind offer.","It would have a high chance of success.","People who had visited would tell others about the cafe.","Customers would be encouraged to spend a lot on each visit."];
+  const incOpts=["snacks for pets","a loyalty card scheme","free drinks for young children","discounts to use in a local gym","sessions for parents to meet other parents"];
+  const hhOpts=["to bring in first-time customers","to sell more meals at lunchtime","to increase sales at quieter times","to encourage larger groups to visit","to improve the cafe's online visibility"];
+  const sec3Q = [
+    { id:qid(), type:"matching", mode:"listening",
+      instructions:"What is the advantage of each of the following possible locations for the students' cafe?\nChoose FOUR answers and write the correct letter, A–F, next to questions 21–24.",
+      options:cafeOpts, text:"Hawker Road", correct:"lack of other cafes nearby", correctIdx:2 },
+    { id:qid(), type:"matching", mode:"listening", options:cafeOpts, text:"Arrunga Drive", correct:"inexpensive to rent", correctIdx:0 },
+    { id:qid(), type:"matching", mode:"listening", options:cafeOpts, text:"Charity Creek", correct:"convenient for people travelling", correctIdx:4 },
+    { id:qid(), type:"matching", mode:"listening", options:cafeOpts, text:"Wareemba Parade", correct:"close to where potential customers work", correctIdx:5 },
+    { id:qid(), type:"mcq_multi", mode:"listening", newGroup:true,
+      instructions:"For each question, choose TWO correct options, letters A–E.\nWrite them in any order in answer boxes 25–30.\nWhich TWO things do the students agree are advantages of the 'business of the day' idea?",
+      text:"", options:bizOpts, correct:"A,B" },
+    { id:qid(), type:"mcq_multi", mode:"listening", text:"", options:bizOpts, correct:"A,B" },
+    { id:qid(), type:"mcq_multi", mode:"listening", newGroup:true,
+      instructions:"Which TWO incentives do the students agree could attract specific groups of customers?",
+      text:"", options:incOpts, correct:"A,C" },
+    { id:qid(), type:"mcq_multi", mode:"listening", text:"", options:incOpts, correct:"A,C" },
+    { id:qid(), type:"mcq_multi", mode:"listening", newGroup:true,
+      instructions:"Which TWO of the following would be the aims of running a 'happy hour'?",
+      text:"", options:hhOpts, correct:"A,C" },
+    { id:qid(), type:"mcq_multi", mode:"listening", text:"", options:hhOpts, correct:"A,C" },
+  ];
+  const sec4Q = [
+    { id:qid(), type:"note_completion", mode:"listening",
+      instructions:"Complete the notes below.\nWrite ONE WORD ONLY for each answer.",
+      notesTemplate:"**The discovery of the Black Room at Pompeii**\nPompeii = a city in modern-day Italy which was destroyed by a volcano in the year 79 AD\n**The Black Room**\nIt was discovered in the Via di Nola (Pompeii's [Q] road)\nIts colour may have been chosen in order to hide [Q] on the walls\nThere were high-quality [Q] on the floor\nThe room was probably used for [Q]\n**The pictures ('frescoes') in the Black Room**\nAt night, the people shown in the pictures may have appeared to be [Q]\nThe frescoes show characters from Greek myths, including a colourfully dressed [Q] with his dog\n**Other discoveries next to the Black Room**\nArcheologists believe they have also found:\n• a [Q]\n• a reception room and garden\n• a bakery, where [Q] worked\nThe bakery windows were blocked with pieces of [Q]\nThe owner of the building was probably a [Q] named Aulus Rustius Verus",
+      correct:"LONGEST", text:"", hint:"ONE WORD ONLY" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"SMOKE", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"TILES", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"PARTIES", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"MOVING", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"PRINCE", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"LAUNDRY", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"SLAVES", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"IRON", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"POLITICIAN", text:"" },
+  ];
+  const listeningTest = {
+    id:genId("TEST"), type:"Listening", title:"Jul 5 Listening — Full Practice Test",
+    sections:[
+      { id:mkId(), title:"Section 1 — Frampton Estate Agents",    instructions:"Questions 1–10",  script:"", audioUrl:null, questions:sec1Q, collapsed:false },
+      { id:mkId(), title:"Section 2 — Oakwood Rewilding Estate",  instructions:"Questions 11–20", script:"", audioUrl:null, questions:sec2Q, collapsed:false },
+      { id:mkId(), title:"Section 3 — Students' Cafe Project",    instructions:"Questions 21–30", script:"", audioUrl:null, questions:sec3Q, collapsed:false },
+      { id:mkId(), title:"Section 4 — The Black Room at Pompeii", instructions:"Questions 31–40", script:"", audioUrl:null, questions:sec4Q, collapsed:false },
+    ],
+    audioUrl:null, audioMode:"per_section",
+    createdBy:"admin", createdAt:now, modifiedBy:"admin", modifiedAt:now,
+  };
+
+  // ── READING ───────────────────────────────────────────────────────────────
+  const paraOpts=["A","B","C","D","E","F"];
+  const p1Q = [
+    { id:qid(), type:"matching_info", instructions:"The text has six paragraphs (A–F). Which paragraph mentions the following topics?\nWrite the appropriate letter, A–F, for each answer.", options:paraOpts, text:"The destruction of forest as a measure to protect farmers' animals.", correct:"B", correctIdx:1 },
+    { id:qid(), type:"matching_info", options:paraOpts, text:"The amount of wood required to build one particular ship.", correct:"D", correctIdx:3 },
+    { id:qid(), type:"matching_info", options:paraOpts, text:"Certain farm animals are known to have an adverse effect on reforestation attempts.", correct:"F", correctIdx:5 },
+    { id:qid(), type:"matching_info", options:paraOpts, text:"Criticism of action taken to preserve the forests.", correct:"E", correctIdx:4 },
+    { id:qid(), type:"matching_info", options:paraOpts, text:"A summary of the most important native species of plant found in the forests.", correct:"A", correctIdx:0 },
+    { id:qid(), type:"matching_info", options:paraOpts, text:"The earliest opposition to the widespread destruction of Scotland's forests.", correct:"D", correctIdx:3 },
+    { id:qid(), type:"matching_info", options:paraOpts, text:"The inability of sailors to carry out maintenance on their ships when visiting Scotland.", correct:"C", correctIdx:2 },
+    { id:qid(), type:"matching_info", options:paraOpts, text:"The reasons forests do not naturally cover some areas of Scotland.", correct:"B", correctIdx:1 },
+    { id:qid(), type:"matching_info", options:paraOpts, text:"The low proportion of forested area in Britain compared to other European countries.", correct:"E", correctIdx:4 },
+    { id:qid(), type:"mcq_multi", instructions:"For each question, choose TWO correct options.\nWrite them in any order in the answer boxes.\nWhich TWO statements are true of the first forests of Scotland?",
+      text:"", options:["They existed over ten thousand years ago.","They originated when Britain was not an island.","They varied in terms of tree type from region to region.","Small trees developed before larger ones.","They were successful because of the Atlantic climate."], correct:"B,D" },
+    { id:qid(), type:"mcq_multi", text:"", options:["They existed over ten thousand years ago.","They originated when Britain was not an island.","They varied in terms of tree type from region to region.","Small trees developed before larger ones.","They were successful because of the Atlantic climate."], correct:"B,D" },
+    { id:qid(), type:"mcq_multi", newGroup:true, instructions:"Which TWO statements are true of the human impact on the forests of Scotland?",
+      text:"", options:["The usage of wood has remained the same over the period of human settlement.","The majority of forest destruction occurred during the Medieval era.","A large amount of forest was destroyed in order to send wood to other countries.","Some replanting of the forests occurred before the 20th century.","Plans to increase the amount of forest in Scotland in the early 20th century were initially unsuccessful."], correct:"D,E" },
+    { id:qid(), type:"mcq_multi", text:"", options:["The usage of wood has remained the same over the period of human settlement.","The majority of forest destruction occurred during the Medieval era.","A large amount of forest was destroyed in order to send wood to other countries.","Some replanting of the forests occurred before the 20th century.","Plans to increase the amount of forest in Scotland in the early 20th century were initially unsuccessful."], correct:"D,E" },
+  ];
+  const p2Q = [
+    { id:qid(), type:"truefalse", instructions:"Choose TRUE if the statement agrees with the information given in the text, FALSE if it contradicts the information, or NOT GIVEN if there is no information on this.", text:"The Qattara Depression was not surveyed until towards the end of the Survey of Egypt because of its distance from Cairo.", correct:"FALSE" },
+    { id:qid(), type:"truefalse", text:"The first survey's measurements of the Qattara Depression were found to be inaccurate.", correct:"FALSE" },
+    { id:qid(), type:"truefalse", text:"Egypt does not currently have a good range of power supply options.", correct:"NOT GIVEN" },
+    { id:qid(), type:"truefalse", text:"As well as electricity generation, Ball's plan for flooding the Qattara Depression would have created other money-making opportunities.", correct:"TRUE" },
+    { id:qid(), type:"truefalse", text:"Evaporation of sea water in the Qattara Depression could lead to a successful salt production industry.", correct:"NOT GIVEN" },
+    { id:qid(), type:"truefalse", text:"A canal to connect the Nile to the Qattara Depression was started but later abandoned.", correct:"FALSE" },
+    { id:qid(), type:"truefalse", text:"The Qattara Depression Project might create environmental problems in areas other than the immediate surroundings of the Depression.", correct:"TRUE" },
+    { id:qid(), type:"diagram_label", instructions:"Label the diagram below using words from the text.\nWrite NO MORE THAN ONE WORD from the text for each answer.\n⚠ Upload diagram image via Section Builder → edit Passage 2.", text:"21 — The channel connecting the Mediterranean Sea to the Depression", correct:"TUNNEL" },
+    { id:qid(), type:"diagram_label", text:"22 — The type of lake created inside the Depression", correct:"ARTIFICIAL" },
+    { id:qid(), type:"diagram_label", text:"23 — The machines driven by the falling water to generate power", correct:"TURBINES" },
+    { id:qid(), type:"sentence_completion", instructions:"Complete the sentences below. Use NO MORE THAN TWO WORDS from the text for each answer.", text:"The biggest challenge to implementing the Qattara Depression Project is that of its ___ costs.", correct:"construction" },
+    { id:qid(), type:"sentence_completion", text:"Professor Bassler aimed to solve a logistical problem by using ___ to excavate the feed canal.", correct:"nuclear explosions" },
+    { id:qid(), type:"sentence_completion", text:"The government of Egypt were worried about the possibility of pollution, as well as of ___ resulting from the impact of the explosions.", correct:"earthquakes" },
+  ];
+  const endOpts=["is likely to be more effective in some countries than others.","means that people are living to over 100 years of age.","face serious shortfalls in their national budgets.","has not kept up with the increase in life expectancy.","have had only limited success.","combine with improved life expectancy to create a demographic 'time bomb'.","consume fewer resources than those with younger populations.","vary from country to country.","is a solution that even the experts can't agree on.","affects some regions more than others."];
+  const p3Q = [
+    { id:qid(), type:"matching_endings", instructions:"Complete each sentence with the correct ending. Write the appropriate letters, A–J.", options:endOpts, text:"The changing proportion of taxpayers to retirees ...", correct:"affects some regions more than others.", correctIdx:9 },
+    { id:qid(), type:"matching_endings", options:endOpts, text:"Falling birth rates ...", correct:"combine with improved life expectancy to create a demographic 'time bomb'.", correctIdx:5 },
+    { id:qid(), type:"matching_endings", options:endOpts, text:"In some countries, the quality of life in old age …", correct:"has not kept up with the increase in life expectancy.", correctIdx:3 },
+    { id:qid(), type:"matching_endings", options:endOpts, text:"Initiatives aimed at increasing birth rates ...", correct:"vary from country to country.", correctIdx:7 },
+    { id:qid(), type:"matching_endings", options:endOpts, text:"Raising the retirement age …", correct:"is likely to be more effective in some countries than others.", correctIdx:0 },
+    { id:qid(), type:"matching_endings", options:endOpts, text:"Using immigration to correct population imbalances ...", correct:"is a solution that even the experts can't agree on.", correctIdx:8 },
+    { id:qid(), type:"matching_endings", options:endOpts, text:"Countries with ageing populations ...", correct:"consume fewer resources than those with younger populations.", correctIdx:6 },
+    { id:qid(), type:"note_completion", instructions:"Complete the notes below. Write NO MORE THAN TWO WORDS from the text for each answer.",
+      notesTemplate:"**The Problem**\nIn many developed economies, the [Q] of retired people to tax-paying workers is increasing steadily. This lack of demographic balance causes fiscal problems – not only are fewer people contributing to government funds via taxes, but also more money is being paid out in [Q] for the elderly.\n**The Causes**\nIn many countries the [Q] has fallen below the level required to maintain a stable population. At the same time, better [Q] means that many people are living far longer than before.\n**The Solutions**\nSome governments have had some success by providing [Q] and initiatives to improve their birth rate, while others have attempted to tackle the problem at the opposite end of the age spectrum by postponing [Q] for their labour forces. A third solution, allowing more immigration into countries with population imbalances, might boost [Q] but is likely to attract controversy.",
+      correct:"proportion", text:"", hint:"NO MORE THAN TWO WORDS" },
+    { id:qid(), type:"note_completion", correct:"pensions", text:"" },
+    { id:qid(), type:"note_completion", correct:"birth rate", text:"" },
+    { id:qid(), type:"note_completion", correct:"medical treatment", text:"" },
+    { id:qid(), type:"note_completion", correct:"incentives", text:"" },
+    { id:qid(), type:"note_completion", correct:"retirement age", text:"" },
+    { id:qid(), type:"note_completion", correct:"economic growth", text:"" },
+  ];
+  const readingTest = {
+    id:genId("TEST"), type:"Reading",
+    title:"Reading — Forests of Scotland / Qattara Depression / Ageing Populations",
+    passages:[
+      { id:mkId(), title:"The Forests of Scotland",
+        text:`A  In Scotland, between 13,000 and 10,000 years ago, after the last glaciers had melted, there were no trees, and Britain was joined to the continent of Europe, allowing for the migration northwards of plants and animals. The first to colonise the bare rock surfaces were primitive mosses and lichens, followed by low scrub woodland of pioneer tree species, such as juniper, birch, aspen and hazel, then by taller trees such as elm, willow, rowan, wild cherry and eventually by the larger species such as pine and oak.\n\nB  By about 6,000 years ago, forest cover had reached almost to the top of the mountains, but the change to a wetter and windier Atlantic climate since then has resulted in a lowering of the altitudinal limit to around 400 metres (a fraction of the limit in continental Europe) while the development of extensive tracts of peat bog, up to 9 metres deep, especially in the west, largely precluded tree growth there. Elsewhere the extent of the developing forests provided a habitat for many species of animals which have since become extinct in Scotland such as the impressive wild ox, brown bear, lynx, wild boar, elk and wolf. It was this last animal, which threatened domestic grazing stock, that resulted in the deliberate destruction of their forest habitat near human habitation – the last wolf was killed in the mid-eighteenth century. Among the coniferous forest birds, the capercaillie is the largest and most spectacular, but is now in decline.\n\nC  Humans have impacted the forest in Scotland for over 5,000 years, first with fire, then with primitive axes, and finally by introducing domesticated grazing animals, including cattle, sheep and goats. At an early stage, timber was extensively used by ancient peoples for building. As a result, by the time Viking raiders arrived, woodland cover was so significantly diminished that there was insufficient timber to mend their sea-going vessels. Later, many of the oakwoods were used for the production of charcoal for iron smelting and the bark was harvested for the tanning of leather. Until the more extensive use of stone for building in the Middle Ages, most houses were built from wood, which was also used for everything from ploughs to domestic utensils, before the more widespread use of metal: it was a "wooden world".\n\nD  From mediaeval times onwards, the destruction of woodlands was constrained by the royal houses and landed aristocracy, anxious to preserve their forest hunting grounds, and there were severe penalties for the taking of game species and unpermitted tree cutting. Nevertheless, shipbuilding made huge inroads – one celebrated vessel, commissioned by the king, required the felling of 1,000 mature oak trees in the early sixteenth century while before the extensive use of coal, wood was a main source of fuel. Much timber was imported from Russia and Scandinavia into Scotland, then from North America. It was the latter which provided the seeds for fast-growing species of spruce and fir, favoured by the wealthier landowners to re-establish extensive plantations on their estates.\n\nE  However, it was the two world wars of the twentieth century which resulted in the greatest losses of woodland because of the demand for pit props in the coal mines and shuttering for trenches, among other things. The woodland cover of Scotland was decimated. In 1919, the government established a Forestry Commission but, despite its best efforts, by the 1950s Britain was still the least forested country in Europe. Thereafter, the Commission embarked on a large-scale programme of coniferous planting, mainly of evergreen North American Sitka Spruce, using modern deep ploughs to drain the boglands, and chemicals to fertilise the poor acid soils of the uplands. However, there has been adverse reaction to these extensive establishments of single exotic species which have little biodiversity and are particularly poor in their range of bird species. It is estimated that forest of various types now covers about 1.4 million hectares of the country, or about 18 per cent of the land area.\n\nF  The forest environment is undoubtedly the most diverse in terms of variety of wildlife habitats and number of species: a single old oak tree can support several hundreds of insect species, for example. However, there are no truly natural woodlands left, and only about one-fifth of Scotland's woodlands may be considered as 'native'. There are remnants of old Scots Pine (Pinus sylvestris), that most iconic of Scotland's trees, and especially in the wetter west, of Oak (Quercus spp.) renowned for their assemblages of mosses, ferns and lichens. Until relatively recently, the regeneration of these remnants was threatened by neglect and particularly by grazing sheep, which nibbled any emergent seedlings. With the considerable decline in sheep over the last century, their place has been taken by Red Deer, their numbers artificially protected on hunting estates. However, a number of the more important protected areas are recovering, sometimes by extensive fencing out of the deer, or by reducing their numbers quite drastically. The official government forestry agency, in response to demand, has considerably altered its policies to provide for greater diversity of woodlands and to cater more positively for public recreation and amenity.`,
+        questions:p1Q, collapsed:false },
+      { id:mkId(), title:"The Qattara Depression",
+        text:`The Qattara Depression is a geographical feature of the Sahara Desert in north-west Egypt. It is a contained area of remarkably low-lying land - over 130 metres below sea level. The Depression covers more than 19,000 square kilometres, an area twice the size of Lebanon, and its northern edge (which is formed by a sharp drop of up to 280 metres) lies only 60 kilometres from the Mediterranean coast. It is extremely inhospitable to human life; there is only one source of fresh water in the whole area, and temperatures can rise as high as 60 degrees Celsius.\n\nThe first accurate measurements of the Qattara Depression date to 1917, when a British army officer visited the place on behalf of the Survey of Egypt and reported its low altitude. The Survey of Egypt was a systematic operation to map the whole of the country, and had begun in 1892. Because of its extreme aridity, Qattara was one of the later areas to be surveyed. When the resulting measurements were examined in 1918, they were so surprising that it was initially assumed they must be wrong, due perhaps to a technical fault in the equipment. The validity of the data remained doubtful until 1924, when Dr Ball, director of the Survey at the time, organised a second expedition. This confirmed the accuracy of the original report, and a third expedition in 1927 mapped the Qattara Depression completely.\n\nOver the years, the proximity of the Depression to the sea, together with its size and depth, have led to several proposals to exploit it for the production of hydroelectric power. This idea was originally put forward by Dr Ball in 1933. It was breathtakingly simple: if a tunnel were dug north to the Mediterranean Sea, gravity would make water run through the tunnel and down into the Depression, filling it and thus creating a new artificial salt lake. Then the feed tunnel would be blocked. A certain quantity of lake water would escape as a result of evaporation due to the high desert temperatures in the area. The lost water in the lake could be replenished in a controlled flow from the tunnel, and this falling water would drive turbines to generate electricity. It was calculated that the flow of water needed to balance evaporation could generate as much as 1,900 megawatts of electricity. The evaporation would also render the surrounding country much less arid, and permit permanent human settlement and agriculture. Thus, a controlled flow of water from the Mediterranean to the Depression would provide power to the whole of Egypt as well as more local economic development based on agriculture, electricity and the cultivation of fish in the lake. This would all be very useful in a country with a rapidly-growing population. The Qattara Depression Project, as it became known, seemed to be a triumph of human ingenuity.\n\nAlthough attractive at first glance, the idea has a number of drawbacks. Firstly, the initial proposal linked the Depression to the sea. Whilst water would evaporate from the Depression, its salt would not. Over time, the new lake would become increasingly salty until it reached the same level of salinity as the Dead Sea, and all life in its waters would become impossible. One solution to this problem would be to connect the Depression to the River Nile rather than to the Mediterranean, and this was also suggested. But the idea was not taken further, in part because of the quantity of water that the river would lose, and in part for political and diplomatic reasons. The Nile does not belong exclusively to Egypt.\n\nThe Project's potential impact on the general ecology of the southern Mediterranean poses a second problem. The effects on sea currents of the removal of large quantities of water from the Mediterranean is not well understood. Some experts have maintained that coastal erosion would increase as a result of changes in the direction of the most important currents, and of course the coastal areas are precisely those areas of the Mediterranean which are most densely inhabited. A third problem is the cost of construction of the canal - or tunnel, depending on the route chosen - in such difficult terrain. This is generally held to be the most difficult, and most certain, obstacle.\n\nNevertheless, the scale of the project and its potential benefits continued to attract attention. During the 1960s, Prof Friedrich Bassler, a German engineer, was responsible for planning connected with the Project. He proposed a solution to the problem of excavation costs that today seems extraordinary. Instead of using people and machines to dig a canal, he proposed using a controlled chain of 213 small nuclear explosions to make the canal by force. Each explosion would have been a hundred times more powerful than the bomb dropped on Hiroshima. The Egyptian government turned down this proposal; the almost certain contamination of water supplies and of the air were very worrying. They were also concerned that the effect of any such nuclear shock on the region's underlying tectonic plates might have provoked earthquakes elsewhere in the region.\n\nToday, Egypt is exploring the advantages of solar energy production rather than hydroelectric, and the Qattara Depression remains what it has always been: a large empty place on the Earth, which some people still dream of exploiting.`,
+        questions:p2Q, collapsed:false },
+      { id:mkId(), title:"Ageing Populations",
+        text:`We often refer to the global population as being unsustainable and cite overpopulation as the cause of many of our modern problems. However, in many countries the real problem is actually a shrinking population. This "ticking time bomb" may have drastic consequences for many countries.\n\nTraditionally, within any population, there has always been a much larger proportion of people of working age than of elderly people who have stopped work. However, in every developed economy this ratio is becoming much narrower. In the UK, there were 3.7 workers for every elderly person in 1997. By 2050, this number is expected to have fallen to 2. In Japan, this figure is projected to be 1.4.\n\nThe problem with this situation is that workers will have to support a much larger number of people through their taxes. Taxpayers are expected to foot the bill for publicly funded healthcare for all sectors of a population as well as to generate money for the government to maintain and improve infrastructure, and provide national security and education systems. In addition to these demands, the money to pay pensions for an ever-increasing pool of elderly people also comes out of taxes paid by people in employment. This fiscal and demographic imbalance led Vitor Constâncio, Vice President of the European Central Bank, to refer to this problem as a "sort of collective demographic suicide."\n\nOne of the reasons for this demographic shift is that the fertility rate is falling. In order to keep the population at a stable level, the birth rate needs to stay at 2.1 children per woman. The global population is still increasing due to high birth rates in Africa and some Asian countries. However, in Europe it is only Ireland that is near this target with a birth rate of 2.07, whereas the average across Europe is 1.6. This problem is even more serious in developed Asian countries like South Korea, where a focus on paying for expensive education makes many people believe that they cannot afford more than one child and the birth rate is just under 1.2 per woman.\n\nNot only are people in developed countries having fewer children, but they are also living much longer. In the UK, when the basic state pension was launched, the average life expectancy was 69. This has risen to 81 and a third of people born today are expected to live beyond 100. However, while people are living longer, they are not necessarily healthier. Elderly people are still much more likely to suffer from illnesses and diseases like diabetes, Alzheimer's and cancer. Medical advances have meant that these diseases are often not terminal but may require lengthy and expensive medical treatment.\n\nOne obvious solution to this problem is to encourage people to have more children. In many countries, the government is trying to support families and create incentives for people to have children. For example, in Finland, new mothers are given a gift box full of essential items like clothing and nappies. In France, the government provides tax relief and subsidised childcare, initiatives that have helped it to have one of the highest birth rates in Europe. China also recently lifted its one child policy to allow families to have two children. Other Asian countries are taking more creative measures with the South Korean health ministry ordering companies to turn off lights early once a month to encourage workers to go home. However, any increase to the birth rate would only have an impact when these children join the workforce, which would not be for a generation.\n\nAnother solution is to encourage people to work longer. In most developed countries the retirement age is 65 and this has not changed for decades, despite the increase in life expectancy. In some countries, like New Zealand and Japan, a large proportion of those aged between 65-69 are still working. The problem with this is that not all countries have as healthy a population as these countries, which means that people are unable to continue working this long. This is especially true for those who work in manual positions. Any increase in the working age will have to be accompanied with a concerted effort to increase the lifelong health of the population. In Japan, which has the most rapidly ageing population on earth, the elderly care sector is booming.\n\nAnother, more controversial, solution would be to increase immigration. This is a contentious issue as, in many developed countries, politicians focus on how to keep people out of their countries rather than let them in. Yet Vitor Constâncio suggests that more immigration is key to increasing economic growth and the population. However, others are less sure, with demography expert Axel Börsch-Supan suggesting that the numbers required to solve the problem would be too massive for a country to deal with. It is certainly true that for migration to be a possible solution individual governments would have to do a great deal more to integrate immigrants into society and help them to be present in all parts of the work force rather than just as unskilled workers.\n\nThe reason that this problem is worthy of dramatic language like "ticking time bomb" or "collective demographic suicide" is that if we continue as we are at present, many countries will face a permanent state of low economic growth and high debt. For this reason, it is clear that we do need to dramatically reconsider the way in which we think of, and fund, our old age.`,
+        questions:p3Q, collapsed:false },
+    ],
+    createdBy:"admin", createdAt:now, modifiedBy:"admin", modifiedAt:now,
+  };
+
+  // ── WRITING ───────────────────────────────────────────────────────────────
+  const writing1 = {
+    id:genId("TEST"), type:"Writing", taskType:"task1",
+    title:"Writing Task 1 — Mobile & Fixed Phone Lines (2005–2015)",
+    task1Prompt:"The line graphs below show the subscriptions to mobile and fixed phone lines in four different countries between 2005 and 2015.\n\nSummarise the information by selecting and reporting the main features and make comparisons where relevant.\n\nWrite at least 150 words.",
+    task1Image:null,
+    createdBy:"admin", createdAt:now, modifiedBy:"admin", modifiedAt:now,
+  };
+  const writing2 = {
+    id:genId("TEST"), type:"Writing", taskType:"task2",
+    title:"Writing Task 2 — Work-based Training vs University",
+    task2Prompt:"In some countries there are more young people choosing to enrol in work-based training instead of attending university.\n\nDo the advantages of this situation outweigh the disadvantages?\n\nGive reasons for your answer and include any relevant examples from your own knowledge or experience.\n\nWrite at least 250 words.",
+    createdBy:"admin", createdAt:now, modifiedBy:"admin", modifiedAt:now,
+  };
+
+  return { listeningTest, readingTest, writing1, writing2 };
+}
+
 // ── ADMIN SETTINGS ────────────────────────────────────────────────────────────
 function AdminSettings() {
   const [openaiKey, setOpenaiKey] = useState(loadDB().openaiKey||"");
   const [saved, setSaved]         = useState(false);
   const [testing, setTesting]     = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState(null);
+
+  const handleImportTests = async () => {
+    setImporting(true); setImportMsg(null);
+    try {
+      const { listeningTest, readingTest, writing1, writing2 } = buildTodaysTests();
+      const liveDb = loadDB();
+      const existing = liveDb.tests || [];
+      const toAdd = [listeningTest, readingTest, writing1, writing2].filter(
+        t => !existing.some(e => e.title === t.title)
+      );
+      liveDb.tests = [...existing, ...toAdd];
+      try { localStorage.setItem(DB_KEY, JSON.stringify(liveDb)); } catch {}
+      const ok = await _flushConfig(liveDb);
+      if (!ok) throw new Error("Could not save tests — check internet connection.");
+      notifyDbChange();
+      // Create + publish suite
+      const suiteName = "Jul 5 Full Test";
+      const freshSuites = loadDB().testSuites || [];
+      if (!freshSuites.find(s => s.name === suiteName)) {
+        const newSuite = {
+          id: genId("SUITE"), name: suiteName, status: "published",
+          readingId: readingTest.id, writing1Id: writing1.id,
+          writing2Id: writing2.id, listeningId: listeningTest.id,
+          createdAt: new Date().toLocaleDateString("en-GB"),
+        };
+        await dbSaveNow("testSuites", [...freshSuites, newSuite]);
+      }
+      const skipped = 4 - toAdd.length;
+      setImportMsg({ ok: true, msg: `✅ Done! Added ${toAdd.length} test(s)${skipped > 0 ? `, ${skipped} already existed` : ""}. Suite "Jul 5 Full Test" is published and ready to assign.` });
+    } catch(e) {
+      setImportMsg({ ok: false, msg: "❌ " + e.message });
+    }
+    setImporting(false);
+  };
 
   const handleSave = async () => {
     const db = loadDB();
@@ -3598,6 +3822,27 @@ function AdminSettings() {
   return (
     <div style={{maxWidth:600}}>
       <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:24}}>⚙️ Settings</h2>
+
+      {/* ── IMPORT TODAY'S TESTS ── */}
+      <div style={{...cardStyle({padding:24}),marginBottom:16,border:`2px solid ${C.brand}`,background:"#F5F3FF"}}>
+        <h3 style={{fontSize:15,fontWeight:700,color:C.brand,marginBottom:4}}>📥 Import Jul 5 Tests</h3>
+        <p style={{fontSize:12,color:C.s600,marginBottom:16,lineHeight:1.6}}>
+          One click — adds today's <strong>Listening</strong> (40 Q), <strong>Reading</strong> (40 Q), and <strong>Writing</strong> tasks,
+          then creates and publishes the <strong>"Jul 5 Full Test"</strong> suite ready to assign.
+        </p>
+        <button onClick={handleImportTests} disabled={importing}
+          style={{...btnStyle("primary"),padding:"10px 22px",fontSize:14,opacity:importing?0.7:1}}>
+          {importing ? "Importing…" : "Import Today's Tests"}
+        </button>
+        {importMsg&&(
+          <div style={{marginTop:14,padding:"12px 16px",borderRadius:8,
+            background:importMsg.ok?"#F0FDF4":"#FFF1F2",
+            border:`1px solid ${importMsg.ok?C.teal:C.rose}`,
+            color:importMsg.ok?C.teal:C.rose,fontSize:13,fontWeight:600,lineHeight:1.5}}>
+            {importMsg.msg}
+          </div>
+        )}
+      </div>
 
       <div style={{...cardStyle({padding:24}),marginBottom:16}}>
         <h3 style={{fontSize:15,fontWeight:700,color:C.s900,marginBottom:4}}>OpenAI API Key</h3>
@@ -4321,6 +4566,36 @@ function AdminDashboard({ onExit }) {
         setSession(sess);
         setFailCount(0);
         setLoginErr("");
+        // Auto-seed today's tests if not yet imported (fire-and-forget)
+        setTimeout(async () => {
+          try {
+            const db = loadDB();
+            const suiteName = "Jul 5 Full Test";
+            if (!(db.testSuites||[]).find(s => s.name === suiteName)) {
+              const { listeningTest, readingTest, writing1, writing2 } = buildTodaysTests();
+              const existing = db.tests || [];
+              const toAdd = [listeningTest, readingTest, writing1, writing2].filter(
+                t => !existing.some(e => e.title === t.title)
+              );
+              if (toAdd.length > 0) {
+                db.tests = [...existing, ...toAdd];
+                try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch {}
+                await _flushConfig(db);
+              }
+              const freshSuites = loadDB().testSuites || [];
+              if (!freshSuites.find(s => s.name === suiteName)) {
+                const newSuite = {
+                  id: genId("SUITE"), name: suiteName, status: "published",
+                  readingId: readingTest.id, writing1Id: writing1.id,
+                  writing2Id: writing2.id, listeningId: listeningTest.id,
+                  createdAt: new Date().toLocaleDateString("en-GB"),
+                };
+                await dbSaveNow("testSuites", [...freshSuites, newSuite]);
+              }
+              notifyDbChange();
+            }
+          } catch(_) {}
+        }, 1500);
       } else {
         const next = failCount + 1;
         setFailCount(next);
