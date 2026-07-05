@@ -38,7 +38,7 @@ import {
   _upsertTestRow, _markTestDeleted,
   loadDB, saveDB, saveDBNow,
   dbPush, dbPushNow, dbSave, dbSaveNow,
-  reloadDB, initDB, quickInit, onDbChange, genId, DB_KEY,
+  reloadDB, initDB, quickInit, onDbChange, notifyDbChange, genId, DB_KEY,
   hashPassword, getAdminSession, setAdminSession,
 } from "./lib/db.js";
 import {
@@ -6218,9 +6218,11 @@ function SlotsManager({ onRefresh }) {
 function AssignManager() {
   const [assignments, setAssignments] = useState(loadDB().assignments||[]);
   const [publishedSuites, setPublishedSuites] = useState((loadDB().testSuites||[]).filter(s=>s.status==="published"));
+  const [participants, setParticipants] = useState(loadDB().participants||[]);
   const [email, setEmail]         = useState("");
   const [suiteId, setSuiteId]     = useState("");
   const [saved, setSaved]         = useState(false);
+  const [saveErr, setSaveErr]     = useState("");
   const [searchEmail, setSearchEmail] = useState("");
 
   const refresh = async () => { await reloadDB(); };
@@ -6228,6 +6230,7 @@ function AssignManager() {
     const unsub = onDbChange(db => {
       setAssignments(db.assignments||[]);
       setPublishedSuites((db.testSuites||[]).filter(s=>s.status==="published"));
+      setParticipants(db.participants||[]);
     });
     refresh();
     const t = setInterval(refresh, 8000);
@@ -6236,10 +6239,13 @@ function AssignManager() {
 
   const assign = async () => {
     if(!email.trim()||!suiteId) return;
+    setSaveErr("");
     const a = {id:genId("ASGN"),email:email.trim().toLowerCase(),suiteId,assignedAt:Date.now(),used:false};
     const fresh = loadDB().assignments||[];
     const updated = [a,...fresh];
-    setAssignments(updated); await dbSaveNow("assignments",updated);
+    setAssignments(updated);
+    const ok = await dbSaveNow("assignments",updated);
+    if(!ok){ setSaveErr("⚠ Could not save to cloud — check connection and try again."); return; }
     setEmail(""); setSuiteId("");
     setSaved(true); setTimeout(()=>setSaved(false),2500);
   };
@@ -6251,8 +6257,11 @@ function AssignManager() {
     ? assignments.filter(a=>a.email.includes(searchEmail.trim().toLowerCase()))
     : assignments;
 
-  // unique emails for quick-pick
-  const knownEmails = [...new Set(assignments.map(a=>a.email))];
+  // All known emails: registered participants + previously assigned
+  const knownEmails = [...new Set([
+    ...participants.map(p=>(p.candidate?.email||p.email||"").toLowerCase()).filter(Boolean),
+    ...assignments.map(a=>a.email),
+  ])];
 
   return (
     <div>
@@ -6287,6 +6296,7 @@ function AssignManager() {
           </button>
         </div>
         {saved&&<div style={{marginTop:10,color:C.teal,fontWeight:700,fontSize:13}}>✓ Assignment saved!</div>}
+        {saveErr&&<div style={{marginTop:10,color:C.rose,fontWeight:600,fontSize:13}}>{saveErr}</div>}
       </div>
 
       {/* Search by email */}
@@ -7993,28 +8003,27 @@ export default function App() {
       date: new Date().toLocaleDateString("en-GB"),
     };
 
-    // 1. Update local state IMMEDIATELY (synchronous) — never block the UI
+    // 1. Update _db immediately and notify all listeners (admin dashboard updates live)
     const liveDb = loadDB();
     liveDb.participants = [regRecord, ...(liveDb.participants||[])];
     try{ localStorage.setItem(DB_KEY, JSON.stringify(liveDb)); }catch{}
+    notifyDbChange(); // push to any open admin dashboard on this device
 
     // 2. Move student to Lobby instantly — no waiting for Supabase
     setCand(info);
     setStep(1);
 
-    // 3. Save to Supabase in background (fire-and-forget — never blocks UI)
+    // 3. Save to Supabase — individual row first (small, fast), then blob
     const saveToCloud = async () => {
       const email = (info?.email||"").toLowerCase().trim();
-      // Flush full blob (ielts_store) — participants are now in _db so they'll be included
-      _flushConfig(loadDB()).catch(e=>console.warn("[Reg] blob flush error:",e));
-      // Also insert individual row in participants table (belt+suspenders)
+      // Individual row insert — the primary cross-device sync path
       if(supabase) {
         for(let attempt=0; attempt<3; attempt++){
           try{
             if(attempt>0) await new Promise(r=>setTimeout(r,1000*attempt));
             const rowId = regId + "-" + Date.now().toString(36);
             const {error} = await supabase.from("participants").insert({id:rowId, email, type:"registration", data:regRecord});
-            if(!error){ console.log("[Reg] row saved on attempt",attempt+1); return; }
+            if(!error){ console.log("[Reg] row saved on attempt",attempt+1); break; }
             console.warn(`[Reg] row insert attempt ${attempt+1} failed:`, error.message);
           }catch(e){ console.warn(`[Reg] row insert attempt ${attempt+1} error:`,e); }
         }

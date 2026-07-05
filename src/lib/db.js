@@ -31,8 +31,12 @@ export function setAdminSession(s) {
 // Belt-and-suspenders: blob is the authoritative source, rows are cross-device safety net.
 export const _flushConfig = async db => {
   if(!supabase) return false;
+  // Participants are NOT stored in the blob — they live exclusively in the
+  // participants table (individual rows, inserted by _insertParticipant /
+  // handleRegComplete / autoSave). Keeping them here made the blob grow into
+  // hundreds of KB with 500+ candidates, causing frequent write timeouts.
   const cfg = {
-    participants: db.participants||[], tests: db.tests||[],
+    tests: db.tests||[],
     testSuites: db.testSuites||[], assignments: db.assignments||[],
     speakingSlots: db.speakingSlots||[], bookings: db.bookings||[],
     scoreOverrides: db.scoreOverrides||{}, adminUsers: db.adminUsers||[],
@@ -157,7 +161,7 @@ export const dbSaveNow = async (col,items) => { _db[col]=items; return await sav
 
 // ── Smart merge: combine Supabase + localStorage for non-test config ───────────
 function _smartMerge(supabaseBase, local) {
-  const MERGE_COLS = ["testSuites", "assignments", "speakingSlots", "bookings", "participants", "adminUsers"];
+  const MERGE_COLS = ["testSuites", "assignments", "speakingSlots", "bookings", "adminUsers"];
   let needsPush = false;
   const merged = { ...supabaseBase };
 
@@ -417,11 +421,13 @@ const _changeListeners = new Set();
 let   _realtimeChannel = null;
 
 // Called internally after every remote sync (reloadDB, initDB, Realtime push).
+// Also exported so local writes (registration, etc.) can push instantly to all listeners.
 function _notifyChange() {
   _changeListeners.forEach(cb => {
     try { cb(_db); } catch(e) { console.warn("[DB] listener error:", e); }
   });
 }
+export const notifyDbChange = () => _notifyChange();
 
 // Subscribe to remote DB changes.  Returns an unsubscribe function.
 // Lazily initialises the Supabase Realtime channel on first call.
