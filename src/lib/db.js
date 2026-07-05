@@ -191,15 +191,23 @@ function _smartMerge(supabaseBase, local) {
 }
 
 // ── Shared load helper ─────────────────────────────────────────────────────────
-// Fetches config + all participant/test rows in one pass, with a hard timeout.
-async function _fetchFromSupabase(timeoutMs=8000) {
+// Fetches config blob + recent participant rows. Test rows (test_item/test_del)
+// are intentionally excluded from the participants query — they are large and
+// tests are authoritative in the blob. Participant rows are capped at 1000
+// (ordered newest-first) so the query stays fast even with hundreds of entries.
+async function _fetchFromSupabase(timeoutMs=12000) {
   const withTimeout = promise => Promise.race([
     promise,
     new Promise((_,reject)=>setTimeout(()=>reject(new Error("Supabase fetch timeout")),timeoutMs))
   ]);
   const [cfgResult, rowsResult] = await Promise.allSettled([
     withTimeout(supabase.from("ielts_store").select("data").eq("id","main").single()),
-    withTimeout(supabase.from("participants").select("id,email,type,data").order("id",{ascending:false})),
+    withTimeout(
+      supabase.from("participants")
+        .select("id,email,type,data")
+        .not("type","in","(test_item,test_del)")
+        .limit(1000)
+    ),
   ]);
   const cfg     = cfgResult.status==="fulfilled"   ? cfgResult.value.data   : null;
   const cfgErr  = cfgResult.status==="fulfilled"   ? cfgResult.value.error  : {message:"timeout",code:"TIMEOUT"};
@@ -209,14 +217,13 @@ async function _fetchFromSupabase(timeoutMs=8000) {
   return { cfg, cfgErr, allRows, rowsErr };
 }
 
-function _processRows(allRows, _unused) {
-  const rows     = allRows || [];
-  const tstRows  = rows.filter(r => r.type === "test_item" || r.type === "test_del");
-  const ptRows   = rows.filter(r => r.type !== "test_item" && r.type !== "test_del" && r.data?.id);
-  const pts      = ptRows.map(r => r.data).filter(Boolean);
-  const rowTests = _buildTestsFromRows(tstRows);
-  console.log(`[DB] processRows: ${ptRows.length} pt rows from table, ${tstRows.length} test rows from table`);
-  return { pts, rowTests };
+function _processRows(allRows) {
+  const rows   = allRows || [];
+  const ptRows = rows.filter(r => r.data?.id);
+  const pts    = ptRows.map(r => r.data).filter(Boolean);
+  console.log(`[DB] processRows: ${ptRows.length} participant rows from table`);
+  // rowTests always empty — tests come from blob exclusively now
+  return { pts, rowTests: [] };
 }
 
 // Merge row-based tests with legacy blob tests (backward compat: existing tests in blob before migration)
@@ -258,30 +265,26 @@ export async function reloadDB() {
         ({ merged: finalBase, needsPush } = _smartMerge(base, local));
       }
 
-      // Tests: blob is authoritative, row-based tests fill gaps.
-      // Also preserve any tests currently in _db memory (saved this session but maybe
-      // not yet confirmed in Supabase) so a periodic reloadDB never loses local work.
-      const { rowTests } = _processRows(allRows, []);
-      const blobTests  = base.tests || [];
-      const { tests: mergedTests, blobOnly } = _mergeTests(rowTests, blobTests);
-      const memTests   = _db.tests || local.tests || [];
-      const mergedIds  = new Set(mergedTests.map(t => t.id));
-      const localOnlyTests = memTests.filter(t => t.id && !mergedIds.has(t.id));
-      finalBase.tests  = [...mergedTests, ...localOnlyTests];
+      // Tests: blob is authoritative. Also preserve in-memory tests not yet confirmed in Supabase.
+      const blobTests = base.tests || [];
+      const memTests  = _db.tests || local.tests || [];
+      const blobIds   = new Set(blobTests.map(t => t.id));
+      const localOnlyTests = memTests.filter(t => t.id && !blobIds.has(t.id));
+      finalBase.tests = [...blobTests, ...localOnlyTests];
 
-      // adminUsers: same memory-preservation as tests — if a user was just saved to _db
-      // but the polling fetch raced before localStorage/Supabase was updated, keep them.
+      // adminUsers: preserve in-memory entries not yet confirmed in Supabase/localStorage.
       const mergedAdminIds = new Set((finalBase.adminUsers||[]).map(u=>u.id).filter(Boolean));
       const memAdminOnly = (_db.adminUsers||[]).filter(u=>u.id && !mergedAdminIds.has(u.id));
       if(memAdminOnly.length > 0) finalBase.adminUsers = [...(finalBase.adminUsers||[]), ...memAdminOnly];
 
-      // Participants: merge from blob (most reliable), table rows, memory, and localStorage.
-      const blobPts   = base.participants || [];
+      // Participants: table rows (pts) are the cross-device source of truth.
+      // Also merge legacy blob participants and cached memory so nothing is lost.
+      const { pts }   = _processRows(allRows);
+      const blobPts   = base.participants || []; // legacy fallback (old blobs had participants)
       const cachedPts = _db.participants?.length > 0 ? _db.participants : (local.participants||[]);
-      const { pts }   = _processRows(allRows, []);
       const allPts    = [...pts, ...blobPts, ...cachedPts];
 
-      // Deduplicate participants & apply score overrides
+      // Deduplicate & apply score overrides
       const seen = new Set();
       const deduped = allPts.filter(p=>{ const k=p.id; if(!k||seen.has(k)) return false; seen.add(k); return true; });
       const overrides = finalBase.scoreOverrides||{};
@@ -289,14 +292,12 @@ export async function reloadDB() {
 
       _db = {..._emptyDB(), ...finalBase, participants: withOverrides};
       try{ localStorage.setItem(DB_KEY,JSON.stringify(_db)); }catch{}
-      console.log(`[DB] reloadDB ✓ tests=${_db.tests?.length||0} (rows=${rowTests.length} blob=${blobTests.length} legacy=${blobOnly.length}), participants=${_db.participants?.length||0}`);
+      console.log(`[DB] reloadDB ✓ tests=${_db.tests?.length||0} (blob=${blobTests.length}), participants=${_db.participants?.length||0} (table=${pts.length})`);
 
       if(needsPush){
         console.warn("[DB] reloadDB: pushing merged config to Supabase...");
-        _flushConfig(_db); // fire-and-forget, don't block reload
+        _flushConfig(_db);
       }
-      // Migrate legacy blob tests to rows in background — never block the caller
-      if(blobOnly.length > 0) _migrateBlobTests(blobOnly);
       _notifyChange(); // tell all subscribed components to re-render
       return;
     }catch(e){ console.warn("[DB] reloadDB error:",e); }
@@ -356,31 +357,23 @@ export async function initDB() {
           needsPush = false;
         }
 
-        // Tests: blob is authoritative (now always saved in _flushConfig),
-        // row-based tests fill in any that aren't in the blob yet.
-        const { rowTests } = _processRows(allRows, []);
+        // Tests: blob is authoritative. Also preserve any tests saved locally during fetch.
         const blobTests = base.tests || [];
-        const { tests: mergedTests, blobOnly } = _mergeTests(rowTests, blobTests);
-
-        // CRITICAL: Re-read localStorage RIGHT NOW (not the snapshot from startup).
-        // The user may have saved tests/participants WHILE we were waiting for Supabase.
-        // We must not overwrite those local changes with older Supabase data.
         let freshLS = {};
         try { freshLS = JSON.parse(localStorage.getItem(DB_KEY)||"null") || {}; } catch {}
         const freshLocalTests = freshLS.tests || local.tests || [];
-        const mergedIds = new Set(mergedTests.map(t => t.id));
-        const localOnlyTests = freshLocalTests.filter(t => t.id && !mergedIds.has(t.id));
-        if(localOnlyTests.length > 0){
+        const blobIds = new Set(blobTests.map(t => t.id));
+        const localOnlyTests = freshLocalTests.filter(t => t.id && !blobIds.has(t.id));
+        if(localOnlyTests.length > 0)
           console.log(`[DB] initDB: preserving ${localOnlyTests.length} local-only tests saved during network fetch`);
-        }
-        finalBase.tests = [...mergedTests, ...localOnlyTests];
+        finalBase.tests = [...blobTests, ...localOnlyTests];
 
-        // Participants: merge from blob (most reliable), table rows, localStorage, and fresh localStorage.
-        const blobPts    = base.participants || [];
-        const { pts }    = _processRows(allRows, []);
-        const cachedPts  = local.participants || [];
-        const freshPts   = freshLS.participants || [];
-        const allPts     = [...pts, ...blobPts, ...cachedPts, ...freshPts];
+        // Participants: table rows are the cross-device source, blob/cache fill gaps.
+        const { pts }   = _processRows(allRows);
+        const blobPts   = base.participants || []; // legacy fallback
+        const cachedPts = local.participants || [];
+        const freshPts  = freshLS.participants || [];
+        const allPts    = [...pts, ...blobPts, ...cachedPts, ...freshPts];
 
         const seen = new Set();
         const deduped = allPts.filter(p=>{ const k=p.id; if(!k||seen.has(k)) return false; seen.add(k); return true; });
@@ -389,14 +382,12 @@ export async function initDB() {
 
         _db = {..._emptyDB(), ...finalBase, participants: withOverrides};
         try{ localStorage.setItem(DB_KEY,JSON.stringify(_db)); }catch{}
-        console.log(`[DB] initDB ✓ tests=${_db.tests?.length||0} (rows=${rowTests.length} blob=${blobTests.length} legacy=${blobOnly.length}), participants=${_db.participants?.length||0}, suites=${_db.testSuites?.length||0}`);
+        console.log(`[DB] initDB ✓ tests=${_db.tests?.length||0} (blob=${blobTests.length}), participants=${_db.participants?.length||0} (table=${pts.length}), suites=${_db.testSuites?.length||0}`);
 
         if(needsPush){
           console.warn("[DB] initDB: pushing merged config to Supabase...");
-          _flushConfig(_db); // fire-and-forget — don't block app startup
+          _flushConfig(_db);
         }
-        // Migrate legacy blob tests to rows in background — never block app startup
-        if(blobOnly.length > 0) _migrateBlobTests(blobOnly);
         _notifyChange(); // update all subscribed components with fresh data
         return;
       }catch(e){
