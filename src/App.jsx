@@ -7223,14 +7223,19 @@ function AudioUploader({ onUrl }) {
       try {
         const ext  = file.name.split(".").pop();
         const path = `audio/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-        const { error: upErr } = await supabase.storage.from("ielts-audio").upload(path, file, { upsert: true });
+        let upErr;
+        ({ error: upErr } = await supabase.storage.from("ielts-audio").upload(path, file, { upsert: true }));
+        if(upErr?.message?.toLowerCase().includes("bucket")) {
+          await supabase.storage.createBucket("ielts-audio", { public: true });
+          ({ error: upErr } = await supabase.storage.from("ielts-audio").upload(path, file, { upsert: true }));
+        }
         if(upErr) throw upErr;
         const { data } = supabase.storage.from("ielts-audio").getPublicUrl(path);
         onUrl(data.publicUrl);
         setUploading(false); return;
       } catch(err) {
         console.warn("[Audio upload]", err.message||err);
-        setError(`Supabase Storage error: ${err.message||err}. Please create a public bucket named "ielts-audio" in Supabase, or use the URL option below.`);
+        setError(`Upload failed: ${err.message||err}`);
         setUploading(false); return;
       }
     }
@@ -7544,8 +7549,16 @@ function AddTestManager() {
       if(supabase) {
         const ext = file.name.split(".").pop();
         const path = `listening/${Date.now()}.${ext}`;
+        // Auto-create bucket if it doesn't exist
         const {error:upErr} = await supabase.storage.from("ielts-audio").upload(path,file,{upsert:true});
-        if(upErr) throw upErr;
+        if(upErr) {
+          if(upErr.message?.toLowerCase().includes("bucket")) {
+            // Try to create the bucket then retry
+            await supabase.storage.createBucket("ielts-audio",{public:true});
+            const {error:upErr2} = await supabase.storage.from("ielts-audio").upload(path,file,{upsert:true});
+            if(upErr2) throw upErr2;
+          } else { throw upErr; }
+        }
         const {data} = supabase.storage.from("ielts-audio").getPublicUrl(path);
         const db = loadDB(); db.listeningAudioUrl = data.publicUrl; await saveDBNow(db);
         setLAudioUrl(data.publicUrl);
