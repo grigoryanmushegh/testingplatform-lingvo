@@ -206,7 +206,8 @@ async function _fetchFromSupabase(timeoutMs=12000) {
       supabase.from("participants")
         .select("id,email,type,data")
         .not("type","in","(test_item,test_del)")
-        .limit(1000)
+        .order("created_at",{ascending:false})
+        .limit(3000)
     ),
   ]);
   const cfg     = cfgResult.status==="fulfilled"   ? cfgResult.value.data   : null;
@@ -284,7 +285,8 @@ export async function reloadDB() {
       const cachedPts = _db.participants?.length > 0 ? _db.participants : (local.participants||[]);
       const allPts    = [...pts, ...blobPts, ...cachedPts];
 
-      // Deduplicate & apply score overrides
+      // Deduplicate & apply score overrides — sort newest-first so the most complete record wins
+      allPts.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
       const seen = new Set();
       const deduped = allPts.filter(p=>{ const k=p.id; if(!k||seen.has(k)) return false; seen.add(k); return true; });
       const overrides = finalBase.scoreOverrides||{};
@@ -375,6 +377,8 @@ export async function initDB() {
         const freshPts  = freshLS.participants || [];
         const allPts    = [...pts, ...blobPts, ...cachedPts, ...freshPts];
 
+        // Sort newest-first so the most complete record wins deduplication
+        allPts.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
         const seen = new Set();
         const deduped = allPts.filter(p=>{ const k=p.id; if(!k||seen.has(k)) return false; seen.add(k); return true; });
         const overrides = finalBase.scoreOverrides||{};

@@ -5517,6 +5517,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
   const [showSendModal, setShowSendModal]   = useState(false);
   const [manualScores, setManualScores]     = useState({});
   const [deleteConfirm, setDeleteConfirm]   = useState(null); // attempt index to confirm delete
+  const [removedAssignIds, setRemovedAssignIds] = useState(new Set()); // optimistic removal
 
   // Delete a single attempt
   const handleDeleteAttempt = async (a) => {
@@ -5615,7 +5616,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
   // All assignments (past + pending) for this candidate
   const db0 = loadDB();
   const allMyAssignments = (db0.assignments||[])
-    .filter(a=>a.email===candidateEmail)
+    .filter(a=>a.email===candidateEmail && !removedAssignIds.has(a.id))
     .sort((a,b)=>b.assignedAt-a.assignedAt);
   const suiteName = id => (db0.testSuites||[]).find(s=>s.id===id)?.name||"(deleted suite)";
 
@@ -5776,12 +5777,12 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                         <span style={{...tagStyle(a.used?C.s400:C.teal),fontSize:11}}>
                           {a.used?"✓ Used":"⏳ Pending"}
                         </span>
-                        {!a.used&&(
+                        {!a.used&&!removedAssignIds.has(a.id)&&(
                           <button onClick={async()=>{
+                            setRemovedAssignIds(prev=>new Set([...prev,a.id]));
                             const db=loadDB();
                             const updated=(db.assignments||[]).filter(x=>x.id!==a.id);
                             await dbSaveNow("assignments",updated);
-                            setDb({...loadDB()});
                           }} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:6,padding:"3px 8px",fontSize:11,cursor:"pointer",fontWeight:700}}>✕ Remove</button>
                         )}
                       </div>
