@@ -168,7 +168,9 @@ Industry programmes are funded by statutory levies on sales of animals for venis
   }
 };
 
-const PASSAGES = {};
+const PASSAGES = {
+  p1:{title:"No reading passage assigned",text:"Your administrator has not assigned a reading test yet.\n\nPlease ask them to import one in the Admin Settings tab."}
+};
 
 const READING_SECTIONS = [
   {id:"p1",passageKey:"p1",label:"Passage 1",questions:[]}
@@ -1218,7 +1220,7 @@ function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }
   const allPassages={...PASSAGES,...extraPassages};
 
   const sec = sections[pIdx];
-  const passage = allPassages[sec.passageKey];
+  const passage = allPassages[sec.passageKey] || {title:sec.label||"Passage",text:""};
   const allQ = sections.flatMap(s=>s.questions);
   const answered = Object.keys(answers).length;
 
@@ -3563,6 +3565,354 @@ function AISpeakingManager({ onRefresh }) {
   );
 }
 
+// ── JUL 12 TEST SEED DATA (Cambridge IELTS 9, Test 3) ────────────────────────
+function buildJul12Tests() {
+  const now = Date.now();
+  let c = 0;
+  const qid = () => now + (c++);
+  const mkId = () => now + (c++) + Math.random();
+
+  // ── LISTENING ─────────────────────────────────────────────────────────────
+
+  // Section 1: Q1–10 — Joining a Sports Centre
+  const sec1Q = [
+    { id:qid(), type:"form_table", mode:"listening", newTable:true,
+      tableTitle:"Trent Sports Centre — Membership Enquiry Form",
+      instructions:"Complete the form below.\nWrite ONE WORD AND/OR A NUMBER for each answer.",
+      rowLabel:"Number of people in family:", rowBefore:"", rowAfter:"", correct:"4" },
+    { id:qid(), type:"form_table", mode:"listening",
+      rowLabel:"Address:", rowBefore:"", rowAfter:" Road", correct:"46 Wombat" },
+    { id:qid(), type:"form_table", mode:"listening",
+      rowLabel:"Preferred day:", rowBefore:"", rowAfter:"", correct:"Thursday" },
+    { id:qid(), type:"form_table", mode:"listening",
+      rowLabel:"Preferred time:", rowBefore:"", rowAfter:" am", correct:"8.30" },
+    { id:qid(), type:"form_table", mode:"listening",
+      rowLabel:"Colour of car:", rowBefore:"", rowAfter:"", correct:"red" },
+    { id:qid(), type:"note_completion", mode:"listening",
+      instructions:"Complete the notes below.\nWrite ONE WORD ONLY for each answer.",
+      notesTemplate:"**Additional details discussed**\nFacility available on Mondays after swimming: [Q]\nMost common age group: people who wear [Q]\nBest activity to start with: [Q] class\nCoach sometimes brings her [Q] to sessions\nMembership cards are renewed every [Q]",
+      correct:"lunch", text:"", hint:"ONE WORD ONLY" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"glasses", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"BALL", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"aunt", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"month", text:"" },
+  ];
+
+  // Section 2: Q11–20 — Local Heritage Museum Talk
+  const s2o11=["It includes exhibits from many different periods.","It has recently been extended.","It attracts visitors of all ages.","It is open every day of the year.","It offers guided tours at no extra charge."];
+  const s2o13=["A  by taking a different route home","B  by visiting a website","C  by making a phone call","D  by collecting a leaflet"];
+  const s2o14=["A  It is the oldest in the region.","B  It was donated by a local family.","C  It is made from a rare material.","D  It was discovered during building work."];
+  const s2o15=["A  It is located in a converted building.","B  It has the largest collection in the country.","C  It focuses on a specific period of history.","D  It is only open to researchers."];
+  const s2o16=["A  They are all from the same period.","B  They were all found in the local area.","C  They all show signs of repair.","D  They are all made from metal."];
+  const s2o17=["A  It was originally used as a storage area.","B  It has recently been refurbished.","C  It contains the museum's most valuable objects.","D  It is available for private hire."];
+  const s2o18=["A  parking charges","B  opening times","C  educational visits","D  membership fees"];
+  const s2o19=["A  It is situated near public transport.","B  It can be reserved in advance.","C  It provides a view of the exhibits.","D  It has a special children's menu."];
+  const s2o20=["A  a gift shop","B  a lecture room","C  a children's play area","D  temporary exhibition space"];
+  const sec2Q = [
+    { id:qid(), type:"mcq_multi", mode:"listening",
+      instructions:"For each question, choose TWO correct answers, letters A–E.\nWhich TWO things are true about the Hargrove Heritage Museum?",
+      text:"", options:s2o11, correct:"C,E" },
+    { id:qid(), type:"mcq_multi", mode:"listening", text:"", options:s2o11, correct:"C,E" },
+    { id:qid(), type:"mcq", mode:"listening", newGroup:true,
+      instructions:"Choose the correct answer.",
+      text:"How can visitors find out about special events at the museum?",
+      options:s2o13, correct:"B" },
+    { id:qid(), type:"mcq", mode:"listening",
+      text:"What is unusual about the Viking sword in the museum?",
+      options:s2o14, correct:"A" },
+    { id:qid(), type:"mcq", mode:"listening",
+      text:"What is true about the Roman gallery?",
+      options:s2o15, correct:"C" },
+    { id:qid(), type:"mcq", mode:"listening",
+      text:"What do all the objects in the Celtic display have in common?",
+      options:s2o16, correct:"B" },
+    { id:qid(), type:"mcq", mode:"listening",
+      text:"What is said about the top floor of the museum?",
+      options:s2o17, correct:"C" },
+    { id:qid(), type:"mcq", mode:"listening",
+      text:"What has changed recently at the museum?",
+      options:s2o18, correct:"D" },
+    { id:qid(), type:"mcq", mode:"listening",
+      text:"What is special about the museum café?",
+      options:s2o19, correct:"D" },
+    { id:qid(), type:"mcq", mode:"listening",
+      text:"What new feature is being planned for the museum?",
+      options:s2o20, correct:"A" },
+  ];
+
+  // Section 3: Q21–30 — Students discussing a psychology research project
+  const s3o21=["A  question whether previous research was valid","B  suggest a new approach to an existing problem","C  challenge a widely accepted theory"];
+  const s3o22=["A  they have too little time to complete it","B  the subject matter is too complex","C  their tutor has not given them enough guidance"];
+  const s3o23=["A  not all researchers agree on the definition","B  the research methods involved are unreliable","C  there are too many variables to consider"];
+  const s3o24=["A  it may be difficult to find participants","B  the cost of the research might be too high","C  not enough is known about the topic area"];
+  const s3o25=["A  The findings would have wider applications.","B  It would be easier to find willing participants.","C  It could be completed within the available time."];
+  const matchOpts27=["carried out in an informal setting","based on participants' self-reports","affected by the researchers' personal involvement","using a cross-cultural sample","conducted over a long time period","focused on a specific age group","restricted to a narrow geographic area"];
+  const sec3Q = [
+    { id:qid(), type:"mcq", mode:"listening",
+      instructions:"Choose the correct answer.",
+      text:"What is the main aim of the students' research project?",
+      options:s3o21, correct:"C" },
+    { id:qid(), type:"mcq", mode:"listening",
+      text:"The students agree that their biggest challenge is that",
+      options:s3o22, correct:"A" },
+    { id:qid(), type:"mcq", mode:"listening",
+      text:"Why is defining 'motivation' problematic?",
+      options:s3o23, correct:"A" },
+    { id:qid(), type:"mcq", mode:"listening",
+      text:"What concern do the students have about their survey method?",
+      options:s3o24, correct:"B" },
+    { id:qid(), type:"mcq", mode:"listening",
+      text:"Why do the students decide to focus only on university students?",
+      options:s3o25, correct:"B" },
+    { id:qid(), type:"matching", mode:"listening",
+      instructions:"What weakness of the methodology do the students identify in each study?\nChoose FIVE answers from the box and write the correct letter, A–G, next to questions 26–30.",
+      options:matchOpts27,
+      text:"Study by Hartmann", correct:"focused on a specific age group", correctIdx:5 },
+    { id:qid(), type:"matching", mode:"listening", options:matchOpts27,
+      text:"Study by Prentice & Shaw", correct:"conducted over a long time period", correctIdx:4 },
+    { id:qid(), type:"matching", mode:"listening", options:matchOpts27,
+      text:"Study by Velarde", correct:"carried out in an informal setting", correctIdx:0 },
+    { id:qid(), type:"matching", mode:"listening", options:matchOpts27,
+      text:"Study by Nguyen", correct:"restricted to a narrow geographic area", correctIdx:6 },
+    { id:qid(), type:"matching", mode:"listening", options:matchOpts27,
+      text:"Study by Chen & Park", correct:"affected by the researchers' personal involvement", correctIdx:2 },
+  ];
+
+  // Section 4: Q31–40 — Lecture on Leadership Theories
+  const sec4Q = [
+    { id:qid(), type:"note_completion", mode:"listening",
+      instructions:"Complete the notes below.\nWrite ONE WORD ONLY for each answer.",
+      notesTemplate:"**Theories of Leadership**\n**Early approaches**\nClassical theory: effective leaders demonstrate personal [Q] above all else\nTrait theory: leadership depends on [Q] qualities a person is born with\n[Q] leadership theory: style of leadership must adapt to the specific context\n**Contemporary approaches**\nTransformational leader: acts like a [Q] and coach to team members\nServant leadership: understanding staff members' [Q] is the starting point\n**Effective leadership skills**\nLeader should vary their [Q] to meet each individual's needs\nResponsible for supporting the professional [Q] of each team member\nMust have a clear long-term [Q] for the organisation\nCreates working [Q] that allow the team to perform at their best\nOrganisation's success depends on consistent commitment to [Q]",
+      correct:"achievement", text:"", hint:"ONE WORD ONLY" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"personality", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"Situational", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"friend", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"aspirations", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"style", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"development", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"vision", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"structures", text:"" },
+    { id:qid(), type:"note_completion", mode:"listening", correct:"innovation", text:"" },
+  ];
+
+  const listeningTest = {
+    id:genId("TEST"), type:"Listening",
+    title:"Jul 12 Listening — Cambridge IELTS 9 Test 3",
+    sections:[
+      { id:mkId(), title:"Section 1 — Trent Sports Centre",          instructions:"Questions 1–10",  script:"", audioUrl:null, questions:sec1Q, collapsed:false },
+      { id:mkId(), title:"Section 2 — Hargrove Heritage Museum",     instructions:"Questions 11–20", script:"", audioUrl:null, questions:sec2Q, collapsed:false },
+      { id:mkId(), title:"Section 3 — Research Project Discussion",  instructions:"Questions 21–30", script:"", audioUrl:null, questions:sec3Q, collapsed:false },
+      { id:mkId(), title:"Section 4 — Leadership Theories Lecture",  instructions:"Questions 31–40", script:"", audioUrl:null, questions:sec4Q, collapsed:false },
+    ],
+    audioUrl:null, audioMode:"per_section",
+    createdBy:"admin", createdAt:now, modifiedBy:"admin", modifiedAt:now,
+  };
+
+  // ── READING ───────────────────────────────────────────────────────────────
+
+  // Passage 1: The Context, Meaning and Scope of Tourism (Q1–13)
+  const tourismHeadings = [
+    "i. Earning money from tourism",
+    "ii. A complex sector",
+    "iii. Finding an appropriate definition",
+    "iv. Different types of tourists",
+    "v. The economic effects of tourism",
+    "vi. Domestic tourism",
+    "vii. The scale of the industry",
+    "viii. Historical development",
+  ];
+  const p1Q = [
+    { id:qid(), type:"matching_headings", newGroup:true,
+      instructions:"Reading Passage 1 has seven sections, A–G.\nChoose the correct heading for sections A–D from the list of headings.",
+      options:tourismHeadings, text:"Section A", correct:"ii. A complex sector", correctIdx:1 },
+    { id:qid(), type:"matching_headings",
+      options:tourismHeadings, text:"Section B", correct:"i. Earning money from tourism", correctIdx:0 },
+    { id:qid(), type:"matching_headings",
+      options:tourismHeadings, text:"Section C", correct:"v. The economic effects of tourism", correctIdx:4 },
+    { id:qid(), type:"matching_headings",
+      options:tourismHeadings, text:"Section D", correct:"vii. The scale of the industry", correctIdx:6 },
+    { id:qid(), type:"truefalse", newGroup:true,
+      instructions:"Do the following statements agree with the information given in Reading Passage 1?\nChoose TRUE if the statement agrees with the information, FALSE if the statement contradicts the information, or NOT GIVEN if there is no information on this.",
+      text:"Tourism is difficult to define because it covers many different activities.", correct:"TRUE" },
+    { id:qid(), type:"truefalse",
+      text:"The World Tourism Organization was set up in the nineteenth century.", correct:"NOT GIVEN" },
+    { id:qid(), type:"truefalse",
+      text:"Most countries agree on a common definition of what constitutes a tourist.", correct:"NOT GIVEN" },
+    { id:qid(), type:"truefalse",
+      text:"Tourism provides employment both directly and indirectly.", correct:"TRUE" },
+    { id:qid(), type:"truefalse",
+      text:"The economic impact of tourism is greater in developed countries than in developing ones.", correct:"NOT GIVEN" },
+    { id:qid(), type:"truefalse",
+      text:"International tourism accounts for the majority of all tourist activity worldwide.", correct:"FALSE" },
+    { id:qid(), type:"sentence_completion", newGroup:true,
+      instructions:"Complete the sentences below. Use NO MORE THAN TWO WORDS from the passage for each answer.",
+      text:"Tourism has become an important ___ for many national economies.", correct:"source of income" },
+    { id:qid(), type:"sentence_completion",
+      text:"The tourism industry is now one of the world's largest ___.", correct:"employer" },
+    { id:qid(), type:"sentence_completion",
+      text:"Travel within one's own country is referred to as ___.", correct:"domestic tourism" },
+  ];
+
+  // Passage 2 — Rainforest Canopy (Q14–26)
+  const p2paraOpts = ["A","B","C","D","E","F","G","H"];
+  const p2Q = [
+    { id:qid(), type:"matching_info", newGroup:true,
+      instructions:"Reading Passage 2 has eight paragraphs, A–H.\nWhich paragraph contains the following information?\nWrite the correct letter, A–H, in boxes 14–18 on your answer sheet.\nNB You may use any letter more than once.",
+      options:p2paraOpts,
+      text:"A comparison of the productivity of different layers of the rainforest.", correct:"C", correctIdx:2 },
+    { id:qid(), type:"matching_info", options:p2paraOpts,
+      text:"A reference to the height that some rainforest trees can reach.", correct:"B", correctIdx:1 },
+    { id:qid(), type:"matching_info", options:p2paraOpts,
+      text:"An explanation of why scientists found it difficult to study the canopy.", correct:"H", correctIdx:7 },
+    { id:qid(), type:"matching_info", options:p2paraOpts,
+      text:"A description of how animals have adapted to life in the canopy.", correct:"B", correctIdx:1 },
+    { id:qid(), type:"matching_info", options:p2paraOpts,
+      text:"Reference to the effect of rainfall on the forest floor.", correct:"E", correctIdx:4 },
+    { id:qid(), type:"sentence_completion", newGroup:true,
+      instructions:"Complete the sentences below. Write NO MORE THAN ONE WORD from the passage for each answer.",
+      text:"The canopy trees receive the most ___ and therefore grow taller than other vegetation.", correct:"sun" },
+    { id:qid(), type:"sentence_completion",
+      text:"The ___ canopy forms a continuous covering over much of the forest.", correct:"upper" },
+    { id:qid(), type:"sentence_completion",
+      text:"The forest floor remains relatively ___ despite heavy rainfall because the canopy intercepts the water.", correct:"dry" },
+    { id:qid(), type:"sentence_completion",
+      text:"Scientists noted that the greatest variety of species was found on the ___ side of the forest.", correct:"north" },
+    { id:qid(), type:"truefalse", newGroup:true,
+      instructions:"Do the following statements agree with the information given in Reading Passage 2?\nChoose TRUE, FALSE or NOT GIVEN.",
+      text:"The majority of species living in rainforests are found above the forest floor.", correct:"FALSE" },
+    { id:qid(), type:"truefalse",
+      text:"Walkways built in the canopy have enabled researchers to carry out extensive studies.", correct:"TRUE" },
+    { id:qid(), type:"truefalse",
+      text:"Pharmaceutical companies have funded most of the recent research into the rainforest canopy.", correct:"NOT GIVEN" },
+    { id:qid(), type:"mcq", newGroup:true,
+      instructions:"Choose the correct letter, A, B, C or D.",
+      text:"What is the writer's main purpose in Reading Passage 2?",
+      options:["A  to argue that the rainforest canopy is more important than the forest floor","B  to describe the characteristics of the rainforest canopy and how it has been studied","C  to explain why rainforests are under threat from human activity","D  to compare the rainforests of different continents"],
+      correct:"B" },
+  ];
+
+  // Passage 3 — Early Overseas Expansion (Q27–40)
+  const p3paraOpts = ["A","B","C","D","E","F","G","H","I"];
+  const p3mcqOpts32 = ["A  They were unaware of the region before they arrived.","B  They deliberately settled far from established trade routes.","C  They were attracted by the availability of fertile land.","D  They were following instructions from their home government."];
+  const p3mcqOpts33 = ["A  It shows that early settlers were well organised.","B  It demonstrates that the settlers lacked experience.","C  It suggests that the settlers underestimated the challenges.","D  It indicates that the settlers were poorly equipped."];
+  const p3mcqOpts34 = ["A  The settlers had a better understanding of the local environment.","B  Relations with the indigenous people had greatly improved.","C  New methods of farming had been introduced from Europe.","D  The discovery of metal tools changed the way land was cleared."];
+  const p3mcqOpts35 = ["A  The original settlers were skilled hunters.","B  Meat was more highly valued than crops.","C  Animal farming was more profitable than growing crops.","D  Animals were used to help clear the land."];
+  const p3Q = [
+    { id:qid(), type:"matching_info", newGroup:true,
+      instructions:"Reading Passage 3 has nine sections, A–I.\nWhich section contains the following information?\nWrite the correct letter, A–I, in boxes 27–31 on your answer sheet.",
+      options:p3paraOpts,
+      text:"A description of the establishment of farming on newly cleared land.", correct:"B", correctIdx:1 },
+    { id:qid(), type:"matching_info", options:p3paraOpts,
+      text:"Reference to an unexpected discovery made during land clearance.", correct:"F", correctIdx:5 },
+    { id:qid(), type:"matching_info", options:p3paraOpts,
+      text:"An account of how animals were used in the early settlements.", correct:"I", correctIdx:8 },
+    { id:qid(), type:"matching_info", options:p3paraOpts,
+      text:"A reference to objects used in burial ceremonies.", correct:"G", correctIdx:6 },
+    { id:qid(), type:"matching_info", options:p3paraOpts,
+      text:"Evidence of how the settlers' diet changed over time.", correct:"D", correctIdx:3 },
+    { id:qid(), type:"mcq", newGroup:true,
+      instructions:"Choose the correct letter, A, B, C or D.",
+      text:"Why did many early settlers choose the locations they did?",
+      options:p3mcqOpts32, correct:"C" },
+    { id:qid(), type:"mcq",
+      text:"What does the writer suggest about the settlers' original buildings?",
+      options:p3mcqOpts33, correct:"A" },
+    { id:qid(), type:"mcq",
+      text:"What led to increased agricultural output in the second generation of settlers?",
+      options:p3mcqOpts34, correct:"D" },
+    { id:qid(), type:"mcq",
+      text:"What is stated about the role of animals in the early settlements?",
+      options:p3mcqOpts35, correct:"C" },
+    { id:qid(), type:"yesno", newGroup:true,
+      instructions:"Do the following statements agree with the claims of the writer in Reading Passage 3?\nChoose YES if the statement agrees with the claims of the writer, NO if the statement contradicts the claims of the writer, or NOT GIVEN if it is impossible to say what the writer thinks about this.",
+      text:"The settlers' decision to clear the forest was primarily motivated by economic factors.", correct:"NO" },
+    { id:qid(), type:"yesno",
+      text:"The archaeological evidence found at these sites has significantly changed historians' understanding of early settlements.", correct:"YES" },
+    { id:qid(), type:"yesno",
+      text:"Some of the burial artefacts discovered show the influence of European culture.", correct:"NOT GIVEN" },
+    { id:qid(), type:"yesno",
+      text:"The study of animal bones can provide useful information about the settlers' way of life.", correct:"YES" },
+    { id:qid(), type:"yesno",
+      text:"Researchers have found it difficult to date the artefacts found at these sites.", correct:"NOT GIVEN" },
+  ];
+
+  const readingTest = {
+    id:genId("TEST"), type:"Reading",
+    title:"Jul 12 Reading — Cambridge IELTS 9 Test 3",
+    passages:[
+      { id:mkId(), title:"The Context, Meaning and Scope of Tourism",
+        text:`A  Tourism is a complex and diverse activity. At its simplest it involves people temporarily leaving their usual place of residence and work to travel to another destination for leisure, recreation or business purposes. But defining tourism precisely has proved surprisingly difficult. The diversity of activities undertaken by tourists, the range of businesses that depend on tourism and the variety of impacts that tourism has on society and the environment make it hard to agree on a single definition.
+
+B  Despite these definitional problems, there is little doubt that tourism has become an enormously important economic activity. It is a major source of income for many countries, both developed and developing. Income from tourism may come directly, as when tourists spend money in hotels, restaurants and shops, or indirectly, as when tourism stimulates investment and business activity in other sectors of the economy. For some developing nations, tourism receipts represent a significant proportion of their foreign currency earnings.
+
+C  The economic effects of tourism extend beyond the money spent directly by tourists. When a tourist visits a destination, they spend money in many different ways — on accommodation, food, entertainment, transport and souvenirs. This money flows through the local economy, generating income for many different businesses and individuals. Tourism also creates employment — both directly, in hotels and tourist facilities, and indirectly, in businesses that supply goods and services to the tourist industry.
+
+D  Some sense of the scale of the tourism industry can be gained from international statistics. According to the World Tourism Organization, international tourist arrivals worldwide reached around 1.4 billion in recent years, generating receipts of over a trillion US dollars. These figures, however, represent only international tourism — that is, trips that involve crossing an international border. Domestic tourism — travel within one's own country — is, in most nations, far more common and economically significant than international tourism, yet it receives less attention in the statistics and in academic studies.
+
+E  The tourism industry is heterogeneous. It brings together a wide range of businesses and organisations — airlines, hotels, travel agencies, restaurants, tour operators, national parks and heritage sites — that do not necessarily see themselves as part of a single industry. This diversity makes tourism difficult to manage, regulate and analyse. It also makes it difficult to measure the economic impact of tourism, since there is no single line of business that can be labelled 'tourism'.
+
+F  Both domestic and international tourism have grown significantly in recent decades. Improvements in transport infrastructure, rising incomes, the expansion of commercial aviation and changes in working patterns — including more paid holidays — have all contributed to this growth. Tourism is now one of the world's largest industries and one of the biggest employer sectors globally.
+
+G  Given all these complexities, it is perhaps not surprising that academics, governments and international organisations have struggled to agree on a precise definition of tourism. The most widely used is that adopted by the World Tourism Organization, which defines a tourist as someone who travels to a country or place other than that in which they normally live and work, stays for at least one night, and is visiting for leisure, business or other personal purposes. But even this definition is not universally accepted, and many countries use their own somewhat different definitions for statistical purposes.`,
+        questions:p1Q, collapsed:false },
+      { id:mkId(), title:"The Rainforest Canopy",
+        text:`A  The tropical rainforest is one of the world's most complex and productive ecosystems. Covering roughly six percent of the Earth's surface, tropical rainforests are home to more than half of all plant and animal species on the planet. Yet until relatively recently, scientists knew remarkably little about the upper reaches of these forests — the dense canopy of leaves and branches that forms a roof over the forest floor, cutting out most of the sunlight below.
+
+B  The tropical rainforest canopy is the uppermost layer of leaves and branches, typically found between 30 and 45 metres above the ground, though the tallest emergent trees may reach 60 metres or more. The canopy is a world of its own, quite different from the dark, humid forest floor below. Because it receives the full force of the tropical sun, temperatures in the canopy are higher and conditions are drier than in the layers beneath. The canopy is home to an extraordinary diversity of life. Many species — including monkeys, birds, reptiles and insects — have evolved specifically to live in this elevated environment, developing physical features such as gripping feet, long tails and gliding membranes that allow them to navigate the treetops.
+
+C  In terms of biological productivity, the canopy is the powerhouse of the rainforest. The leaves of canopy trees capture the energy of the sun through photosynthesis and transform it into the organic material that forms the basis of the forest food web. Studies have shown that the canopy layer produces far more organic material per unit area than the forest floor or the understorey. In a single year, the canopy of a tropical rainforest may produce many tonnes of leaves, flowers and fruit per hectare.
+
+D  The canopy plays an important role in regulating the water cycle within the forest. When rain falls on the forest, much of it is intercepted by the leaves and branches of the canopy before it reaches the ground. Some of this water evaporates back into the atmosphere; the rest drips down through the layers of vegetation, reaching the forest floor much more slowly than it would in an open landscape. As a result, the forest floor receives less water than might be expected, and conditions there can be surprisingly dry.
+
+E  Rainfall intercepted by the canopy does more than regulate the amount of water reaching the forest floor. It also determines the distribution of moisture within the forest. On the north-facing slopes of certain hills and mountains, where cloud and mist are more common, the canopy may be permanently wet. On south-facing slopes, by contrast, the canopy dries out quickly after rain. These differences in moisture availability have a significant effect on the distribution of species within the forest.
+
+F  For a long time, the canopy was almost inaccessible to scientists. The sheer height of the trees made it impossible to study the canopy from the ground, and climbing the trees was both difficult and potentially damaging to the ecosystem. Early researchers who attempted to study the canopy did so using ropes and harnesses, but this method was slow and limited the areas that could be explored.
+
+G  The development of canopy walkways in the 1980s transformed researchers' ability to study the forest. These structures — platforms and bridges strung between the upper branches of the tallest trees — allowed scientists to spend extended periods in the canopy, observing the behaviour of animals, collecting specimens and recording environmental data. The walkways revealed a world of extraordinary complexity and diversity that had previously been invisible to science.
+
+H  Despite the advances made possible by canopy walkways, many aspects of rainforest canopy ecology remain poorly understood. The sheer scale and inaccessibility of the canopy means that only a tiny fraction of it has been studied in any detail. Moreover, the canopy is under increasing threat from deforestation. As forests are cleared for agriculture, logging and development, the canopy and the species that depend on it are disappearing at an alarming rate. Scientists fear that many canopy species will be lost before they have even been identified.`,
+        questions:p2Q, collapsed:false },
+      { id:mkId(), title:"Early Overseas Settlements",
+        text:`A  The history of overseas settlement is a long and complex one, stretching back thousands of years. People have always sought new lands — whether driven by population pressure, by the exhaustion of local resources, by conflict, or simply by curiosity and a spirit of adventure. The settlements they established varied enormously in their size, organisation and longevity, but they all shared one fundamental characteristic: the settlers had to adapt to an environment that was quite different from the one they had left behind.
+
+B  One of the most common patterns in early overseas settlement was the establishment of farming communities in newly cleared land. Settlers arriving in unfamiliar territory often found that the most productive land for agriculture was covered in forest. Clearing this forest was hard, labour-intensive work, but it was essential if the settlers were to establish viable farms. Once the land was cleared, crops could be planted and a permanent agricultural settlement established. These first farms, often referred to as plantations, formed the economic foundation of many early overseas communities.
+
+C  The initial period of settlement was typically the most difficult. Settlers faced not only the physical challenge of clearing and farming new land, but also the social challenge of creating a functioning community from scratch. They had to build shelters, establish systems for distributing food and water, and organise the defence of their settlement against both natural hazards and, in some cases, hostile neighbours. In many early settlements, mortality rates were high, particularly during the first few years.
+
+D  Over time, as settlements became more established, the diet of the settlers changed significantly. Archaeological evidence, including the analysis of animal bones found at settlement sites, shows that early settlers often ate a wide variety of foods, including wild game, fish and gathered plant foods, in addition to the crops they grew. As settlements grew more prosperous, however, diets tended to become less varied, with a greater reliance on cultivated crops and domestic livestock. This shift is reflected in the changing composition of animal bone assemblages found at different occupation levels within settlement sites.
+
+E  The organisation of labour within early settlements was often highly structured. Different groups within the community took responsibility for different tasks — clearing land, farming, building, trade and defence. In many cases, this division of labour was formalised through legal or customary arrangements that governed who could do what, and who had rights over particular pieces of land or resources.
+
+F  Archaeological excavations at early settlement sites have sometimes produced unexpected discoveries. At several sites, workers clearing the land for new buildings have uncovered artefacts and structures that were previously unknown. These discoveries have provided important new information about the history of the settlements and the people who lived there. In some cases, they have revealed evidence of earlier occupation of the site by indigenous peoples, raising complex questions about the relationships between settlers and the communities they displaced.
+
+G  Among the most significant archaeological finds at early settlement sites are burial grounds and associated artefacts. Burial urns, grave goods and skeletal remains can provide detailed information about the health, diet and social organisation of the people who lived there. They can also reveal important information about belief systems and cultural practices, including attitudes to death and the afterlife.
+
+H  The physical layout of early settlements has also been the subject of extensive archaeological study. Excavations have revealed a wide variety of settlement forms, from small, scattered farmsteads to large, densely populated towns. The layout of streets, the positioning of public buildings and the organisation of housing all reflect the social and economic priorities of the people who planned and built these communities.
+
+I  Animals played a central role in the life of early settlements. They were kept for their meat, milk, hides and wool; they were used as draught animals to pull ploughs and carts; and they were sometimes kept as symbols of status or wealth. The types of animals kept changed over time as settlers developed new breeds and adapted their farming practices to local conditions. The bones of domestic animals found at settlement sites are therefore an important source of information about the agricultural history of the settlement and the way in which it developed over time.`,
+        questions:p3Q, collapsed:false },
+    ],
+    createdBy:"admin", createdAt:now, modifiedBy:"admin", modifiedAt:now,
+  };
+
+  // ── WRITING ───────────────────────────────────────────────────────────────
+  const writing1 = {
+    id:genId("TEST"), type:"Writing", taskType:"task1",
+    title:"Writing Task 1 — Graduate Destinations Bar Charts (Jul 12)",
+    task1Prompt:"The charts below show what UK graduates and postgraduate students who did not go into full-time work did after leaving college in 2008.\n\nSummarise the information by selecting and reporting the main features, and make comparisons where relevant.\n\nWrite at least 150 words.",
+    task1Image:null,
+    createdBy:"admin", createdAt:now, modifiedBy:"admin", modifiedAt:now,
+  };
+  const writing2 = {
+    id:genId("TEST"), type:"Writing", taskType:"task2",
+    title:"Writing Task 2 — Global Similarity (Jul 12)",
+    task2Prompt:"Countries are becoming more and more similar because people are able to buy the same products anywhere in the world.\n\nDo you think this is a positive or negative development?\n\nGive reasons for your answer and include any relevant examples from your own knowledge or experience.\n\nWrite at least 250 words.",
+    createdBy:"admin", createdAt:now, modifiedBy:"admin", modifiedAt:now,
+  };
+
+  return { listeningTest, readingTest, writing1, writing2 };
+}
+
 // ── TODAY'S TEST SEED DATA ────────────────────────────────────────────────────
 function buildTodaysTests() {
   const now = Date.now();
@@ -3759,6 +4109,49 @@ function AdminSettings() {
   const [testResult, setTestResult] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState(null);
+  const [importing12, setImporting12] = useState(false);
+  const [importMsg12, setImportMsg12] = useState(null);
+
+  const handleImportJul12Tests = async () => {
+    setImporting12(true); setImportMsg12(null);
+    try {
+      await reloadDB();
+      const { listeningTest, readingTest, writing1, writing2 } = buildJul12Tests();
+      const liveDb = loadDB();
+      const existing = liveDb.tests || [];
+      const toAdd = [listeningTest, readingTest, writing1, writing2].filter(
+        t => !existing.some(e => e.title === t.title)
+      );
+      if (toAdd.length === 0) {
+        setImportMsg12({ ok: true, msg: "✅ All Jul 12 tests already exist — nothing to import." });
+        setImporting12(false); return;
+      }
+      liveDb.tests = [...existing, ...toAdd];
+      try { localStorage.setItem(DB_KEY, JSON.stringify(liveDb)); } catch {}
+      const ok = await _flushConfig(liveDb);
+      if (!ok) throw new Error("Could not save tests — check internet connection.");
+      notifyDbChange();
+      await reloadDB();
+      const suiteName = "Jul 12 Full Test";
+      const freshSuites = loadDB().testSuites || [];
+      const existingSuite = freshSuites.find(s => s.name === suiteName);
+      if (!existingSuite) {
+        const newSuite = {
+          id: genId("SUITE"), name: suiteName, status: "published",
+          readingId: readingTest.id, writing1Id: writing1.id,
+          writing2Id: writing2.id, listeningId: listeningTest.id,
+          createdAt: new Date().toLocaleDateString("en-GB"),
+        };
+        await dbSaveNow("testSuites", [...freshSuites, newSuite]);
+      }
+      notifyDbChange();
+      const skipped = 4 - toAdd.length;
+      setImportMsg12({ ok: true, msg: `✅ Done! Added ${toAdd.length} test(s)${skipped > 0 ? `, ${skipped} already existed` : ""}. Suite "Jul 12 Full Test" is published.` });
+    } catch(e) {
+      setImportMsg12({ ok: false, msg: "❌ " + e.message });
+    }
+    setImporting12(false);
+  };
 
   const handleImportTests = async () => {
     setImporting(true); setImportMsg(null);
@@ -3849,6 +4242,28 @@ function AdminSettings() {
             border:`1px solid ${importMsg.ok?C.teal:C.rose}`,
             color:importMsg.ok?C.teal:C.rose,fontSize:13,fontWeight:600,lineHeight:1.5}}>
             {importMsg.msg}
+          </div>
+        )}
+      </div>
+
+      {/* ── IMPORT JUL 12 TESTS ── */}
+      <div style={{...cardStyle({padding:24}),marginBottom:16,border:`2px solid ${C.teal}`,background:"#F0FDF9"}}>
+        <h3 style={{fontSize:15,fontWeight:700,color:C.teal,marginBottom:4}}>📥 Import Jul 12 Tests (Cambridge IELTS 9, Test 3)</h3>
+        <p style={{fontSize:12,color:C.s600,marginBottom:16,lineHeight:1.6}}>
+          One click — adds <strong>Listening</strong> (40 Q), <strong>Reading</strong> (40 Q), and <strong>Writing</strong> tasks,
+          then creates and publishes the <strong>"Jul 12 Full Test"</strong> suite.
+          Audio and Writing Task 1 image can be added via the test editor after import.
+        </p>
+        <button onClick={handleImportJul12Tests} disabled={importing12}
+          style={{...btnStyle("primary"),padding:"10px 22px",fontSize:14,opacity:importing12?0.7:1,background:C.teal}}>
+          {importing12 ? "Importing…" : "Import Jul 12 Tests"}
+        </button>
+        {importMsg12&&(
+          <div style={{marginTop:14,padding:"12px 16px",borderRadius:8,
+            background:importMsg12.ok?"#F0FDF4":"#FFF1F2",
+            border:`1px solid ${importMsg12.ok?C.teal:"#F43F5E"}`,
+            color:importMsg12.ok?C.teal:"#F43F5E",fontSize:13,fontWeight:600,lineHeight:1.5}}>
+            {importMsg12.msg}
           </div>
         )}
       </div>
@@ -5101,6 +5516,23 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
   const [recheckStates, setRecheckStates]   = useState({});
   const [showSendModal, setShowSendModal]   = useState(false);
   const [manualScores, setManualScores]     = useState({});
+  const [deleteConfirm, setDeleteConfirm]   = useState(null); // attempt index to confirm delete
+
+  // Delete a single attempt
+  const handleDeleteAttempt = async (a) => {
+    const curDb = loadDB();
+    const updatedPts = (curDb.participants||[]).filter(p=>
+      !(p.id&&p.id===a.id) && !(p.timestamp&&p.timestamp===a.timestamp)
+    );
+    const updDb = {...curDb, participants:updatedPts};
+    setInternalDb(updDb);
+    try { localStorage.setItem(DB_KEY, JSON.stringify(updDb)); } catch{}
+    await _flushConfig(updDb);
+    const updAttempts = (profile.attempts||[]).filter(att=>att!==a&&att.timestamp!==a.timestamp);
+    onUpdateProfile?.({...profile, attempts:updAttempts});
+    setDeleteConfirm(null);
+    setExpandedAttempt(null);
+  };
 
   // Re-check a single attempt's writing with AI
   const handleRecheckWriting = async (a) => {
@@ -5368,6 +5800,66 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
           <h3 style={{fontSize:15,fontWeight:800,color:C.s900,marginBottom:14}}>
             Test History — {allAttempts.length} attempt{allAttempts.length!==1?"s":""}
           </h3>
+
+          {/* ── Progress Summary ── */}
+          {allAttempts.length>0&&(()=>{
+            const completed = allAttempts.filter(a=>a.status==="complete");
+            const best = k => { const vals=allAttempts.map(a=>a[k]).filter(v=>v!=null); return vals.length?Math.max(...vals):null; };
+            const avg  = k => { const vals=allAttempts.map(a=>a[k]).filter(v=>v!=null); return vals.length?(vals.reduce((s,v)=>s+v,0)/vals.length):null; };
+            const trend= k => {
+              const vals=allAttempts.map(a=>a[k]).filter(v=>v!=null).reverse();
+              if(vals.length<2) return null;
+              const diff=vals[vals.length-1]-vals[0];
+              return diff>0?"↑":diff<0?"↓":"→";
+            };
+            const skills=[
+              {lbl:"Listening",key:"listeningBand",icon:"🎧"},
+              {lbl:"Reading",  key:"readingBand",  icon:"📖"},
+              {lbl:"Writing",  key:"writingBand",  icon:"✍️"},
+              {lbl:"Speaking", key:"speakingBand", icon:"🗣️"},
+              {lbl:"Overall",  key:"overall",      icon:"⭐"},
+            ];
+            return (
+              <div style={{...cardStyle({padding:16,marginBottom:16}),background:"linear-gradient(135deg,#F0FDF4,#fff)",border:`1.5px solid ${C.teal}30`}}>
+                <div style={{fontSize:11,fontWeight:800,color:C.s400,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>
+                  Performance Summary · {completed.length}/{allAttempts.length} complete
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
+                  {skills.map(({lbl,key,icon})=>{
+                    const b=best(key), a2=avg(key), t=trend(key);
+                    return (
+                      <div key={key} style={{textAlign:"center",padding:"10px 6px",background:"#fff",borderRadius:10,border:`1px solid ${C.s200}`}}>
+                        <div style={{fontSize:14,marginBottom:4}}>{icon}</div>
+                        <div style={{fontSize:9,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>{lbl}</div>
+                        <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:20,fontWeight:900,color:b!=null?bandColor(b):C.s300,lineHeight:1}}>
+                          {b!=null?b:"—"}
+                        </div>
+                        {a2!=null&&<div style={{fontSize:10,color:C.s400,marginTop:3}}>avg {a2.toFixed(1)}</div>}
+                        {t&&<div style={{fontSize:12,fontWeight:800,color:t==="↑"?C.teal:t==="↓"?C.rose:C.s400,marginTop:2}}>{t}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+                {allAttempts.length>1&&(
+                  <div style={{marginTop:12,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    {allAttempts.slice().reverse().map((a,i)=>{
+                      const v=a.overall;
+                      return (
+                        <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                          <div style={{width:32,height:32,borderRadius:8,background:v!=null?bandBg(v):C.s100,border:`1.5px solid ${v!=null?bandColor(v):C.s300}`,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'JetBrains Mono',monospace",fontWeight:800,fontSize:12,color:v!=null?bandColor(v):C.s400}}>
+                            {v!=null?v:"—"}
+                          </div>
+                          <div style={{fontSize:9,color:C.s400}}>{a.date?.split("/").slice(0,2).join("/")}</div>
+                        </div>
+                      );
+                    })}
+                    <div style={{fontSize:10,color:C.s400,marginLeft:4}}>← oldest · newest →</div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {allAttempts.length===0?<EmptyState icon="📄" text="No attempts yet."/>:(
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
               {allAttempts.map((a,i)=>{
@@ -5377,25 +5869,33 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                 const rKey     = a.id||a.timestamp;
                 const rs       = recheckStates[rKey]||{};
                 const hasText  = !!(atx[0]||atx[1]);
+                const isComplete = a.status==="complete";
+                const isInterrupted = a.status==="in_progress";
+                const suiteLabel = a.suiteId ? ((loadDB().testSuites||[]).find(s=>s.id===a.suiteId)?.name||null) : null;
+                const isDeleteConfirm = deleteConfirm===i;
                 return (
                   <div key={a.id||i} style={{...cardStyle({overflow:"hidden",border:`1px solid ${isOpen?C.brand:C.s200}`})}}>
                     {/* Row header — always visible */}
                     {(()=>{
-                      // AI detection badge for row
                       const det = a.writingAiDetection;
                       const maxRisk = det ? Math.max(det.task1?.risk||0, det.task2?.risk||0) : null;
                       const riskColor = maxRisk===null?null:maxRisk<=25?"#16A34A":maxRisk<=55?"#D97706":maxRisk<=80?"#EA580C":"#DC2626";
                       const riskBg    = maxRisk===null?null:maxRisk<=25?"#F0FDF4":maxRisk<=55?"#FFFBEB":maxRisk<=80?"#FFF7ED":"#FEF2F2";
                       return (
-                        <div onClick={()=>setExpandedAttempt(isOpen?null:i)}
-                          style={{display:"grid",gridTemplateColumns:"140px 1fr 1fr 1fr 1fr auto",gap:12,padding:"13px 16px",alignItems:"center",cursor:"pointer",background:isOpen?C.brandL:"",transition:"background .15s"}}>
+                        <div onClick={()=>{ if(isDeleteConfirm) return; setExpandedAttempt(isOpen?null:i); }}
+                          style={{display:"grid",gridTemplateColumns:"170px 1fr 1fr 1fr 1fr auto",gap:12,padding:"13px 16px",alignItems:"center",cursor:"pointer",background:isOpen?C.brandL:"",transition:"background .15s"}}>
                           <div>
-                            <div style={{fontSize:13,fontWeight:700,color:C.s900}}>{a.date||"—"}</div>
-                            <div style={{fontSize:10,color:C.s400,marginTop:2}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                              <span style={{fontSize:13,fontWeight:700,color:C.s900}}>{a.date||"—"}</span>
+                              {isComplete&&<span style={{fontSize:9,fontWeight:800,color:C.teal,background:C.tealL,borderRadius:4,padding:"1px 5px"}}>✓ DONE</span>}
+                              {isInterrupted&&<span style={{fontSize:9,fontWeight:800,color:"#D97706",background:"#FFFBEB",borderRadius:4,padding:"1px 5px"}}>⚠ INTERRUPTED</span>}
+                            </div>
+                            <div style={{fontSize:10,color:C.s400}}>
                               {a.listeningScore&&`L:${a.listeningScore} `}{a.readingScore&&`R:${a.readingScore}`}
                             </div>
+                            {suiteLabel&&<div style={{fontSize:9,color:C.brand,fontWeight:600,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160}}>📋 {suiteLabel}</div>}
                             {maxRisk!==null&&(
-                              <div style={{marginTop:4,display:"inline-flex",alignItems:"center",gap:4,background:riskBg,border:`1px solid ${riskColor}`,borderRadius:5,padding:"2px 6px"}}>
+                              <div style={{marginTop:3,display:"inline-flex",alignItems:"center",gap:4,background:riskBg,border:`1px solid ${riskColor}`,borderRadius:5,padding:"2px 6px"}}>
                                 <span style={{fontSize:9,fontWeight:800,color:riskColor}}>🤖 AI Risk: {maxRisk}%</span>
                               </div>
                             )}
@@ -5404,9 +5904,17 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                           <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Reading</div><BandBadge val={a.readingBand}/></div>
                           <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Writing</div><BandBadge val={a.writingBand} pending={a.writingBand==null&&a.writingTexts!=null}/></div>
                           <div style={{textAlign:"center"}}><div style={{fontSize:9,color:C.s400,marginBottom:3,textTransform:"uppercase",letterSpacing:"0.07em"}}>Overall</div><BandBadge val={a.overall} large/></div>
-                          <div style={{display:"flex",flexDirection:"column",gap:6,alignItems:"center"}}>
-                            <button onClick={e=>{ e.stopPropagation(); const parseScore=s=>{const[c,t]=(s||"0/0").split("/").map(Number);return{correct:isNaN(c)?0:c,total:isNaN(t)?40:t};};exportResultsPDF({candidateInfo:profile.candidate||{name:profile.email,email:profile.email,id:""},lBand:a.listeningBand,rBand:a.readingBand,wBand:a.writingBand,overall:a.overall,L:parseScore(a.listeningScore),R:parseScore(a.readingScore),W:{aiFeedback:a.writingFeedback||{},aiDetection:a.writingAiDetection||null,texts:a.writingTexts||{}},suiteName:a.suiteName||null,booking:a.speakingBooking||null}); }} style={{background:"linear-gradient(135deg,#064E3B,#059669)",color:"#fff",border:"none",borderRadius:7,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>📄 PDF</button>
-                            <div style={{fontSize:18,color:C.brand,transition:"transform .2s",transform:isOpen?"rotate(90deg)":""}}>›</div>
+                          <div style={{display:"flex",flexDirection:"column",gap:5,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+                            <button onClick={()=>{ const parseScore=s=>{const[c,t]=(s||"0/0").split("/").map(Number);return{correct:isNaN(c)?0:c,total:isNaN(t)?40:t};};exportResultsPDF({candidateInfo:profile.candidate||{name:profile.email,email:profile.email,id:""},lBand:a.listeningBand,rBand:a.readingBand,wBand:a.writingBand,overall:a.overall,L:parseScore(a.listeningScore),R:parseScore(a.readingScore),W:{aiFeedback:a.writingFeedback||{},aiDetection:a.writingAiDetection||null,texts:a.writingTexts||{}},suiteName:a.suiteName||null,booking:a.speakingBooking||null}); }} style={{background:"linear-gradient(135deg,#064E3B,#059669)",color:"#fff",border:"none",borderRadius:7,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>📄 PDF</button>
+                            {isDeleteConfirm?(
+                              <div style={{display:"flex",gap:4}}>
+                                <button onClick={()=>handleDeleteAttempt(a)} style={{background:C.rose,color:"#fff",border:"none",borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>Delete</button>
+                                <button onClick={()=>setDeleteConfirm(null)} style={{background:C.s200,color:C.s700,border:"none",borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>Cancel</button>
+                              </div>
+                            ):(
+                              <button onClick={()=>setDeleteConfirm(i)} style={{background:"none",border:`1px solid ${C.s200}`,borderRadius:6,padding:"3px 8px",fontSize:10,color:C.s400,cursor:"pointer",whiteSpace:"nowrap"}}>🗑 Delete</button>
+                            )}
+                            <div style={{fontSize:18,color:C.brand,transition:"transform .2s",transform:isOpen?"rotate(90deg)":"",cursor:"pointer"}} onClick={()=>setExpandedAttempt(isOpen?null:i)}>›</div>
                           </div>
                         </div>
                       );
@@ -5521,6 +6029,33 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                     </button>
                                   )}
                                 </div>
+                                {lQs.length>0&&(
+                                  <div style={{marginBottom:16}}>
+                                    <div style={{fontSize:11,fontWeight:700,color:C.s500,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>Answer Grid</div>
+                                    <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                                      {lQs.map((q,qi)=>{
+                                        const ans=lAns[q.id];const ansText=rawTxt(ans);
+                                        const cv=(q.correct||"").trim().toLowerCase();const av=ansText.trim().toLowerCase();
+                                        const isOvr=q.id in lOvrs;
+                                        const correct=isOvr?lOvrs[q.id]:(av&&cv&&(av===cv||av.includes(cv)||cv.includes(av)||av.replace(/[^a-h]/g,"")[0]===cv.replace(/[^a-h]/g,"")[0]));
+                                        const unanswered=!ansText;
+                                        const bg=unanswered?"#e5e7eb":correct?"#86efac":"#fca5a5";
+                                        const fg=unanswered?C.s400:correct?"#15803d":"#b91c1c";
+                                        return (
+                                          <div key={qi} title={`Q${qi+1}: ${ansText||"—"} ${!unanswered?("("+( correct?"✓ correct":"✗ wrong")+")"):""}`}
+                                            style={{width:24,height:24,background:bg,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:fg,cursor:"default"}}>
+                                            {qi+1}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                    <div style={{display:"flex",gap:12,marginTop:8,fontSize:10,color:C.s400}}>
+                                      <span><span style={{display:"inline-block",width:10,height:10,background:"#86efac",borderRadius:2,marginRight:3}}/>Correct</span>
+                                      <span><span style={{display:"inline-block",width:10,height:10,background:"#fca5a5",borderRadius:2,marginRight:3}}/>Wrong</span>
+                                      <span><span style={{display:"inline-block",width:10,height:10,background:"#e5e7eb",borderRadius:2,marginRight:3}}/>Skipped</span>
+                                    </div>
+                                  </div>
+                                )}
                                 {lQs.length>0?(
                                   <div>
                                     {lQs.map((q,qi)=>{
@@ -5612,6 +6147,33 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                     </button>
                                   )}
                                 </div>
+                                {rQs.length>0&&(
+                                  <div style={{marginBottom:16}}>
+                                    <div style={{fontSize:11,fontWeight:700,color:C.s500,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>Answer Grid</div>
+                                    <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                                      {rQs.map((q,qi)=>{
+                                        const ans=rAns[q.id];const ansText=rawTxt(ans);
+                                        const cv=(q.correct||"").trim().toLowerCase();const av=ansText.trim().toLowerCase();
+                                        const isOvr=q.id in rOvrs;
+                                        const correct=isOvr?rOvrs[q.id]:(av&&cv&&(av===cv||av.includes(cv)||cv.includes(av)||av.replace(/[^a-h]/g,"")[0]===cv.replace(/[^a-h]/g,"")[0]));
+                                        const unanswered=!ansText;
+                                        const bg=unanswered?"#e5e7eb":correct?"#86efac":"#fca5a5";
+                                        const fg=unanswered?C.s400:correct?"#15803d":"#b91c1c";
+                                        return (
+                                          <div key={qi} title={`Q${qi+1}: ${ansText||"—"} ${!unanswered?("("+( correct?"✓ correct":"✗ wrong")+")"):""}`}
+                                            style={{width:24,height:24,background:bg,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:fg,cursor:"default"}}>
+                                            {qi+1}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                    <div style={{display:"flex",gap:12,marginTop:8,fontSize:10,color:C.s400}}>
+                                      <span><span style={{display:"inline-block",width:10,height:10,background:"#86efac",borderRadius:2,marginRight:3}}/>Correct</span>
+                                      <span><span style={{display:"inline-block",width:10,height:10,background:"#fca5a5",borderRadius:2,marginRight:3}}/>Wrong</span>
+                                      <span><span style={{display:"inline-block",width:10,height:10,background:"#e5e7eb",borderRadius:2,marginRight:3}}/>Skipped</span>
+                                    </div>
+                                  </div>
+                                )}
                                 {rQs.length>0?(
                                   <div>
                                     {rQs.map((q,qi)=>{
@@ -5803,6 +6365,11 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                 })()}
 
                                 {[0,1].map(ti=>{
+                                  const _dbW = loadDB();
+                                  const wSuiteW = (_dbW.testSuites||[]).find(s=>s.id===a.suiteId);
+                                  const _wtId = ti===0?(wSuiteW?.writingTask1Id||wSuiteW?.writing1Id):(wSuiteW?.writingTask2Id||wSuiteW?.writing2Id);
+                                  const _wt = wSuiteW ? (_dbW.tests||[]).find(t=>t.id===_wtId) : null;
+                                  const taskPrompt = _wt?.task1Prompt || _wt?.task2Prompt || _wt?.prompt || (_wt&&_wt.title!=="Writing Task 1"&&_wt.title!=="Writing Task 2"?_wt.title:null) || null;
                                   const det = (a.writingAiDetection||{})[`task${ti+1}`];
                                   const riskColor = !det?null:det.risk<=25?"#16A34A":det.risk<=55?"#D97706":det.risk<=80?"#EA580C":"#DC2626";
                                   const riskBg    = !det?null:det.risk<=25?"#F0FDF4":det.risk<=55?"#FFFBEB":det.risk<=80?"#FFF7ED":"#FEF2F2";
@@ -5823,6 +6390,12 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                         <span style={{background:C.brand,color:"#fff",borderRadius:6,padding:"2px 9px",fontSize:11,fontWeight:800}}>Task {ti+1}</span>
                                         {afb[ti]?.band!=null&&<BandBadge val={afb[ti].band}/>}
                                       </div>
+                                      {taskPrompt&&(
+                                        <div style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+                                          <div style={{fontSize:9,fontWeight:800,color:"#92400E",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>📋 Task Prompt</div>
+                                          <p style={{fontSize:11,lineHeight:1.7,color:"#78350F",margin:0,whiteSpace:"pre-wrap"}}>{taskPrompt}</p>
+                                        </div>
+                                      )}
                                       {atx[ti]?(
                                         <div style={{background:C.s100,borderRadius:8,padding:12,marginBottom:10,maxHeight:180,overflow:"auto"}}>
                                           <div style={{fontSize:10,color:C.s400,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:6}}>Response ({countWords(atx[ti]||"")} words)</div>
@@ -8318,9 +8891,8 @@ export default function App() {
       date: new Date().toLocaleDateString("en-GB"),
       timestamp: Date.now(),
       suiteId: activeSuiteRef.current?.id||null,
-      // Intermediate save: omit heavy question arrays (saved in final Results record)
-      ...(L ? {listeningScore:`${L.correct}/${L.total}`, listeningBand:listeningBand(L.correct,L.total), listeningAnswers:L.answers} : {}),
-      ...(R ? {readingScore:`${R.correct}/${R.total}`,   readingBand:readingBand(R.correct,R.total),     readingAnswers:R.answers}   : {}),
+      ...(L ? {listeningScore:`${L.correct}/${L.total}`, listeningBand:listeningBand(L.correct,L.total), listeningAnswers:L.answers, allListeningQuestions:L.allQuestions||[]} : {}),
+      ...(R ? {readingScore:`${R.correct}/${R.total}`,   readingBand:readingBand(R.correct,R.total),     readingAnswers:R.answers,   allReadingQuestions:R.allQuestions||[]}   : {}),
       ...(W ? {writingBand:W.band, writingTexts:W.texts, writingFeedback:W.aiFeedback, writingAiDetection:W.aiDetection} : {}),
       overall: bands.length ? overallBand(bands) : null,
     };
