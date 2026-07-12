@@ -8,7 +8,8 @@ export const supabase = _SURL && _SKEY ? createClient(_SURL, _SKEY) : null;
 export const DB_KEY   = "lv_ielts_v2";
 export const _emptyDB = () => ({
   participants:[], bookings:[], tests:[], testSuites:[], assignments:[],
-  speakingSlots:[], adminUsers:[], scoreOverrides:{}, listeningAudioUrl:"", openaiKey:""
+  speakingSlots:[], adminUsers:[], scoreOverrides:{}, listeningAudioUrl:"", openaiKey:"",
+  deletedAssignmentIds:[]
 });
 export let   _db      = _emptyDB();
 export let   _flushTmr = null;
@@ -40,7 +41,8 @@ export const _flushConfig = async db => {
     testSuites: db.testSuites||[], assignments: db.assignments||[],
     speakingSlots: db.speakingSlots||[], bookings: db.bookings||[],
     scoreOverrides: db.scoreOverrides||{}, adminUsers: db.adminUsers||[],
-    listeningAudioUrl: db.listeningAudioUrl||"", openaiKey: db.openaiKey||""
+    listeningAudioUrl: db.listeningAudioUrl||"", openaiKey: db.openaiKey||"",
+    deletedAssignmentIds: db.deletedAssignmentIds||[]
   };
   for(let attempt=0; attempt<3; attempt++){
     try {
@@ -165,6 +167,14 @@ function _smartMerge(supabaseBase, local) {
   let needsPush = false;
   const merged = { ...supabaseBase };
 
+  // Union of deleted assignment IDs from both sources — survives even if Supabase write lagged
+  const deletedIds = new Set([
+    ...(supabaseBase.deletedAssignmentIds||[]),
+    ...(local.deletedAssignmentIds||[]),
+    ...(_db.deletedAssignmentIds||[]),
+  ]);
+  merged.deletedAssignmentIds = [...deletedIds];
+
   for (const col of MERGE_COLS) {
     const remote    = supabaseBase[col] || [];
     const localItems = local[col] || [];
@@ -174,7 +184,11 @@ function _smartMerge(supabaseBase, local) {
       console.warn(`[DB] smartMerge: found ${localOnly.length} local-only ${col} — merging up`);
       needsPush = true;
     }
-    merged[col] = [...remote, ...localOnly];
+    const combined = [...remote, ...localOnly];
+    // Respect explicit deletions — filter them out so Supabase lag can't restore a removed item
+    merged[col] = col === "assignments"
+      ? combined.filter(x => !deletedIds.has(x.id))
+      : combined;
   }
 
   const remoteOverrides = supabaseBase.scoreOverrides || {};

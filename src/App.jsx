@@ -5779,10 +5779,15 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                         </span>
                         {!a.used&&!removedAssignIds.has(a.id)&&(
                           <button onClick={async()=>{
+                            // Optimistic UI hide
                             setRemovedAssignIds(prev=>new Set([...prev,a.id]));
                             const db=loadDB();
+                            // Persist deletion ID so _smartMerge never restores this from Supabase
+                            const prevDelIds = db.deletedAssignmentIds||[];
+                            db.deletedAssignmentIds = [...new Set([...prevDelIds, a.id])];
                             const updated=(db.assignments||[]).filter(x=>x.id!==a.id);
-                            await dbSaveNow("assignments",updated);
+                            db.assignments = updated;
+                            await saveDBNow(db);
                           }} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:6,padding:"3px 8px",fontSize:11,cursor:"pointer",fontWeight:700}}>✕ Remove</button>
                         )}
                       </div>
