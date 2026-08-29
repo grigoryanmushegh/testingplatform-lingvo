@@ -419,7 +419,7 @@ export async function initDB() {
   // If no supabase, _db is already set from localStorage pre-load above
 }
 
-export const genId = p => `${p}-${Date.now().toString(36).toUpperCase()}`;
+export const genId = p => `${p}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
 
 // ── Change notification + Supabase Realtime ───────────────────────────────────
 // Components subscribe via onDbChange(cb) to get instant updates when _db
