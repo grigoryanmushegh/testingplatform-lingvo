@@ -4225,49 +4225,6 @@ function AdminSettings() {
     <div style={{maxWidth:600}}>
       <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:24}}>⚙️ Settings</h2>
 
-      {/* ── IMPORT TODAY'S TESTS ── */}
-      <div style={{...cardStyle({padding:24}),marginBottom:16,border:`2px solid ${C.brand}`,background:"#F5F3FF"}}>
-        <h3 style={{fontSize:15,fontWeight:700,color:C.brand,marginBottom:4}}>📥 Import Jul 5 Tests</h3>
-        <p style={{fontSize:12,color:C.s600,marginBottom:16,lineHeight:1.6}}>
-          One click — adds today's <strong>Listening</strong> (40 Q), <strong>Reading</strong> (40 Q), and <strong>Writing</strong> tasks,
-          then creates and publishes the <strong>"Jul 5 Full Test"</strong> suite ready to assign.
-        </p>
-        <button onClick={handleImportTests} disabled={importing}
-          style={{...btnStyle("primary"),padding:"10px 22px",fontSize:14,opacity:importing?0.7:1}}>
-          {importing ? "Importing…" : "Import Today's Tests"}
-        </button>
-        {importMsg&&(
-          <div style={{marginTop:14,padding:"12px 16px",borderRadius:8,
-            background:importMsg.ok?"#F0FDF4":"#FFF1F2",
-            border:`1px solid ${importMsg.ok?C.teal:C.rose}`,
-            color:importMsg.ok?C.teal:C.rose,fontSize:13,fontWeight:600,lineHeight:1.5}}>
-            {importMsg.msg}
-          </div>
-        )}
-      </div>
-
-      {/* ── IMPORT JUL 12 TESTS ── */}
-      <div style={{...cardStyle({padding:24}),marginBottom:16,border:`2px solid ${C.teal}`,background:"#F0FDF9"}}>
-        <h3 style={{fontSize:15,fontWeight:700,color:C.teal,marginBottom:4}}>📥 Import Jul 12 Tests (Cambridge IELTS 9, Test 3)</h3>
-        <p style={{fontSize:12,color:C.s600,marginBottom:16,lineHeight:1.6}}>
-          One click — adds <strong>Listening</strong> (40 Q), <strong>Reading</strong> (40 Q), and <strong>Writing</strong> tasks,
-          then creates and publishes the <strong>"Jul 12 Full Test"</strong> suite.
-          Audio and Writing Task 1 image can be added via the test editor after import.
-        </p>
-        <button onClick={handleImportJul12Tests} disabled={importing12}
-          style={{...btnStyle("primary"),padding:"10px 22px",fontSize:14,opacity:importing12?0.7:1,background:C.teal}}>
-          {importing12 ? "Importing…" : "Import Jul 12 Tests"}
-        </button>
-        {importMsg12&&(
-          <div style={{marginTop:14,padding:"12px 16px",borderRadius:8,
-            background:importMsg12.ok?"#F0FDF4":"#FFF1F2",
-            border:`1px solid ${importMsg12.ok?C.teal:"#F43F5E"}`,
-            color:importMsg12.ok?C.teal:"#F43F5E",fontSize:13,fontWeight:600,lineHeight:1.5}}>
-            {importMsg12.msg}
-          </div>
-        )}
-      </div>
-
       <div style={{...cardStyle({padding:24}),marginBottom:16}}>
         <h3 style={{fontSize:15,fontWeight:700,color:C.s900,marginBottom:4}}>OpenAI API Key</h3>
         <p style={{fontSize:12,color:C.s500,marginBottom:16}}>
@@ -4495,7 +4452,6 @@ const ALL_TABS = [
   {key:"bookings",   label:"Bookings"},
   {key:"slots",      label:"Speaking Slots"},
   {key:"analytics",  label:"Analytics"},
-  {key:"looker",     label:"Looker Studio"},
   {key:"suites",     label:"Test Suites"},
   {key:"assign",     label:"Assignments"},
   {key:"speaking",   label:"AI Speaking"},
@@ -5055,7 +5011,7 @@ function AdminDashboard({ onExit }) {
   const allowedAccess = isSuperAdmin ? null : (session?.access || null); // null = all
   const allNavItems=[
     ["overview","📊","Overview"],["participants","👥","Test Takers"],["bookings","🗓️","Bookings"],
-    ["slots","🕐","Speaking Slots"],["analytics","📈","Analytics"],["looker","🔗","Looker Studio"],
+    ["slots","🕐","Speaking Slots"],["analytics","📈","Analytics"],
     ["suites","🧪","Test Suites"],["assign","📋","Assignments"],["speaking","🗣️","AI Speaking"],
     ["addtest","➕","Section Builder"],["settings","⚙️","Settings"],
     ...(isSuperAdmin ? [["users","👤","Admin Users"]] : []),
@@ -5299,7 +5255,6 @@ function AdminDashboard({ onExit }) {
             </div>
           )}
 
-          {tab==="looker"&&<LookerStudioSetup pts={pts} onExportCSV={exportCSV}/>}
           {tab==="suites"&&<TestSuiteManager/>}
           {tab==="assign"&&<AssignManager/>}
           {tab==="speaking"&&<AISpeakingManager onRefresh={refresh}/>}
@@ -7945,6 +7900,11 @@ function AddTestManager() {
   const [saving, setSaving]       = useState(false);
   const [editingId, setEditingId] = useState(null);
   const isSavingRef = useRef(false);
+  const [folders, setFolders]     = useState(() => loadDB().sectionFolders || []);
+  const [collapsedFolders, setCollapsedFolders] = useState({});
+  const [newFolderName, setNewFolderName] = useState("");
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [movingTestId, setMovingTestId] = useState(null);
 
   // Sync from Supabase on mount + polling + Realtime push
   useEffect(()=>{
@@ -7954,10 +7914,10 @@ function AddTestManager() {
       setTests(prev => {
         const fromDB = freshDb.tests || [];
         const dbIds = new Set(fromDB.map(t => t.id));
-        // Preserve any local tests still in-flight (saved but not yet confirmed in Supabase)
         const localOnly = prev.filter(t => t.id && !dbIds.has(t.id));
         return localOnly.length > 0 ? [...fromDB, ...localOnly] : fromDB;
       });
+      setFolders(freshDb.sectionFolders || []);
     });
     // Poll every 8s as fallback (Realtime handles the instant case)
     const poll = async () => { if(!isSavingRef.current) await reloadDB(); };
@@ -8142,6 +8102,36 @@ function AddTestManager() {
     await doSave({id:genId("TEST"),type:"Listening",title:lTitle,sections:lSections.map(s=>({...s})),audioUrl:lAudioUrl||null,audioMode:lAudioMode,createdAt:new Date().toLocaleDateString("en-GB")});
     setLTitle(""); setLSections([newSection(0)]);
   };
+  const saveFolders = async (newFolders) => {
+    setFolders(newFolders);
+    const db = loadDB(); db.sectionFolders = newFolders;
+    try{ localStorage.setItem(DB_KEY, JSON.stringify(db)); }catch{}
+    await _flushConfig(db);
+  };
+  const createFolder = async () => {
+    const name = newFolderName.trim();
+    if(!name || folders.includes(name)) return;
+    await saveFolders([...folders, name]);
+    setNewFolderName(""); setShowNewFolder(false);
+  };
+  const deleteFolder = async (name) => {
+    // Remove folder from all tests that had it
+    const db = loadDB();
+    db.tests = (db.tests||[]).map(t => t.folderName===name ? {...t, folderName:null} : t);
+    db.sectionFolders = folders.filter(f => f !== name);
+    setTests(db.tests); setFolders(db.sectionFolders);
+    try{ localStorage.setItem(DB_KEY, JSON.stringify(db)); }catch{}
+    await _flushConfig(db);
+  };
+  const moveTestToFolder = async (testId, folderName) => {
+    const db = loadDB();
+    db.tests = (db.tests||[]).map(t => t.id===testId ? {...t, folderName: folderName||null} : t);
+    setTests(db.tests);
+    try{ localStorage.setItem(DB_KEY, JSON.stringify(db)); }catch{}
+    await _flushConfig(db);
+    setMovingTestId(null);
+  };
+
   const deleteTest = async id => {
     // Optimistic local remove
     setTests(prev => prev.filter(t => t.id !== id));
@@ -8167,33 +8157,89 @@ function AddTestManager() {
         </div>
       )}
 
-      {/* Saved sections list */}
+      {/* Saved sections list with folders */}
       {tests.length>0&&(
         <div style={{marginBottom:28}}>
-          <div style={{fontSize:11,color:C.s400,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10}}>Saved Sections ({tests.length})</div>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {tests.map(t=>(
-              <div key={t.id} style={{...cardStyle({padding:"12px 18px",display:"flex",justifyContent:"space-between",alignItems:"center"})}}>
-                <div>
-                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:3}}>
-                    <span style={{...tagStyle(typeColor(t.type))}}>{t.type}</span>
-                    <span style={{fontWeight:700,fontSize:14,color:C.s900}}>{t.title}</span>
-                  </div>
-                  <div style={{fontSize:11,color:C.s400}}>
-                    Added {t.createdAt}
-                    {t.passages?.length>0&&` · ${t.passages.length} passage${t.passages.length>1?"s":""} · ${t.passages.reduce((n,p)=>n+(p.questions?.length||0),0)} questions`}
-                    {t.sections?.length>0&&` · ${t.sections.length} section${t.sections.length>1?"s":""} · ${t.sections.reduce((n,s)=>n+(s.questions?.length||0),0)} questions`}
-                    {t.questions?.length>0&&` · ${t.questions.length} questions`}
-                    {t.task1Image&&" · 📷 image"}
-                  </div>
-                </div>
-                <div style={{display:"flex",gap:8}}>
-                  <button onClick={()=>loadForEdit(t)} style={{background:C.brandL,color:C.brand,border:"none",borderRadius:8,padding:"5px 14px",fontSize:12,cursor:"pointer",fontWeight:700}}>✏ Edit</button>
-                  <button onClick={()=>deleteTest(t.id)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:8,padding:"5px 14px",fontSize:12,cursor:"pointer",fontWeight:700}}>Delete</button>
-                </div>
-              </div>
-            ))}
+          {/* Folder toolbar */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+            <div style={{fontSize:11,color:C.s400,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase"}}>Saved Sections ({tests.length})</div>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              {showNewFolder?(
+                <>
+                  <input value={newFolderName} onChange={e=>setNewFolderName(e.target.value)}
+                    onKeyDown={e=>{if(e.key==="Enter")createFolder();if(e.key==="Escape"){setShowNewFolder(false);setNewFolderName("");}}}
+                    placeholder="Folder name…" autoFocus
+                    style={{...inputStyle,padding:"5px 10px",fontSize:12,width:160,margin:0}}/>
+                  <button onClick={createFolder} style={{...btnStyle("primary"),padding:"5px 12px",fontSize:12}}>Add</button>
+                  <button onClick={()=>{setShowNewFolder(false);setNewFolderName("");}} style={{...btnStyle("ghost"),padding:"5px 10px",fontSize:12}}>✕</button>
+                </>
+              ):(
+                <button onClick={()=>setShowNewFolder(true)} style={{...btnStyle("secondary"),padding:"5px 14px",fontSize:12}}>📁 New Folder</button>
+              )}
+            </div>
           </div>
+
+          {/* Render folders then unfiled */}
+          {[...folders, null].map(folder => {
+            const folderTests = folder===null
+              ? tests.filter(t => !t.folderName || !folders.includes(t.folderName))
+              : tests.filter(t => t.folderName === folder);
+            if(folderTests.length===0 && folder!==null) return null;
+            const isCollapsed = collapsedFolders[folder||"__unfiled__"];
+            return (
+              <div key={folder||"__unfiled__"} style={{marginBottom:12}}>
+                {/* Folder header */}
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                  <button onClick={()=>setCollapsedFolders(p=>({...p,[folder||"__unfiled__"]:!isCollapsed}))}
+                    style={{background:"none",border:"none",cursor:"pointer",padding:0,fontSize:13,color:C.s500,display:"flex",alignItems:"center",gap:6,fontWeight:700}}>
+                    <span style={{fontSize:11,transition:"transform .2s",display:"inline-block",transform:isCollapsed?"rotate(-90deg)":"rotate(0deg)"}}>▼</span>
+                    {folder ? <span style={{color:C.brand}}>📁 {folder}</span> : <span style={{color:C.s400}}>Unfiled ({folderTests.length})</span>}
+                  </button>
+                  {folder&&(
+                    <button onClick={()=>deleteFolder(folder)}
+                      style={{background:"none",border:"none",cursor:"pointer",color:C.rose,fontSize:11,padding:"0 4px"}}>✕</button>
+                  )}
+                </div>
+
+                {/* Tests in this folder */}
+                {!isCollapsed&&(
+                  <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:folder?16:0}}>
+                    {folderTests.map(t=>(
+                      <div key={t.id} style={{...cardStyle({padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"})}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
+                            <span style={{...tagStyle(typeColor(t.type)),fontSize:10}}>{t.type}</span>
+                            <span style={{fontWeight:700,fontSize:13,color:C.s900,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
+                          </div>
+                          <div style={{fontSize:11,color:C.s400}}>
+                            Added {t.createdAt}
+                            {t.passages?.length>0&&` · ${t.passages.length} passage${t.passages.length>1?"s":""} · ${t.passages.reduce((n,p)=>n+(p.questions?.length||0),0)} Qs`}
+                            {t.sections?.length>0&&` · ${t.sections.length} section${t.sections.length>1?"s":""} · ${t.sections.reduce((n,s)=>n+(s.questions?.length||0),0)} Qs`}
+                            {t.questions?.length>0&&` · ${t.questions.length} Qs`}
+                          </div>
+                        </div>
+                        <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+                          {movingTestId===t.id?(
+                            <select onChange={e=>moveTestToFolder(t.id, e.target.value||null)}
+                              defaultValue={t.folderName||""}
+                              style={{fontSize:11,borderRadius:6,border:`1px solid ${C.s200}`,padding:"4px 6px",color:C.s700,background:"white",cursor:"pointer"}}>
+                              <option value="">Unfiled</option>
+                              {folders.map(f=><option key={f} value={f}>{f}</option>)}
+                            </select>
+                          ):(
+                            folders.length>0&&<button onClick={()=>setMovingTestId(t.id)}
+                              style={{background:C.s100,color:C.s500,border:"none",borderRadius:6,padding:"3px 8px",fontSize:11,cursor:"pointer"}}>📁</button>
+                          )}
+                          <button onClick={()=>loadForEdit(t)} style={{background:C.brandL,color:C.brand,border:"none",borderRadius:8,padding:"4px 12px",fontSize:12,cursor:"pointer",fontWeight:700}}>✏ Edit</button>
+                          <button onClick={()=>deleteTest(t.id)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:8,padding:"4px 12px",fontSize:12,cursor:"pointer",fontWeight:700}}>Delete</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
