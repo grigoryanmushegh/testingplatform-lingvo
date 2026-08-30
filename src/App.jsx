@@ -2428,7 +2428,7 @@ function SpeakingBooking({ candidateInfo, onComplete }) {
   const fmtDate = dateStr => new Date(dateStr+"T00:00:00").toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short",year:"numeric"});
   const fmtDateObj = d => d.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short",year:"numeric"});
 
-  const doConfirm = () => {
+  const doConfirm = async () => {
     // Mark the DB slot as booked
     const db = loadDB();
     db.speakingSlots = (db.speakingSlots||[]).map(s=>
@@ -2436,7 +2436,8 @@ function SpeakingBooking({ candidateInfo, onComplete }) {
     );
     const bk={candidate:candidateInfo,date:selDate,dateFormatted:fmtDate(selDate),slot:selSlot.time,slotId:selSlot.id,mode,id:genId("SPK")};
     db.bookings=[bk,...(db.bookings||[])];
-    saveDB(db);
+    await saveDBNow(db);
+    notifyDbChange();
     setConfirmed(true);
     setTimeout(()=>onComplete(bk),2200);
   };
@@ -4130,6 +4131,7 @@ function AdminSettings() {
       try { localStorage.setItem(DB_KEY, JSON.stringify(liveDb)); } catch {}
       const ok = await _flushConfig(liveDb);
       if (!ok) throw new Error("Could not save tests — check internet connection.");
+      await Promise.allSettled(toAdd.map(t => _upsertTestRow(t)));
       notifyDbChange();
       await reloadDB();
       const suiteName = "Jul 12 Full Test";
@@ -4172,6 +4174,7 @@ function AdminSettings() {
       try { localStorage.setItem(DB_KEY, JSON.stringify(liveDb)); } catch {}
       const ok = await _flushConfig(liveDb);
       if (!ok) throw new Error("Could not save tests — check internet connection.");
+      await Promise.allSettled(toAdd.map(t => _upsertTestRow(t)));
       notifyDbChange();
       // Create + publish suite (reload again to get latest suites)
       await reloadDB();
@@ -7045,7 +7048,14 @@ function AssignManager() {
     setSaved(true); setTimeout(()=>setSaved(false),2500);
   };
 
-  const remove = async id => { const u=(loadDB().assignments||[]).filter(a=>a.id!==id); setAssignments(u); await dbSaveNow("assignments",u); };
+  const remove = async id => {
+    const db = loadDB();
+    const u = (db.assignments||[]).filter(a=>a.id!==id);
+    db.assignments = u;
+    db.deletedAssignmentIds = [...new Set([...(db.deletedAssignmentIds||[]), id])];
+    setAssignments(u);
+    await saveDBNow(db);
+  };
   const suiteName = id => (loadDB().testSuites||[]).find(s=>s.id===id)?.name||"(deleted suite)";
 
   const filtered = searchEmail.trim()
@@ -8122,13 +8132,14 @@ function AddTestManager() {
     setNewFolderName(""); setShowNewFolder(false);
   };
   const deleteFolder = async (name) => {
-    // Remove folder from all tests that had it
     const db = loadDB();
-    db.tests = (db.tests||[]).map(t => t.folderName===name ? {...t, folderName:null} : t);
-    db.sectionFolders = folders.filter(f => f !== name);
+    const cleared = (db.tests||[]).map(t => t.folderName===name ? {...t, folderName:null} : t);
+    db.tests = cleared; db.sectionFolders = folders.filter(f => f !== name);
     setTests(db.tests); setFolders(db.sectionFolders);
     try{ localStorage.setItem(DB_KEY, JSON.stringify(db)); }catch{}
     await _flushConfig(db);
+    // Persist folderName removal to test_item rows so other devices see it
+    await Promise.allSettled(cleared.filter(t=>t.folderName==null).map(t=>_upsertTestRow(t)));
   };
   const moveTestToFolder = async (testId, folderName) => {
     const db = loadDB();
@@ -8136,6 +8147,8 @@ function AddTestManager() {
     setTests(db.tests);
     try{ localStorage.setItem(DB_KEY, JSON.stringify(db)); }catch{}
     await _flushConfig(db);
+    const moved = (db.tests||[]).find(t=>t.id===testId);
+    if(moved) _upsertTestRow(moved).catch(()=>{});
     setMovingTestId(null);
   };
 
@@ -8962,6 +8975,7 @@ export default function App() {
     const curDbAS = loadDB();
     curDbAS.participants = [partial, ...(curDbAS.participants||[]).filter(p=>p.id!==partial.id)];
     try { localStorage.setItem(DB_KEY, JSON.stringify(curDbAS)); } catch{}
+    notifyDbChange();
     // Supabase INSERT — always fresh row ID to bypass RLS UPDATE block
     if(supabase) {
       try {

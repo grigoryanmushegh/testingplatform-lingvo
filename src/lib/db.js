@@ -40,7 +40,11 @@ export const _flushConfig = async db => {
     speakingSlots: db.speakingSlots||[], bookings: db.bookings||[],
     scoreOverrides: db.scoreOverrides||{}, adminUsers: db.adminUsers||[],
     listeningAudioUrl: db.listeningAudioUrl||"", openaiKey: db.openaiKey||"",
-    deletedAssignmentIds: db.deletedAssignmentIds||[]
+    deletedAssignmentIds: db.deletedAssignmentIds||[],
+    sectionFolders: db.sectionFolders||[],
+    aiSpeakingEnabled: db.aiSpeakingEnabled||false,
+    speakingQuestions: db.speakingQuestions||null,
+    ...(db._lastRegTs ? { _lastRegTs: db._lastRegTs } : {}),
   };
   for(let attempt=0; attempt<3; attempt++){
     try {
