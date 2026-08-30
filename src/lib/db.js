@@ -14,6 +14,8 @@ export const _emptyDB = () => ({
 export let   _db      = _emptyDB();
 export let   _flushTmr = null;
 let _lastNeedsPushAttempt = 0;
+let _lastTestItemFetch = 0;
+let _cachedTestItemRows = null;
 
 // ── Admin auth helpers ─────────────────────────────────────────────────────────
 export async function hashPassword(pw) {
@@ -219,27 +221,46 @@ async function _fetchConfigOnly(timeoutMs=6000) {
 
 // Phase 2: fetch participants + test_item rows — heavier, runs in background after UI is shown.
 async function _fetchParticipantsAndTests(timeoutMs=10000) {
-  const withTimeout = p => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),timeoutMs))]);
+  const withTimeout = (p, ms=timeoutMs) => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),ms))]);
+
+  // Only fetch participants from the last 14 days — old data is already in localStorage.
+  // This keeps the query small (~5-20MB instead of 50-150MB) so it actually succeeds.
+  const cutoff14d = new Date(Date.now() - 14*24*60*60*1000).toISOString();
+
+  // Test_item rows are large and rarely change — cache for 10 minutes to avoid hammering Supabase.
+  const testItemCacheStale = Date.now() - _lastTestItemFetch > 10*60*1000;
+
   const [rowsResult, testRowsResult] = await Promise.allSettled([
     withTimeout(
       supabase.from("participants")
         .select("id,email,type,data")
         .not("type","in","(test_item,test_del)")
+        .gte("created_at", cutoff14d)
         .order("created_at",{ascending:false})
-        .limit(300)
+        .limit(150)
     ),
-    withTimeout(
-      supabase.from("participants")
-        .select("data,created_at")
-        .eq("type","test_item")
-        .order("created_at",{ascending:false})
-        .limit(200)
-    ),
+    testItemCacheStale
+      ? withTimeout(
+          supabase.from("participants")
+            .select("data,created_at")
+            .eq("type","test_item")
+            .order("created_at",{ascending:false})
+            .limit(200),
+          20000  // longer timeout — tests are large but don't change often
+        )
+      : Promise.resolve({ data: _cachedTestItemRows, error: null }),
   ]);
   const allRows      = rowsResult.status==="fulfilled"     ? rowsResult.value.data     : null;
   const rowsErr      = rowsResult.status==="fulfilled"     ? rowsResult.value.error    : {message:"timeout"};
-  const testItemRows = testRowsResult.status==="fulfilled" ? testRowsResult.value.data : null;
+  let   testItemRows = testRowsResult.status==="fulfilled" ? testRowsResult.value.data : null;
   if(rowsErr) console.warn("[DB] participants query error:",rowsErr.message);
+  // Update test_item cache only on a successful fresh fetch
+  if(testItemCacheStale && testItemRows) {
+    _cachedTestItemRows = testItemRows;
+    _lastTestItemFetch = Date.now();
+  } else if(!testItemCacheStale) {
+    testItemRows = _cachedTestItemRows;
+  }
   return { allRows, rowsErr, testItemRows };
 }
 
@@ -319,10 +340,11 @@ export async function reloadDB() {
 
       // Participants: table rows (pts) are the cross-device source of truth.
       // Also merge legacy blob participants and cached memory so nothing is lost.
+      // cachedPts goes first so full-data localStorage records win dedup over any stripped table rows.
       const { pts }   = _processRows(allRows);
       const blobPts   = base.participants || []; // legacy fallback (old blobs had participants)
       const cachedPts = _db.participants?.length > 0 ? _db.participants : (local.participants||[]);
-      const allPts    = [...pts, ...blobPts, ...cachedPts];
+      const allPts    = [...cachedPts, ...pts, ...blobPts];
 
       // Deduplicate & apply score overrides — sort newest-first so the most complete record wins
       allPts.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
