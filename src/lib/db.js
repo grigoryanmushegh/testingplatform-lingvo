@@ -209,7 +209,7 @@ function _smartMerge(supabaseBase, local) {
 // are intentionally excluded from the participants query — they are large and
 // tests are authoritative in the blob. Participant rows are capped at 1000
 // (ordered newest-first) so the query stays fast even with hundreds of entries.
-async function _fetchFromSupabase(timeoutMs=12000) {
+async function _fetchFromSupabase(timeoutMs=8000) {
   const withTimeout = promise => Promise.race([
     promise,
     new Promise((_,reject)=>setTimeout(()=>reject(new Error("Supabase fetch timeout")),timeoutMs))
@@ -221,7 +221,7 @@ async function _fetchFromSupabase(timeoutMs=12000) {
         .select("id,email,type,data")
         .not("type","in","(test_item,test_del)")
         .order("created_at",{ascending:false})
-        .limit(3000)
+        .limit(1500)
     ),
   ]);
   const cfg     = cfgResult.status==="fulfilled"   ? cfgResult.value.data   : null;
