@@ -5577,9 +5577,10 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
 
   const doAssign = async () => {
     const db = loadDB();
+    const normEmail = (candidateEmail||"").trim().toLowerCase();
     if(assignMode==="suite") {
       if(!assignSuiteId) return;
-      const a = {id:genId("ASGN"),email:candidateEmail,suiteId:assignSuiteId,assignedAt:Date.now(),used:false};
+      const a = {id:genId("ASGN"),email:normEmail,suiteId:assignSuiteId,assignedAt:Date.now(),used:false};
       await dbSaveNow("assignments",[a,...(db.assignments||[])]);
     } else {
       if(!assignModuleType) return;
@@ -5588,7 +5589,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
       const modLabel = {reading:"Reading",writing1:"Writing Task 1",writing2:"Writing Task 2",listening:"Listening"};
       const suitePatch = {[modMap[assignModuleType]]: assignModuleTestId||null};
       // Only the chosen module is set; others null = built-in (will be skipped by test flow)
-      const a = {id:genId("ASGN"),email:candidateEmail,singleModule:assignModuleType,
+      const a = {id:genId("ASGN"),email:normEmail,singleModule:assignModuleType,
         suiteId:null, ...suitePatch,
         label:`${modLabel[assignModuleType]} only`,assignedAt:Date.now(),used:false};
       await dbSaveNow("assignments",[a,...(db.assignments||[])]);
