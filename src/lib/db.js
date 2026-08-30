@@ -205,17 +205,19 @@ function _smartMerge(supabaseBase, local) {
 }
 
 // ── Shared load helper ─────────────────────────────────────────────────────────
-// Fetches config blob + recent participant rows + test_item rows for recovery.
-// Participant rows exclude test_item/test_del (capped at 1500 newest-first).
-// test_item rows are fetched separately (newest 300) and merged into tests so
-// the blob can never silently lose a test due to a race-condition flush.
-async function _fetchFromSupabase(timeoutMs=8000) {
-  const withTimeout = promise => Promise.race([
-    promise,
-    new Promise((_,reject)=>setTimeout(()=>reject(new Error("Supabase fetch timeout")),timeoutMs))
-  ]);
-  const [cfgResult, rowsResult, testRowsResult] = await Promise.allSettled([
-    withTimeout(supabase.from("ielts_store").select("data").eq("id","main").single()),
+// Phase 1: fetch only config blob — tiny single-row query, fast even during PostgREST startup.
+async function _fetchConfigOnly(timeoutMs=6000) {
+  const withTimeout = p => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),timeoutMs))]);
+  try {
+    const { data, error } = await withTimeout(supabase.from("ielts_store").select("data").eq("id","main").single());
+    return { cfg: data, cfgErr: error };
+  } catch(e) { return { cfg: null, cfgErr: { message: e.message } }; }
+}
+
+// Phase 2: fetch participants + test_item rows — heavier, runs in background after UI is shown.
+async function _fetchParticipantsAndTests(timeoutMs=10000) {
+  const withTimeout = p => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),timeoutMs))]);
+  const [rowsResult, testRowsResult] = await Promise.allSettled([
     withTimeout(
       supabase.from("participants")
         .select("id,email,type,data")
@@ -231,12 +233,17 @@ async function _fetchFromSupabase(timeoutMs=8000) {
         .limit(200)
     ),
   ]);
-  const cfg          = cfgResult.status==="fulfilled"      ? cfgResult.value.data      : null;
-  const cfgErr       = cfgResult.status==="fulfilled"      ? cfgResult.value.error     : {message:"timeout",code:"TIMEOUT"};
   const allRows      = rowsResult.status==="fulfilled"     ? rowsResult.value.data     : null;
   const rowsErr      = rowsResult.status==="fulfilled"     ? rowsResult.value.error    : {message:"timeout"};
   const testItemRows = testRowsResult.status==="fulfilled" ? testRowsResult.value.data : null;
   if(rowsErr) console.warn("[DB] participants query error:",rowsErr.message);
+  return { allRows, rowsErr, testItemRows };
+}
+
+// Legacy combined fetch (used by reloadDB)
+async function _fetchFromSupabase(timeoutMs=8000) {
+  const { cfg, cfgErr } = await _fetchConfigOnly(timeoutMs);
+  const { allRows, rowsErr, testItemRows } = await _fetchParticipantsAndTests(timeoutMs);
   return { cfg, cfgErr, allRows, rowsErr, testItemRows };
 }
 
@@ -350,7 +357,7 @@ export function quickInit() {
 }
 
 export async function initDB() {
-  // Pre-load localStorage so we always have something to show
+  // Pre-load localStorage so there's always something to show instantly
   let local = {};
   try { local = JSON.parse(localStorage.getItem(DB_KEY)||"null") || {}; } catch {}
   if(local && Object.keys(local).length > 0) {
@@ -358,80 +365,82 @@ export async function initDB() {
     console.log(`[DB] initDB: pre-loaded localStorage (tests=${_db.tests?.length||0}, participants=${_db.participants?.length||0})`);
   }
 
-  if(supabase){
-    for(let attempt=0; attempt<2; attempt++){
-      try{
-        if(attempt>0) await new Promise(r=>setTimeout(r,1200));
-        const { cfg, cfgErr, allRows, rowsErr } = await _fetchFromSupabase(10000);
-        console.log(`[DB] initDB attempt ${attempt+1}: cfg=${cfg?.data?"ok":"empty"} cfgErr=${cfgErr?.message||"none"} rows=${allRows?.length??'null'} rowsErr=${rowsErr?.message||"none"}`);
+  if(!supabase) return;
 
-        // PGRST116 = no rows found (config not yet created) — that's OK, continue
-        if(cfgErr && cfgErr.code !== "PGRST116"){
-          console.warn("[DB] initDB: config fetch error, attempt",attempt+1,":",cfgErr.message);
-          if(attempt===0) continue;
-          break;
-        }
-
-        const base = cfg?.data || {};
-
-        const hasSupabaseConfig = (base.testSuites?.length||0)>0 || (base.assignments?.length||0)>0
-                                || (base.speakingSlots?.length||0)>0;
-        let finalBase, needsPush;
-        if(hasSupabaseConfig){
-          ({ merged: finalBase, needsPush } = _smartMerge(base, local));
-        } else if((local.testSuites?.length||0)>0||(local.assignments?.length||0)>0){
-          finalBase = { ...local, scoreOverrides: base.scoreOverrides||{} };
-          needsPush = true;
-          console.warn("[DB] initDB: Supabase config empty, restoring from localStorage");
-        } else {
-          finalBase = {...base};
-          needsPush = false;
-        }
-
-        // Tests: blob is authoritative. Also preserve any tests saved locally during fetch.
-        const blobTests = base.tests || [];
-        let freshLS = {};
-        try { freshLS = JSON.parse(localStorage.getItem(DB_KEY)||"null") || {}; } catch {}
-        const freshLocalTests = freshLS.tests || local.tests || [];
-        const blobIds = new Set(blobTests.map(t => t.id));
-        const localOnlyTests = freshLocalTests.filter(t => t.id && !blobIds.has(t.id));
-        if(localOnlyTests.length > 0)
-          console.log(`[DB] initDB: preserving ${localOnlyTests.length} local-only tests saved during network fetch`);
-        finalBase.tests = [...blobTests, ...localOnlyTests];
-
-        // Participants: table rows are the cross-device source, blob/cache fill gaps.
-        const { pts }   = _processRows(allRows);
-        const blobPts   = base.participants || []; // legacy fallback
-        const cachedPts = local.participants || [];
-        const freshPts  = freshLS.participants || [];
-        const allPts    = [...pts, ...blobPts, ...cachedPts, ...freshPts];
-
-        // Sort newest-first so the most complete record wins deduplication
-        allPts.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
-        const seen = new Set();
-        const deduped = allPts.filter(p=>{ const k=p.id; if(!k||seen.has(k)) return false; seen.add(k); return true; });
-        const overrides = finalBase.scoreOverrides||{};
-        const withOverrides = deduped.map(p=> overrides[p.id] ? {...p,...overrides[p.id]} : p);
-
-        _db = {..._emptyDB(), ...finalBase, participants: withOverrides};
-        try{ localStorage.setItem(DB_KEY,JSON.stringify(_db)); }catch{}
-        console.log(`[DB] initDB ✓ tests=${_db.tests?.length||0} (blob=${blobTests.length}), participants=${_db.participants?.length||0} (table=${pts.length}), suites=${_db.testSuites?.length||0}`);
-
-        if(needsPush){
-          console.warn("[DB] initDB: pushing merged config to Supabase...");
-          _flushConfig(_db);
-        }
-        _notifyChange(); // update all subscribed components with fresh data
-        return;
-      }catch(e){
-        console.warn(`[DB] initDB attempt ${attempt+1} error:`,e);
+  // ── Phase 1: config blob only (tiny query — succeeds even on PostgREST startup) ──
+  let base = {};
+  for(let attempt=0; attempt<2; attempt++){
+    try{
+      if(attempt>0) await new Promise(r=>setTimeout(r,1500));
+      const { cfg, cfgErr } = await _fetchConfigOnly(6000);
+      console.log(`[DB] initDB attempt ${attempt+1}: cfg=${cfg?.data?"ok":"empty"} cfgErr=${cfgErr?.message||"none"}`);
+      if(cfgErr && cfgErr.code !== "PGRST116"){
+        console.warn("[DB] initDB: config fetch error, attempt",attempt+1,":",cfgErr.message);
         if(attempt===0) continue;
+        break;
       }
+      base = cfg?.data || {};
+
+      const hasSupabaseConfig = (base.testSuites?.length||0)>0 || (base.assignments?.length||0)>0
+                              || (base.speakingSlots?.length||0)>0;
+      let finalBase, needsPush;
+      if(hasSupabaseConfig){
+        ({ merged: finalBase, needsPush } = _smartMerge(base, local));
+      } else if((local.testSuites?.length||0)>0||(local.assignments?.length||0)>0){
+        finalBase = { ...local, scoreOverrides: base.scoreOverrides||{} };
+        needsPush = true;
+        console.warn("[DB] initDB: Supabase config empty, restoring from localStorage");
+      } else {
+        finalBase = {...base}; needsPush = false;
+      }
+
+      // Tests: keep blob + any local-only tests not yet synced
+      const blobTests = base.tests || [];
+      const blobIds = new Set(blobTests.map(t=>t.id));
+      const localOnlyTests = (local.tests||[]).filter(t=>t.id && !blobIds.has(t.id));
+      finalBase.tests = [...blobTests, ...localOnlyTests];
+
+      // Show UI immediately with config + cached participants
+      _db = {..._emptyDB(), ...finalBase, participants: local.participants||[]};
+      try{ localStorage.setItem(DB_KEY,JSON.stringify(_db)); }catch{}
+      console.log(`[DB] initDB phase1 ✓ tests=${_db.tests?.length||0} (blob=${blobTests.length}), suites=${_db.testSuites?.length||0}`);
+      _notifyChange();
+
+      if(needsPush) { console.warn("[DB] initDB: pushing config to Supabase..."); _flushConfig(_db); }
+
+      // ── Phase 2: participants + test_item rows in background ──
+      _fetchParticipantsAndTests(12000).then(({ allRows, testItemRows }) => {
+        const { pts } = _processRows(allRows);
+        // Merge test_item rows (newest version of each test wins)
+        const seenIds = new Set();
+        const rowTests = (testItemRows||[]).map(r=>r.data).filter(t=>t?.id && !seenIds.has(t.id) && seenIds.add(t.id));
+        const existingTests = (_db.tests||[]).filter(t=>t?.id && !seenIds.has(t.id) && seenIds.add(t.id));
+        const mergedTests = [...rowTests, ...existingTests];
+
+        const allPts = [...pts, ...(base.participants||[]), ...(_db.participants||[])];
+        allPts.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
+        const seenPts = new Set();
+        const deduped = allPts.filter(p=>{const k=p.id;if(!k||seenPts.has(k))return false;seenPts.add(k);return true;});
+        const overrides = _db.scoreOverrides||{};
+        const withOverrides = deduped.map(p=>overrides[p.id]?{...p,...overrides[p.id]}:p);
+
+        _db = {..._db, tests: mergedTests, participants: withOverrides};
+        try{ localStorage.setItem(DB_KEY,JSON.stringify(_db)); }catch{}
+        console.log(`[DB] initDB phase2 ✓ tests=${mergedTests.length} (row=${rowTests.length}), participants=${withOverrides.length} (table=${pts.length})`);
+
+        // Sync merged tests back to blob if we recovered more than it had
+        if(rowTests.length>0 && mergedTests.length>(base.tests||[]).length){
+          setTimeout(()=>_flushConfig(_db), 2000);
+        }
+        _notifyChange();
+      }).catch(e=>console.warn("[DB] initDB phase2 error:",e));
+      return;
+    }catch(e){
+      console.warn(`[DB] initDB attempt ${attempt+1} error:`,e);
+      if(attempt===0) continue;
     }
-    console.warn("[DB] initDB: Supabase unreachable, using localStorage data");
-    // _db already pre-loaded from localStorage above
   }
-  // If no supabase, _db is already set from localStorage pre-load above
+  console.warn("[DB] initDB: Supabase unreachable, using localStorage data");
 }
 
 export const genId = p => `${p}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
