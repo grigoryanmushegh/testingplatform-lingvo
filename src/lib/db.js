@@ -205,16 +205,16 @@ function _smartMerge(supabaseBase, local) {
 }
 
 // ── Shared load helper ─────────────────────────────────────────────────────────
-// Fetches config blob + recent participant rows. Test rows (test_item/test_del)
-// are intentionally excluded from the participants query — they are large and
-// tests are authoritative in the blob. Participant rows are capped at 1000
-// (ordered newest-first) so the query stays fast even with hundreds of entries.
+// Fetches config blob + recent participant rows + test_item rows for recovery.
+// Participant rows exclude test_item/test_del (capped at 1500 newest-first).
+// test_item rows are fetched separately (newest 300) and merged into tests so
+// the blob can never silently lose a test due to a race-condition flush.
 async function _fetchFromSupabase(timeoutMs=8000) {
   const withTimeout = promise => Promise.race([
     promise,
     new Promise((_,reject)=>setTimeout(()=>reject(new Error("Supabase fetch timeout")),timeoutMs))
   ]);
-  const [cfgResult, rowsResult] = await Promise.allSettled([
+  const [cfgResult, rowsResult, testRowsResult] = await Promise.allSettled([
     withTimeout(supabase.from("ielts_store").select("data").eq("id","main").single()),
     withTimeout(
       supabase.from("participants")
@@ -223,13 +223,21 @@ async function _fetchFromSupabase(timeoutMs=8000) {
         .order("created_at",{ascending:false})
         .limit(1500)
     ),
+    withTimeout(
+      supabase.from("participants")
+        .select("data,created_at")
+        .eq("type","test_item")
+        .order("created_at",{ascending:false})
+        .limit(300)
+    ),
   ]);
-  const cfg     = cfgResult.status==="fulfilled"   ? cfgResult.value.data   : null;
-  const cfgErr  = cfgResult.status==="fulfilled"   ? cfgResult.value.error  : {message:"timeout",code:"TIMEOUT"};
-  const allRows = rowsResult.status==="fulfilled"  ? rowsResult.value.data  : null;
-  const rowsErr = rowsResult.status==="fulfilled"  ? rowsResult.value.error : {message:"timeout"};
+  const cfg          = cfgResult.status==="fulfilled"      ? cfgResult.value.data      : null;
+  const cfgErr       = cfgResult.status==="fulfilled"      ? cfgResult.value.error     : {message:"timeout",code:"TIMEOUT"};
+  const allRows      = rowsResult.status==="fulfilled"     ? rowsResult.value.data     : null;
+  const rowsErr      = rowsResult.status==="fulfilled"     ? rowsResult.value.error    : {message:"timeout"};
+  const testItemRows = testRowsResult.status==="fulfilled" ? testRowsResult.value.data : null;
   if(rowsErr) console.warn("[DB] participants query error:",rowsErr.message);
-  return { cfg, cfgErr, allRows, rowsErr };
+  return { cfg, cfgErr, allRows, rowsErr, testItemRows };
 }
 
 function _processRows(allRows) {
@@ -262,7 +270,7 @@ async function _migrateBlobTests(blobOnly) {
 export async function reloadDB() {
   if(supabase){
     try{
-      const { cfg, cfgErr, allRows, rowsErr } = await _fetchFromSupabase();
+      const { cfg, cfgErr, allRows, rowsErr, testItemRows } = await _fetchFromSupabase();
       const base = cfg?.data || {};
 
       let local = {};
@@ -280,12 +288,19 @@ export async function reloadDB() {
         ({ merged: finalBase, needsPush } = _smartMerge(base, local));
       }
 
-      // Tests: blob is authoritative. Also preserve in-memory tests not yet confirmed in Supabase.
-      const blobTests = base.tests || [];
-      const memTests  = _db.tests || local.tests || [];
-      const blobIds   = new Set(blobTests.map(t => t.id));
-      const localOnlyTests = memTests.filter(t => t.id && !blobIds.has(t.id));
-      finalBase.tests = [...blobTests, ...localOnlyTests];
+      // Tests: union of blob + test_item rows (newest version of each wins) + local-only.
+      // test_item rows are the permanent per-test backup written on every save, so even
+      // if the blob gets overwritten with a stale/short list the tests are recovered here.
+      const seenTestIds = new Set();
+      const rowTests = (testItemRows||[])
+        .map(r => r.data).filter(t => t?.id && !seenTestIds.has(t.id) && seenTestIds.add(t.id));
+      const blobTests = (base.tests||[]).filter(t => t?.id && !seenTestIds.has(t.id) && seenTestIds.add(t.id));
+      const memTests  = (_db.tests || local.tests || []).filter(t => t?.id && !seenTestIds.has(t.id));
+      finalBase.tests = [...rowTests, ...blobTests, ...memTests];
+      // If we recovered more tests from rows than the blob had, push the merged set back.
+      if(rowTests.length > 0 && finalBase.tests.length > (base.tests||[]).length){
+        setTimeout(() => _flushConfig({..._db, tests: finalBase.tests}), 2000);
+      }
 
       // adminUsers: preserve in-memory entries not yet confirmed in Supabase/localStorage.
       const mergedAdminIds = new Set((finalBase.adminUsers||[]).map(u=>u.id).filter(Boolean));
