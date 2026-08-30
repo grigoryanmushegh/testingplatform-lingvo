@@ -5571,7 +5571,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
   // All assignments (past + pending) for this candidate
   const db0 = loadDB();
   const allMyAssignments = (db0.assignments||[])
-    .filter(a=>a.email===candidateEmail && !removedAssignIds.has(a.id))
+    .filter(a=>a.email===(candidateEmail||"").trim().toLowerCase() && !removedAssignIds.has(a.id))
     .sort((a,b)=>b.assignedAt-a.assignedAt);
   const suiteName = id => (db0.testSuites||[]).find(s=>s.id===id)?.name||"(deleted suite)";
 
@@ -5594,6 +5594,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
         label:`${modLabel[assignModuleType]} only`,assignedAt:Date.now(),used:false};
       await dbSaveNow("assignments",[a,...(db.assignments||[])]);
     }
+    notifyDbChange();
     setAssignMsg("✓ Assignment saved!");
     setTimeout(()=>setAssignMsg(""),3000);
   };
