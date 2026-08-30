@@ -452,6 +452,7 @@ export const genId = p => `${p}-${Date.now().toString(36).toUpperCase()}-${Math.
 
 const _changeListeners = new Set();
 let   _realtimeChannel = null;
+let   _participantChannel = null;
 
 // Called internally after every remote sync (reloadDB, initDB, Realtime push).
 // Also exported so local writes (registration, etc.) can push instantly to all listeners.
@@ -505,6 +506,30 @@ export function onDbChange(cb) {
           console.warn("[DB] Realtime: not available (polling-only mode). Status:", status);
         else
           console.log("[DB] Realtime status:", status);
+      });
+
+    // Second channel: watch participants table INSERTs so admin sees new
+    // registrations and test completions immediately without waiting 60s.
+    let _participantReloadTimer = null;
+    _participantChannel = supabase
+      .channel("participants-inserts")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "participants" },
+        () => {
+          // Debounce: multiple concurrent inserts (autoSave modules) → one reload
+          clearTimeout(_participantReloadTimer);
+          _participantReloadTimer = setTimeout(() => {
+            console.log("[DB] ⚡ Realtime: new participant row — refreshing");
+            reloadDB();
+          }, 1500);
+        }
+      )
+      .subscribe(status => {
+        if (status === "SUBSCRIBED")
+          console.log("[DB] ✓ Realtime: watching participants table");
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT")
+          console.warn("[DB] Realtime participants: polling-only mode. Status:", status);
       });
   }
 
