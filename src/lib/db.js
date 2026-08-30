@@ -32,12 +32,10 @@ export function setAdminSession(s) {
 // Belt-and-suspenders: blob is the authoritative source, rows are cross-device safety net.
 export const _flushConfig = async db => {
   if(!supabase) return false;
-  // Participants are NOT stored in the blob — they live exclusively in the
-  // participants table (individual rows, inserted by _insertParticipant /
-  // handleRegComplete / autoSave). Keeping them here made the blob grow into
-  // hundreds of KB with 500+ candidates, causing frequent write timeouts.
+  // Tests live in individual test_item rows — NOT in the blob.
+  // Participants live in individual rows too.
+  // The blob is ONLY small config data so writes stay fast and never timeout.
   const cfg = {
-    tests: db.tests||[],
     testSuites: db.testSuites||[], assignments: db.assignments||[],
     speakingSlots: db.speakingSlots||[], bookings: db.bookings||[],
     scoreOverrides: db.scoreOverrides||{}, adminUsers: db.adminUsers||[],
@@ -304,10 +302,6 @@ export async function reloadDB() {
       const blobTests = (base.tests||[]).filter(t => t?.id && !seenTestIds.has(t.id) && seenTestIds.add(t.id));
       const memTests  = (_db.tests || local.tests || []).filter(t => t?.id && !seenTestIds.has(t.id));
       finalBase.tests = [...rowTests, ...blobTests, ...memTests];
-      // If we recovered more tests from rows than the blob had, push the merged set back.
-      if(rowTests.length > 0 && finalBase.tests.length > (base.tests||[]).length){
-        setTimeout(() => _flushConfig({..._db, tests: finalBase.tests}), 2000);
-      }
 
       // adminUsers: preserve in-memory entries not yet confirmed in Supabase/localStorage.
       const mergedAdminIds = new Set((finalBase.adminUsers||[]).map(u=>u.id).filter(Boolean));
@@ -428,10 +422,6 @@ export async function initDB() {
         try{ localStorage.setItem(DB_KEY,JSON.stringify(_db)); }catch{}
         console.log(`[DB] initDB phase2 ✓ tests=${mergedTests.length} (row=${rowTests.length}), participants=${withOverrides.length} (table=${pts.length})`);
 
-        // Sync merged tests back to blob if we recovered more than it had
-        if(rowTests.length>0 && mergedTests.length>(base.tests||[]).length){
-          setTimeout(()=>_flushConfig(_db), 2000);
-        }
         _notifyChange();
       }).catch(e=>console.warn("[DB] initDB phase2 error:",e));
       return;
