@@ -4756,7 +4756,7 @@ function AdminDashboard({ onExit }) {
     // Instant update on any remote change (Realtime push or completed poll)
     const unsub = onDbChange(freshDb => setDb({...freshDb}));
     refresh();
-    const t = setInterval(refresh, 8000);
+    const t = setInterval(refresh, 60000);
     return()=>{ unsub(); clearInterval(t); };
   },[]);
   // Also refresh immediately whenever the admin switches to participants/overview tab
@@ -6663,7 +6663,7 @@ function TestSuiteManager() {
   useEffect(()=>{
     const unsub = onDbChange(db => { setSuites(db.testSuites||[]); setAllSections(db.tests||[]); });
     refresh();
-    const t = setInterval(refresh, 8000);
+    const t = setInterval(refresh, 60000);
     return()=>{ unsub(); clearInterval(t); };
   },[]);
 
@@ -7021,7 +7021,7 @@ function AssignManager() {
       setParticipants(db.participants||[]);
     });
     refresh();
-    const t = setInterval(refresh, 8000);
+    const t = setInterval(refresh, 60000);
     return()=>{ unsub(); clearInterval(t); };
   },[]);
 
