@@ -470,20 +470,13 @@ export function onDbChange(cb) {
           if (!incoming) return;
           console.log("[DB] ⚡ Realtime push — merging remote changes");
 
-          // Merge incoming blob with current _db, preserving local-only items.
-          const remoteTests = incoming.tests || [];
-          const remoteIds   = new Set(remoteTests.map(t => t.id));
-          const localOnly   = (_db.tests || []).filter(t => t.id && !remoteIds.has(t.id));
-
-          const rPts   = incoming.participants || [];
-          const rPtIds = new Set(rPts.map(p => p.id));
-          const lPts   = (_db.participants || []).filter(p => p.id && !rPtIds.has(p.id));
-
+          // Blob now holds only config (assignments, suites, slots, etc.) — no tests or participants.
+          // Spread blob over current _db, preserving tests and participants from memory.
           _db = {
             ..._db,
             ...incoming,
-            tests:        [...remoteTests, ...localOnly],
-            participants: [...rPts, ...lPts],
+            tests:        _db.tests || [],        // tests live in test_item rows, not blob
+            participants: _db.participants || [],  // participants live in table rows, not blob
           };
           try { localStorage.setItem(DB_KEY, JSON.stringify(_db)); } catch {}
           _notifyChange();
