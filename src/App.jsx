@@ -5578,25 +5578,30 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
   const doAssign = async () => {
     const db = loadDB();
     const normEmail = (candidateEmail||"").trim().toLowerCase();
+    if(!normEmail) { setAssignMsg("⚠ No email for this candidate"); return; }
+    let a;
     if(assignMode==="suite") {
-      if(!assignSuiteId) return;
-      const a = {id:genId("ASGN"),email:normEmail,suiteId:assignSuiteId,assignedAt:Date.now(),used:false};
-      await dbSaveNow("assignments",[a,...(db.assignments||[])]);
+      if(!assignSuiteId) { setAssignMsg("⚠ Select a test suite first"); return; }
+      a = {id:genId("ASGN"),email:normEmail,suiteId:assignSuiteId,assignedAt:Date.now(),used:false};
     } else {
-      if(!assignModuleType) return;
-      // Build a single-module suite on the fly
+      if(!assignModuleType) { setAssignMsg("⚠ Select a module first"); return; }
       const modMap = {reading:"readingId",writing1:"writing1Id",writing2:"writing2Id",listening:"listeningId"};
       const modLabel = {reading:"Reading",writing1:"Writing Task 1",writing2:"Writing Task 2",listening:"Listening"};
       const suitePatch = {[modMap[assignModuleType]]: assignModuleTestId||null};
-      // Only the chosen module is set; others null = built-in (will be skipped by test flow)
-      const a = {id:genId("ASGN"),email:normEmail,singleModule:assignModuleType,
+      a = {id:genId("ASGN"),email:normEmail,singleModule:assignModuleType,
         suiteId:null, ...suitePatch,
         label:`${modLabel[assignModuleType]} only`,assignedAt:Date.now(),used:false};
-      await dbSaveNow("assignments",[a,...(db.assignments||[])]);
     }
+    const newList = [a,...(db.assignments||[])];
+    setAssignMsg("⏳ Saving…");
+    const ok = await dbSaveNow("assignments", newList);
     notifyDbChange();
-    setAssignMsg("✓ Assignment saved!");
-    setTimeout(()=>setAssignMsg(""),3000);
+    if(ok) {
+      setAssignMsg("✓ Assignment saved!");
+    } else {
+      setAssignMsg("⚠ Cloud save failed — saved locally. Student may not see it until cloud reconnects.");
+    }
+    setTimeout(()=>setAssignMsg(""),5000);
   };
 
   return (
@@ -8538,7 +8543,8 @@ function peekAssignment(email) {
   if(assignment) {
     if(assignment.singleModule) return {status:"assigned", suiteName: assignment.label||`${assignment.singleModule} only`};
     const suite = (db.testSuites||[]).find(s=>s.id===assignment.suiteId);
-    if(suite) return {status:"assigned", suiteName:suite.name};
+    // Return "assigned" even if suite data hasn't loaded yet — suites will arrive on next poll
+    return {status:"assigned", suiteName: suite?.name || "Assigned Test"};
   }
   return {status:"waiting"};
 }
