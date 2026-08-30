@@ -3165,7 +3165,7 @@ function exportResultsPDF({ candidateInfo, lBand, rBand, wBand, overall, L, R, W
 }
 
 // ── RESULTS ───────────────────────────────────────────────────────────────────
-function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId }) {
+function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId, speakingBand: propSpeakingBand }) {
   // Use raw (may be null) for sections not taken — avoids saving fake 0-scores
   const Lraw = scores.listening||null;
   const Rraw = scores.reading  ||null;
@@ -3178,7 +3178,8 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
   const rBand = Rraw ? readingBand(R.correct,   R.total) : null;
   const wBand = W.band ?? null;  // null if AI didn't check
   const aiChecked = wBand != null;
-  const allBands = [lBand, rBand, wBand].filter(b=>b!=null);
+  const sBand = propSpeakingBand??null;
+  const allBands = [lBand, rBand, wBand, sBand].filter(b=>b!=null);
   const overall = allBands.length ? overallBand(allBands) : 0;
   const bc = bandColor(overall);
   const info = candidateInfo||{name:"Candidate",email:""};
@@ -3196,6 +3197,7 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
       ...(Lraw ? {listeningScore:`${L.correct}/${L.total}`, listeningBand:lBand, listeningAnswers:L.answers, allListeningQuestions:L.allQuestions||[]} : {}),
       ...(Rraw ? {readingScore:`${R.correct}/${R.total}`,   readingBand:rBand,   readingAnswers:R.answers,   allReadingQuestions:R.allQuestions||[]}   : {}),
       ...(Wraw ? {writingBand:wBand, writingTexts:W.texts, writingFeedback:W.aiFeedback, writingAiDetection:W.aiDetection} : {}),
+      ...(sBand!=null ? {speakingBand:sBand} : {}),
     };
     // Save to local state + push to Supabase via dbPushNow
     dbPushNow("participants", record);
@@ -3212,7 +3214,7 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
     {name:"Listening",band:lBand,icon:"🎧",detail:`${L.correct}/${L.total} correct`},
     {name:"Reading",band:rBand,icon:"📖",detail:`${R.correct}/${R.total} correct`},
     {name:"Writing",band:wBand,icon:"✍️",detail:aiChecked?"AI evaluated":"Task not checked"},
-    {name:"Speaking",band:null,icon:"🗣️",detail:booking?`${booking.dateFormatted||booking.date} · ${booking.slot}`:"Booking pending"},
+    {name:"Speaking",band:sBand,icon:"🗣️",detail:sBand!=null?`AI Band: ${sBand}`:booking?`${booking.dateFormatted||booking.date} · ${booking.slot}`:"Booking pending"},
   ];
 
   return (
@@ -4905,8 +4907,14 @@ function AdminDashboard({ onExit }) {
       return {...p,...patch};
     });
 
-    // Save overrides to ielts_store (reliable — same table as tests/suites)
-    const updatedDb = {...loadDB(),participants:updatedPts,scoreOverrides};
+    // Save overrides to ielts_store — merge with existing to avoid destroying speaking/writing overrides
+    const curDb = loadDB();
+    const curOverrides = curDb.scoreOverrides || {};
+    const mergedOverrides = {...curOverrides};
+    for(const [id, patch] of Object.entries(scoreOverrides)) {
+      mergedOverrides[id] = {...(curOverrides[id]||{}), ...patch};
+    }
+    const updatedDb = {...curDb,participants:updatedPts,scoreOverrides:mergedOverrides};
     setInternalDb(updatedDb);
     try{localStorage.setItem(DB_KEY,JSON.stringify(updatedDb));}catch{}
     await _flushConfig(updatedDb); // writes scoreOverrides to Supabase ielts_store
@@ -5981,6 +5989,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                 const updDb={...curDb,participants:upPts,scoreOverrides:sOvrs2};
                                 setInternalDb(updDb);try{localStorage.setItem(DB_KEY,JSON.stringify(updDb));}catch{}
                                 await _flushConfig(updDb);
+                                notifyDbChange();
                                 const upAtts=(profile.attempts||[]).map(att=>(att===a||att.timestamp===a.timestamp)?{...att,...patch}:att);
                                 onUpdateProfile?.({...profile,attempts:upAtts});
                                 setRecheckStates(s=>({...s,[`ansOvr_${aKey}`]:{...s[`ansOvr_${aKey}`],lSaving:false,lSaved:true}}));
@@ -6099,6 +6108,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                 const updDb={...curDb,participants:upPts,scoreOverrides:sOvrs2};
                                 setInternalDb(updDb);try{localStorage.setItem(DB_KEY,JSON.stringify(updDb));}catch{}
                                 await _flushConfig(updDb);
+                                notifyDbChange();
                                 const upAtts=(profile.attempts||[]).map(att=>(att===a||att.timestamp===a.timestamp)?{...att,...patch}:att);
                                 onUpdateProfile?.({...profile,attempts:upAtts});
                                 setRecheckStates(s=>({...s,[`ansOvr_${aKey}`]:{...s[`ansOvr_${aKey}`],rSaving:false,rSaved:true}}));
@@ -6273,6 +6283,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                     setInternalDb(updDb5);
                                     try{localStorage.setItem(DB_KEY,JSON.stringify(updDb5));}catch{}
                                     await _flushConfig(updDb5);
+                                    notifyDbChange();
                                     const updAttempts5=(profile.attempts||[]).map(att=>att===a||att.timestamp===a.timestamp?{...att,...patch}:att);
                                     onUpdateProfile({...profile,attempts:updAttempts5});
                                     setRecheckStates(s=>({...s,[mKey]:{...s[mKey],loading:false,msg:errors.length?errors.join(" | "):"✓ Writing evaluated and saved!",error:errors.length>0,open:false,manualT1:"",manualT2:""}}));
@@ -6460,6 +6471,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                 setInternalDb(updatedDb4);
                                 try{localStorage.setItem(DB_KEY,JSON.stringify(updatedDb4));}catch{}
                                 await _flushConfig(updatedDb4);
+                                notifyDbChange();
                                 // Update profile so UI reflects new score immediately
                                 const updatedAttempts=(profile.attempts||[]).map(att=>
                                   att===a||att.timestamp===a.timestamp?{...att,speakingBand:val,overall:newOverall}:att
@@ -6640,6 +6652,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                   const updDb={...curDb,participants:upPts,scoreOverrides:sOvrs};
                   setInternalDb(updDb);try{localStorage.setItem(DB_KEY,JSON.stringify(updDb));}catch{}
                   await _flushConfig(updDb);
+                  notifyDbChange();
                   const upAtts=(profile.attempts||[]).map(att=>(att===p||att.timestamp===p.timestamp)?{...att,...patch}:att);
                   onUpdateProfile?.({...profile,attempts:upAtts});
                   setMs({saving:false,saved:true,listeningN:"",readingN:"",writingB:"",speakingB:""});
@@ -8133,13 +8146,14 @@ function AddTestManager() {
   };
   const deleteFolder = async (name) => {
     const db = loadDB();
+    const affectedTests = (db.tests||[]).filter(t => t.folderName===name);
     const cleared = (db.tests||[]).map(t => t.folderName===name ? {...t, folderName:null} : t);
     db.tests = cleared; db.sectionFolders = folders.filter(f => f !== name);
     setTests(db.tests); setFolders(db.sectionFolders);
     try{ localStorage.setItem(DB_KEY, JSON.stringify(db)); }catch{}
     await _flushConfig(db);
-    // Persist folderName removal to test_item rows so other devices see it
-    await Promise.allSettled(cleared.filter(t=>t.folderName==null).map(t=>_upsertTestRow(t)));
+    // Only upsert tests that were actually in the deleted folder
+    await Promise.allSettled(affectedTests.map(t => _upsertTestRow({...t, folderName:null})));
   };
   const moveTestToFolder = async (testId, folderName) => {
     const db = loadDB();
@@ -8569,6 +8583,7 @@ function resolveTestSuite(email) {
   if(assignment) {
     // Mark used immediately
     dbSaveNow("assignments", db.assignments.map(a=>a.id===assignment.id?{...a,used:true}:a));
+    notifyDbChange();
     // Single-module assignment
     if(assignment.singleModule) {
       return buildModuleData(assignment, db);
@@ -9141,6 +9156,7 @@ export default function App() {
                 reading:   scoresRef.current.reading  ||null,
                 writing:   scoresRef.current.writing  ||null,
               }}
+              speakingBand={speakingBand??null}
               candidateInfo={candidate||{name:"Candidate",email:""}}
               booking={booking}
               suiteName={activeSuite?.name}

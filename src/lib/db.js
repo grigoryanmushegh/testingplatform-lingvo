@@ -13,6 +13,7 @@ export const _emptyDB = () => ({
 });
 export let   _db      = _emptyDB();
 export let   _flushTmr = null;
+let _lastNeedsPushAttempt = 0;
 
 // ── Admin auth helpers ─────────────────────────────────────────────────────────
 export async function hashPassword(pw) {
@@ -335,8 +336,12 @@ export async function reloadDB() {
       console.log(`[DB] reloadDB ✓ tests=${_db.tests?.length||0} (blob=${blobTests.length}), participants=${_db.participants?.length||0} (table=${pts.length})`);
 
       if(needsPush){
-        console.warn("[DB] reloadDB: pushing merged config to Supabase...");
-        _flushConfig(_db);
+        const now = Date.now();
+        if(now - _lastNeedsPushAttempt > 30000) {
+          _lastNeedsPushAttempt = now;
+          console.warn("[DB] reloadDB: pushing merged config to Supabase...");
+          _flushConfig(_db);
+        }
       }
       _notifyChange(); // tell all subscribed components to re-render
       return;
