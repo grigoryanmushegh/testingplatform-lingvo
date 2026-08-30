@@ -221,7 +221,7 @@ async function _fetchParticipantsAndTests(timeoutMs=10000) {
         .select("id,email,type,data")
         .not("type","in","(test_item,test_del)")
         .order("created_at",{ascending:false})
-        .limit(800)
+        .limit(300)
     ),
     withTimeout(
       supabase.from("participants")
@@ -238,10 +238,14 @@ async function _fetchParticipantsAndTests(timeoutMs=10000) {
   return { allRows, rowsErr, testItemRows };
 }
 
-// Legacy combined fetch (used by reloadDB)
+// Legacy combined fetch (used by reloadDB) — runs both in parallel
 async function _fetchFromSupabase(timeoutMs=8000) {
-  const { cfg, cfgErr } = await _fetchConfigOnly(timeoutMs);
-  const { allRows, rowsErr, testItemRows } = await _fetchParticipantsAndTests(timeoutMs);
+  const [cfgResult, ptResult] = await Promise.allSettled([
+    _fetchConfigOnly(timeoutMs),
+    _fetchParticipantsAndTests(timeoutMs),
+  ]);
+  const { cfg, cfgErr } = cfgResult.status === "fulfilled" ? cfgResult.value : { cfg: null, cfgErr: { message: "timeout" } };
+  const { allRows, rowsErr, testItemRows } = ptResult.status === "fulfilled" ? ptResult.value : { allRows: null, rowsErr: { message: "timeout" }, testItemRows: null };
   return { cfg, cfgErr, allRows, rowsErr, testItemRows };
 }
 
@@ -470,8 +474,8 @@ export function onDbChange(cb) {
           if (!incoming) return;
           console.log("[DB] ⚡ Realtime push — merging remote changes");
 
-          // Blob now holds only config (assignments, suites, slots, etc.) — no tests or participants.
-          // Spread blob over current _db, preserving tests and participants from memory.
+          // Blob holds only config (assignments, suites, slots, etc.) — no tests or participants.
+          const prevRegTs = _db._lastRegTs || 0;
           _db = {
             ..._db,
             ...incoming,
@@ -480,6 +484,11 @@ export function onDbChange(cb) {
           };
           try { localStorage.setItem(DB_KEY, JSON.stringify(_db)); } catch {}
           _notifyChange();
+          // If a new registration was signalled, refresh the participants table in background
+          if((incoming._lastRegTs || 0) > prevRegTs) {
+            console.log("[DB] ⚡ New registration signal — refreshing participants");
+            setTimeout(() => reloadDB(), 500);
+          }
         }
       )
       .subscribe(status => {

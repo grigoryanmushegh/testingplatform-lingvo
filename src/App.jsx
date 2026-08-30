@@ -8913,11 +8913,11 @@ export default function App() {
     setCand(info);
     setStep(1);
 
-    // 3. Save to Supabase — individual row first (small, fast), then blob
+    // 3. Save to Supabase — row insert + blob signal so admin Realtime fires immediately
     const saveToCloud = async () => {
       const email = (info?.email||"").toLowerCase().trim();
-      // Individual row insert — the primary cross-device sync path
       if(supabase) {
+        // Insert individual row
         for(let attempt=0; attempt<3; attempt++){
           try{
             if(attempt>0) await new Promise(r=>setTimeout(r,1000*attempt));
@@ -8927,6 +8927,8 @@ export default function App() {
             console.warn(`[Reg] row insert attempt ${attempt+1} failed:`, error.message);
           }catch(e){ console.warn(`[Reg] row insert attempt ${attempt+1} error:`,e); }
         }
+        // Signal admins via blob Realtime — tiny write, triggers cross-device refresh instantly
+        _flushConfig({...loadDB(), _lastRegTs: Date.now()});
       }
     };
     saveToCloud();
