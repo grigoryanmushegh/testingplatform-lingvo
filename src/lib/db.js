@@ -221,14 +221,14 @@ async function _fetchFromSupabase(timeoutMs=8000) {
         .select("id,email,type,data")
         .not("type","in","(test_item,test_del)")
         .order("created_at",{ascending:false})
-        .limit(1500)
+        .limit(800)
     ),
     withTimeout(
       supabase.from("participants")
         .select("data,created_at")
         .eq("type","test_item")
         .order("created_at",{ascending:false})
-        .limit(300)
+        .limit(200)
     ),
   ]);
   const cfg          = cfgResult.status==="fulfilled"      ? cfgResult.value.data      : null;
