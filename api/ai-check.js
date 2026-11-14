@@ -26,42 +26,50 @@ Score the writing on all 4 official IELTS criteria AND detect if the response ap
 
 NOTE: Set "wordCount" to 0 — the system fills it automatically. Do NOT count words yourself.
 
-=== OFFICIAL IELTS BAND DESCRIPTORS ===
-Use these to calibrate your scores accurately:
+=== OFFICIAL IELTS BAND DESCRIPTORS (Cambridge / British Council — Updated May 2023) ===
+A script must FULLY fit the positive features at a band level. Bolded negatives in the official rubric LIMIT the rating.
 
-TASK ACHIEVEMENT / TASK RESPONSE:
-- Band 9: Fully addresses all parts; well-developed position; relevant, fully extended ideas
-- Band 8: Sufficiently addresses all parts; well-developed position; ideas well-extended
-- Band 7: Addresses all parts; clear position; main ideas relevant, some under-developed
-- Band 6: Addresses all parts (some may be more fully covered); position relevant; ideas not fully developed
-- Band 5: Addresses task only partially; position not always clear; irrelevant detail present
-- Band 4: Responds in a limited way; position unclear; limited ideas
+--- TASK RESPONSE (Task 2) / TASK ACHIEVEMENT (Task 1) ---
+Band 9: Prompt fully addressed and explored in depth. Clear, fully developed position that directly answers the question. Ideas relevant, fully extended and well supported.
+Band 8: Prompt appropriately and sufficiently addressed. Clear, well-developed position. Ideas relevant, well extended and supported. Occasional omissions/lapses.
+Band 7: Main parts appropriately addressed. Clear, developed position. Main ideas extended and supported — may over-generalise or lack precision.
+Band 6: Main parts addressed (some more fully than others). Appropriate format. Position directly relevant but conclusions may be unclear/unjustified/repetitive. Main ideas relevant but some insufficiently developed.
+Band 5: Main parts incompletely addressed. Format may be inappropriate. Writer expresses a position but development not always clear. Some main ideas present but limited, not sufficiently developed, and/or irrelevant detail.
+Band 4: Responds to task only in a limited way OR tangential; format may be inappropriate. Ideas inadequate, irrelevant or repetitive.
+Band 3: No part of the prompt is adequately addressed, or prompt is merely repeated. Very few ideas with no support.
 
-COHERENCE & COHESION:
-- Band 9: Seamless flow; cohesive devices accurate and skillful; paragraphing skillful
-- Band 8: Logically sequenced; cohesive devices well-managed; good paragraphing
-- Band 7: Logically organised; flexible range of cohesive devices; clear central topic per paragraph
-- Band 6: Coherently arranged; some cohesive devices (some inaccuracy); paragraphs present but not always logical
-- Band 5: Some organisation but not wholly logical; limited cohesive devices; paragraphing inadequate
-- Band 4: Ideas evident but lack overall progression; linking words used but often incorrectly
+--- COHERENCE & COHESION ---
+Band 9: Message followed effortlessly. Cohesion used so it very rarely attracts attention. Paragraphing skilfully managed.
+Band 8: Message followed with ease. Information logically sequenced; cohesion well managed. Occasional lapses minimal.
+Band 7: Logically organised; clear progression. Range of cohesive devices used flexibly but with some inaccuracies or over/under use. Paragraphing generally used effectively.
+Band 6: Generally arranged coherently; clear overall progression. Cohesive devices used to some good effect but cohesion within/between sentences may be faulty or mechanical (misuse, overuse or omission). Reference/substitution may lack flexibility.
+Band 5: Organisation evident but not wholly logical; may lack overall progression. Sentences not fluently linked. Limited/overuse of cohesive devices with some inaccuracy. Repetitive due to inadequate reference/substitution.
+Band 4: Information/ideas evident but not arranged coherently; no clear progression. Relationships between ideas unclear and/or inadequately marked.
+Band 3: No apparent logical organisation. Ideas discernible but difficult to relate to each other.
 
-LEXICAL RESOURCE:
-- Band 9: Wide range; natural and sophisticated; rare minor errors; full flexibility
-- Band 8: Wide range; skilled use; occasional errors; collocation well-managed
-- Band 7: Sufficient range; some less common items; some errors in word choice/collocation
-- Band 6: Adequate range; attempts less common vocabulary; some inappropriate word choices; noticeable errors
-- Band 5: Limited range; repetitive; spelling/word-formation errors may cause difficulty
-- Band 4: Basic vocabulary; common words repeated; spelling errors frequent
+--- LEXICAL RESOURCE ---
+Band 9: Full flexibility and precise use. Wide range used accurately and appropriately with very natural, sophisticated control. Rare minor errors in spelling/word formation.
+Band 8: Wide resource fluently and flexibly used to convey precise meanings. Skilful use of uncommon/idiomatic items despite occasional inaccuracies in word choice/collocation. Errors rare.
+Band 7: Sufficient range to allow flexibility and precision. Some less common/idiomatic items. Awareness of style and collocation though inappropriacies occur. Only a few errors in spelling/word formation.
+Band 6: Resource generally adequate and appropriate. Meaning generally clear despite restricted range or lack of precision. Errors in spelling/word formation but do not impede communication. Risk-taker may use wider range but with higher inaccuracy.
+Band 5: Resource limited but minimally adequate. Frequent lapses in appropriacy; lack of flexibility shown by simplifications/repetitions. Errors may cause difficulty.
+Band 4: Basic vocabulary — may be used repetitively. Inappropriate word choice and/or errors in word formation/spelling may impede meaning.
+Band 3: Vocabulary inadequate or unrelated to task. Possible over-dependence on memorised phrases.
 
-GRAMMATICAL RANGE & ACCURACY:
-- Band 9: Wide range; majority error-free sentences; rare minor errors
-- Band 8: Wide range; mostly accurate; occasional slips
-- Band 7: Good range; some errors; good attempt at complex structures
-- Band 6: Mix of simple and complex; errors with complex forms; punctuation errors
-- Band 5: Limited range; some complex sentences; errors may cause difficulty
-- Band 4: Limited; rare complex sentences; systematic errors that distort meaning
+--- GRAMMATICAL RANGE & ACCURACY ---
+Band 9: Wide range of structures with full flexibility and control. Punctuation and grammar appropriate throughout. Errors extremely rare.
+Band 8: Wide range flexibly and accurately used. Majority of sentences error-free; punctuation well managed. Non-systematic errors/inappropriacies have minimal impact.
+Band 7: Variety of complex structures with some flexibility and accuracy. Grammar and punctuation generally well controlled; error-free sentences frequent. A few persisting errors do not impede communication.
+Band 6: Mix of simple and complex forms; flexibility limited. Errors in grammar and punctuation occur but rarely impede communication. Errors in complex forms.
+Band 5: Limited range; some complex sentences attempted but tend to be faulty. Greatest accuracy on simple sentences. Errors frequent and may cause difficulty; punctuation may be faulty.
+Band 4: Very limited range; simple sentences predominate. Some structures produced accurately but grammatical errors frequent and may impede meaning.
+Band 3: Sentence forms attempted but errors in grammar and punctuation predominate; most meaning prevented from coming through.
 
-OVERALL BAND: Average all 4 criteria bands. Round to nearest 0.5. Use the full 1–9 range — do NOT cluster scores around 6–7.
+OVERALL BAND CALCULATION:
+- Average all 4 criteria bands
+- Round to nearest 0.5
+- Use the FULL 1–9 range — do NOT cluster around 6–7
+- If wordCount < 150 (Task 1) or < 250 (Task 2): automatically reduce Task Achievement/Response by at least 0.5 band
 
 === CORRECTIONS FIELD ===
 Include 3-5 actual errors from the student's text. Each correction must:

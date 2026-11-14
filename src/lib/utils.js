@@ -1,8 +1,8 @@
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 export const pad2    = n => String(n).padStart(2,"0");
 export const fmtTime = s => `${pad2(Math.floor(s/60))}:${pad2(s%60)}`;
-// countWords: only count real words (3+ chars, has letters) — avoids single symbols triggering AI
-export const countWords = t => t.trim().split(/\s+/).filter(w => w.length >= 3 && /[a-zA-Z]/.test(w)).length;
+// countWords: matches Google Docs — every whitespace-separated token counts
+export const countWords = t => t.trim() === "" ? 0 : t.trim().split(/\s+/).filter(Boolean).length;
 
 // ── OFFICIAL IELTS BAND SCORE TABLES ─────────────────────────────────────────
 // Scores are scaled to /40 equivalent before lookup (supports custom-length tests)
