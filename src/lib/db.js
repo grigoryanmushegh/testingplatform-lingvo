@@ -1,14 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 
+// ── OFFLINE MODE — set VITE_OFFLINE=true in .env.local to skip Supabase entirely ──
+const OFFLINE = import.meta.env.VITE_OFFLINE === "true";
+
 // ── SUPABASE + STORAGE ────────────────────────────────────────────────────────
 export const _SURL = import.meta.env.VITE_SUPABASE_URL  || "https://gwnlssnufqmdiksjdxhu.supabase.co";
 export const _SKEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3bmxzc251ZnFtZGlrc2pkeGh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NzYwMzcsImV4cCI6MjA5NjM1MjAzN30.HO_yAMJUrfCMZGhlvIdgMv7eryt1MbY1mHQwP0g-H-g";
-export const supabase = _SURL && _SKEY ? createClient(_SURL, _SKEY) : null;
+export const supabase = (!OFFLINE && _SURL && _SKEY) ? createClient(_SURL, _SKEY) : null;
 
 export const DB_KEY   = "lv_ielts_v2";
 export const _emptyDB = () => ({
   participants:[], bookings:[], tests:[], testSuites:[], assignments:[],
-  speakingSlots:[], adminUsers:[], scoreOverrides:{}, listeningAudioUrl:"", openaiKey:"",
+  speakingSlots:[], adminUsers:[], scoreOverrides:{}, listeningAudioUrl:"",
   deletedAssignmentIds:[]
 });
 export let   _db      = _emptyDB();
@@ -16,6 +19,9 @@ export let   _flushTmr = null;
 let _lastNeedsPushAttempt = 0;
 let _lastTestItemFetch = 0;
 let _cachedTestItemRows = null;
+let _pendingParticipantFetch = null; // dedup: prevents 5 identical parallel queries on page load
+let _pendingReloadDB = null;         // dedup: prevents multiple reloadDB calls racing
+export const _invalidateTestItemCache = () => { _lastTestItemFetch = 0; _cachedTestItemRows = null; };
 
 // ── Admin auth helpers ─────────────────────────────────────────────────────────
 export async function hashPassword(pw) {
@@ -42,7 +48,7 @@ export const _flushConfig = async db => {
     testSuites: db.testSuites||[], assignments: db.assignments||[],
     speakingSlots: db.speakingSlots||[], bookings: db.bookings||[],
     scoreOverrides: db.scoreOverrides||{}, adminUsers: db.adminUsers||[],
-    listeningAudioUrl: db.listeningAudioUrl||"", openaiKey: db.openaiKey||"",
+    listeningAudioUrl: db.listeningAudioUrl||"",
     deletedAssignmentIds: db.deletedAssignmentIds||[],
     sectionFolders: db.sectionFolders||[],
     aiSpeakingEnabled: db.aiSpeakingEnabled||false,
@@ -51,11 +57,11 @@ export const _flushConfig = async db => {
   };
   for(let attempt=0; attempt<3; attempt++){
     try {
-      if(attempt>0) await new Promise(r=>setTimeout(r,800*attempt));
-      // Hard 5s timeout per attempt — never hangs indefinitely
+      if(attempt>0) await new Promise(r=>setTimeout(r,1200*attempt));
+      // 12s timeout per attempt — Supabase free tier can be slow on cold starts
       const {error} = await Promise.race([
         supabase.from("ielts_store").upsert({id:"main",data:cfg,updated_at:new Date().toISOString()}),
-        new Promise((_,reject)=>setTimeout(()=>reject(new Error("write timeout")),5000))
+        new Promise((_,reject)=>setTimeout(()=>reject(new Error("write timeout")),12000))
       ]);
       if(error){ console.warn(`[DB] flush error (attempt ${attempt+1}):`,error.message); if(attempt===2) return false; continue; }
       return true;
@@ -71,14 +77,50 @@ export const _flushNow = db => _flushConfig(db);
 // Multiple devices can save simultaneously without overwriting each other.
 export const _upsertTestRow = async test => {
   if(!supabase) return false;
-  try {
-    const rowId = test.id + "-" + Date.now().toString(36);
-    const {error} = await supabase.from("participants").insert({
-      id: rowId, email: "__tests__", type: "test_item", data: test
-    });
-    if(error){ console.warn("[DB] test row insert error:",error.message); return false; }
-    return true;
-  } catch(e){ console.warn("[DB] test row insert failed:",e); return false; }
+  for(let attempt=0; attempt<3; attempt++){
+    try {
+      if(attempt>0) await new Promise(r=>setTimeout(r,1500*attempt));
+      const rowId = test.id + "-" + Date.now().toString(36);
+      const {error} = await supabase.from("participants").insert({
+        id: rowId, email: "__tests__", type: "test_item", data: test
+      });
+      if(error){
+        console.warn(`[DB] test row insert error (attempt ${attempt+1}):`, error.message);
+        if(attempt===2) return false;
+        continue;
+      }
+      return true;
+    } catch(e){
+      console.warn(`[DB] test row insert failed (attempt ${attempt+1}):`, e);
+      if(attempt===2) return false;
+    }
+  }
+  return false;
+};
+
+// Push all local tests to Supabase test_item rows — call when tests are missing cross-device
+// Runs in parallel (up to 5 at a time) and does NOT retry, for speed during a bulk sync
+export const syncAllTestsToCloud = async () => {
+  const tests = _db.tests || [];
+  if(!tests.length) return { ok: 0, fail: 0, total: 0 };
+  let ok = 0, fail = 0;
+  const BATCH = 5;
+  for(let i=0; i<tests.length; i+=BATCH){
+    const batch = tests.slice(i, i+BATCH);
+    const results = await Promise.allSettled(batch.map(async test => {
+      if(!supabase) return false;
+      const rowId = test.id + "-" + Date.now().toString(36);
+      const {error} = await supabase.from("participants").insert({
+        id: rowId, email: "__tests__", type: "test_item", data: test
+      });
+      return !error;
+    }));
+    for(const r of results){
+      if(r.status==="fulfilled"&&r.value===true) ok++; else fail++;
+    }
+  }
+  console.log(`[DB] syncAllTestsToCloud: ${ok}/${tests.length} synced, ${fail} failed`);
+  return { ok, fail, total: tests.length };
 };
 
 export const _markTestDeleted = async testId => {
@@ -112,7 +154,7 @@ function _buildTestsFromRows(rows) {
 export const _insertParticipant = async item => {
   if(!supabase) return false;
   const email = ((item.candidate?.email||item.email)||"").toLowerCase().trim();
-  const type  = item.listeningBand!=null ? "attempt" : "registration";
+  const type  = (item.status==="complete"||item.listeningBand!=null||item.readingBand!=null||item.writingBand!=null) ? "attempt" : "registration";
   for(let attempt=0; attempt<3; attempt++){
     try {
       if(attempt>0) await new Promise(r=>setTimeout(r,1000*attempt));
@@ -133,12 +175,13 @@ export const _insertParticipant = async item => {
 };
 
 // Load only participant rows (not test rows) — used by admin dashboard
-export const _loadParticipants = async () => {
+export const _loadParticipants = async (limitRows=500) => {
   if(!supabase) return null;
   try {
     const {data,error} = await supabase.from("participants")
       .select("data").in("type",["attempt","registration"])
-      .order("created_at",{ascending:false});
+      .order("created_at",{ascending:false})
+      .limit(limitRows);
     if(error||!data) return null;
     return data.map(r=>r.data);
   } catch{ return null; }
@@ -202,9 +245,7 @@ function _smartMerge(supabaseBase, local) {
   if(Object.keys(mergedOverrides).length !== Object.keys(remoteOverrides).length) needsPush = true;
   merged.scoreOverrides = mergedOverrides;
 
-  for(const k of ["listeningAudioUrl", "openaiKey"]){
-    merged[k] = supabaseBase[k] || local[k] || "";
-  }
+  merged.listeningAudioUrl = supabaseBase.listeningAudioUrl || local.listeningAudioUrl || "";
 
   return { merged, needsPush };
 }
@@ -220,15 +261,21 @@ async function _fetchConfigOnly(timeoutMs=6000) {
 }
 
 // Phase 2: fetch participants + test_item rows — heavier, runs in background after UI is shown.
-async function _fetchParticipantsAndTests(timeoutMs=10000) {
+// Deduplicated: if a fetch is already in-flight, callers share the same promise (prevents 5× parallel queries on page load).
+function _fetchParticipantsAndTests(timeoutMs=10000) {
+  if(_pendingParticipantFetch) return _pendingParticipantFetch;
+  _pendingParticipantFetch = _doFetchParticipantsAndTests(timeoutMs).finally(() => { _pendingParticipantFetch = null; });
+  return _pendingParticipantFetch;
+}
+async function _doFetchParticipantsAndTests(timeoutMs=10000) {
   const withTimeout = (p, ms=timeoutMs) => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),ms))]);
 
-  // Only fetch participants from the last 14 days — old data is already in localStorage.
-  // This keeps the query small (~5-20MB instead of 50-150MB) so it actually succeeds.
-  const cutoff14d = new Date(Date.now() - 14*24*60*60*1000).toISOString();
+  // Only fetch participants from the last 7 days — old data is already in localStorage.
+  // This keeps the query small (~3-8MB instead of 50-150MB) so it actually succeeds.
+  const cutoff14d = new Date(Date.now() - 7*24*60*60*1000).toISOString();
 
-  // Test_item rows are large and rarely change — cache for 10 minutes to avoid hammering Supabase.
-  const testItemCacheStale = Date.now() - _lastTestItemFetch > 10*60*1000;
+  // Test_item rows are large and rarely change — cache for 30 minutes to avoid hammering Supabase.
+  const testItemCacheStale = Date.now() - _lastTestItemFetch > 30*60*1000;
 
   const [rowsResult, testRowsResult] = await Promise.allSettled([
     withTimeout(
@@ -242,11 +289,11 @@ async function _fetchParticipantsAndTests(timeoutMs=10000) {
     testItemCacheStale
       ? withTimeout(
           supabase.from("participants")
-            .select("data,created_at")
-            .eq("type","test_item")
+            .select("type,data,created_at")
+            .in("type",["test_item","test_del"])
             .order("created_at",{ascending:false})
-            .limit(200),
-          20000  // longer timeout — tests are large but don't change often
+            .limit(300),
+          15000  // 15s timeout — 300 rows × ~160KB = ~48MB
         )
       : Promise.resolve({ data: _cachedTestItemRows, error: null }),
   ]);
@@ -302,7 +349,19 @@ async function _migrateBlobTests(blobOnly) {
 }
 
 // ── Force re-fetch from Supabase ───────────────────────────────────────────────
-export async function reloadDB() {
+export function reloadDB() {
+  if(_pendingReloadDB) return _pendingReloadDB;
+  _pendingReloadDB = _doReloadDB().finally(() => { _pendingReloadDB = null; });
+  return _pendingReloadDB;
+}
+async function _doReloadDB() {
+  // Immediately render from localStorage so the UI is never blank while Supabase loads
+  if(!_db.tests?.length && !_db.participants?.length && !_db.adminUsers?.length) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(DB_KEY)||"null");
+      if(saved && Object.keys(saved).length > 0) { _db = {..._emptyDB(),...saved}; _notifyChange(); }
+    } catch {}
+  }
   if(supabase){
     try{
       const { cfg, cfgErr, allRows, rowsErr, testItemRows } = await _fetchFromSupabase();
@@ -327,10 +386,12 @@ export async function reloadDB() {
       // test_item rows are the permanent per-test backup written on every save, so even
       // if the blob gets overwritten with a stale/short list the tests are recovered here.
       const seenTestIds = new Set();
+      const delIds = new Set((testItemRows||[]).filter(r=>r.type==="test_del").map(r=>r.data?.id).filter(Boolean));
       const rowTests = (testItemRows||[])
-        .map(r => r.data).filter(t => t?.id && !seenTestIds.has(t.id) && seenTestIds.add(t.id));
-      const blobTests = (base.tests||[]).filter(t => t?.id && !seenTestIds.has(t.id) && seenTestIds.add(t.id));
-      const memTests  = (_db.tests || local.tests || []).filter(t => t?.id && !seenTestIds.has(t.id));
+        .filter(r => r.type==="test_item")
+        .map(r => r.data).filter(t => t?.id && !delIds.has(t.id) && !seenTestIds.has(t.id) && seenTestIds.add(t.id));
+      const blobTests = (base.tests||[]).filter(t => t?.id && !delIds.has(t.id) && !seenTestIds.has(t.id) && seenTestIds.add(t.id));
+      const memTests  = (_db.tests || local.tests || []).filter(t => t?.id && !delIds.has(t.id) && !seenTestIds.has(t.id));
       finalBase.tests = [...rowTests, ...blobTests, ...memTests];
 
       // adminUsers: preserve in-memory entries not yet confirmed in Supabase/localStorage.
@@ -356,6 +417,13 @@ export async function reloadDB() {
       _db = {..._emptyDB(), ...finalBase, participants: withOverrides};
       try{ localStorage.setItem(DB_KEY,JSON.stringify(_db)); }catch{}
       console.log(`[DB] reloadDB ✓ tests=${_db.tests?.length||0} (blob=${blobTests.length}), participants=${_db.participants?.length||0} (table=${pts.length})`);
+
+      // Auto-sync: if tests came from localStorage (not Supabase) and Supabase has none, push them automatically
+      const localOnlyTests = rowTests.length === 0 && memTests.length > 0;
+      if(localOnlyTests){
+        console.log(`[DB] Auto-sync: ${memTests.length} local tests not in Supabase — syncing...`);
+        setTimeout(() => syncAllTestsToCloud().then(r => console.log(`[DB] Auto-sync done: ${r.ok}/${r.total}`)), 500);
+      }
 
       if(needsPush){
         const now = Date.now();
@@ -440,10 +508,11 @@ export async function initDB() {
       // ── Phase 2: participants + test_item rows in background ──
       _fetchParticipantsAndTests(12000).then(({ allRows, testItemRows }) => {
         const { pts } = _processRows(allRows);
-        // Merge test_item rows (newest version of each test wins)
+        // Merge test_item rows (newest version of each test wins), apply tombstones
         const seenIds = new Set();
-        const rowTests = (testItemRows||[]).map(r=>r.data).filter(t=>t?.id && !seenIds.has(t.id) && seenIds.add(t.id));
-        const existingTests = (_db.tests||[]).filter(t=>t?.id && !seenIds.has(t.id) && seenIds.add(t.id));
+        const delIds2 = new Set((testItemRows||[]).filter(r=>r.type==="test_del").map(r=>r.data?.id).filter(Boolean));
+        const rowTests = (testItemRows||[]).filter(r=>r.type==="test_item").map(r=>r.data).filter(t=>t?.id && !delIds2.has(t.id) && !seenIds.has(t.id) && seenIds.add(t.id));
+        const existingTests = (_db.tests||[]).filter(t=>t?.id && !delIds2.has(t.id) && !seenIds.has(t.id) && seenIds.add(t.id));
         const mergedTests = [...rowTests, ...existingTests];
 
         const allPts = [...pts, ...(base.participants||[]), ...(_db.participants||[])];

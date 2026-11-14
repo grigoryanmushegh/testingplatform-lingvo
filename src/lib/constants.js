@@ -1,17 +1,19 @@
-// ── FONTS: Montserrat everywhere ──────────────────────────────────────────────
+// ── FONTS: SF Pro (system) + JetBrains Mono for code/scores ──────────────────
 (() => {
   const l = document.createElement("link");
-  l.href = "https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&family=JetBrains+Mono:wght@400;600&display=swap";
+  l.href = "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap";
   l.rel = "stylesheet"; document.head.appendChild(l);
 })();
 
 // ── PALETTE ───────────────────────────────────────────────────────────────────
-export const C = {
-  brand:    "#11CD87",   // Lingvo green
+const _dark = false; // Always light mode — ignore OS theme
+
+const _light = {
+  brand:    "#11CD87",
   brandD:   "#0BA870",
   brandL:   "#E6FAF4",
   brandM:   "#3DDBA3",
-  lc:       "#00BFB2",   // LingvoConnect teal (from logo)
+  lc:       "#00BFB2",
   lcD:      "#009E93",
   lcL:      "#E0FAF8",
   teal:     "#0D9488",
@@ -27,23 +29,78 @@ export const C = {
   s800:     "#1E293B",
   s600:     "#475569",
   s400:     "#94A3B8",
+  s300:     "#CBD5E1",
   s200:     "#E2E8F0",
   s100:     "#F1F5F9",
   hlY:      "#FEF08A",
   hlB:      "#BAE6FD",
 };
 
+const _darkPalette = {
+  brand:    "#11CD87",
+  brandD:   "#0BA870",
+  brandL:   "#0B2A20",
+  brandM:   "#3DDBA3",
+  lc:       "#00BFB2",
+  lcD:      "#009E93",
+  lcL:      "#092830",
+  teal:     "#0D9488",
+  tealL:    "#092B2B",
+  amber:    "#F59E0B",
+  amberL:   "#27190A",
+  rose:     "#F43F5E",
+  roseL:    "#2A0A14",
+  violet:   "#0BA870",
+  bg:       "#0B1929",
+  surface:  "#132237",
+  s900:     "#EFF6FF",
+  s800:     "#CBD5E1",
+  s600:     "#94A3B8",
+  s400:     "#64748B",
+  s300:     "#334155",
+  s200:     "#1E3A52",
+  s100:     "#102030",
+  hlY:      "#3D3200",
+  hlB:      "#0B2D4A",
+};
+
+export const C = _dark ? _darkPalette : _light;
+
+// Always-light palette — use in contexts that must not go dark (e.g. the exam shell)
+export const CLight = _light;
+
+// ── Admin / platform design tokens (light-only, same everywhere) ──────────────
+export const AD = {
+  blue:    "#2D5DDC",
+  blueLt:  "#EBF0FF",
+  green:   "#C4F03B",
+  greenLt: "#F5FCDB",
+  amber:   "#F59E0B",
+  amberLt: "#FEF3C7",
+  red:     "#EF4444",
+  redLt:   "#FEE2E2",
+  bg:      "#EEEFF1",
+  surface: "#FCFCFC",
+  border:  "#E2E6EA",
+  text:    "#151313",
+  sub:     "#64748B",
+  muted:   "#94A3B8",
+};
+
+// Dark mode listener removed — platform is always light
+
 // ── GLOBAL CSS ────────────────────────────────────────────────────────────────
 const gs = document.createElement("style");
 gs.textContent = `
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  html,body{height:100%;background:${C.bg}}
-  body{font-family:'Montserrat',sans-serif;font-size:14px;color:${C.s900};-webkit-font-smoothing:antialiased}
+  html,body{height:100%;background:${C.bg};color-scheme:${_dark?"dark":"light"}}
+  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif;font-size:14px;color:${C.s900};-webkit-font-smoothing:antialiased}
   ::-webkit-scrollbar{width:5px;height:5px}
   ::-webkit-scrollbar-track{background:transparent}
   ::-webkit-scrollbar-thumb{background:${C.s200};border-radius:99px}
-  input,textarea,select,button{font-family:'Montserrat',sans-serif}
+  input,textarea,select,button{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",Arial,sans-serif;color-scheme:${_dark?"dark":"light"}}
   textarea:focus,input:focus,select:focus{outline:2px solid ${C.brand};outline-offset:0;border-color:${C.brand}!important}
+  input,textarea,select{background:${C.surface};color:${C.s900};border-color:${C.s200}}
   .hl-y{background:${C.hlY};border-radius:3px;padding:0 2px}
   .hl-b{background:${C.hlB};border-radius:3px;padding:0 2px}
   @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}

@@ -7,9 +7,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ _error: "Method not allowed" });
   }
 
-  const { text, taskMeta, openaiKey: bodyKey } = req.body || {};
-  // Key priority: passed from client (stored in Supabase admin settings) → server env vars
-  const OPENAI_KEY = (bodyKey||"").trim() || process.env.OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY || "";
+  const { text, taskMeta } = req.body || {};
+  // Key lives server-side only — never accept it from the client body
+  const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
   if (!OPENAI_KEY) {
     return res.status(500).json({ _error: "OpenAI API key not configured. Go to Admin → Settings → enter your OpenAI API key." });
   }
@@ -22,7 +22,53 @@ export default async function handler(req, res) {
   const systemPrompt = `You are Nova, LingvoConnect's AI IELTS Writing Examiner. You evaluate writing professionally, clearly, and supportively — never harsh, never robotic. Communicate in a slightly formal, IELTS-like tone.
 
 Score the writing on all 4 official IELTS criteria AND detect if the response appears AI-generated. Return ONLY valid JSON — no markdown, no extra text — in this exact shape:
-{"band":6.5,"taskAchievement":{"band":6.5,"comment":"Your argument addresses the task clearly, though some points would benefit from further development."},"coherenceCohesion":{"band":7.0,"comment":"Your ideas are logically organised, but linking devices could be more varied throughout."},"lexicalResource":{"band":6.5,"comment":"Good use of topic-specific vocabulary, though some repetition reduces the overall impact."},"grammaticalRange":{"band":6.0,"comment":"You demonstrate a reasonable range of structures, but some grammatical errors reduce clarity."},"wordCount":160,"summary":"A well-structured response that addresses the task. Developing your arguments further and varying your vocabulary will help raise your band score.","strengths":["Your ideas are clear and relevant to the topic.","Good use of topic-specific vocabulary in key sections."],"improvements":["Try to extend your main ideas with clearer, more specific examples.","Some grammatical errors reduce the overall clarity of your response."],"suggestions":["Use more complex sentence structures to demonstrate grammatical range.","Support your arguments with specific, real-world examples.","Avoid repeating simple vocabulary — vary your word choices."],"keyTip":"Focus on clarity over complexity — this is key to reaching Band 7+.","corrections":[{"original":"phrase from text","corrected":"corrected version","note":"brief reason"}],"aiDetection":{"risk":25,"verdict":"Human","signals":["natural hesitations present","minor grammatical errors typical of humans"],"explanation":"The response displays characteristics consistent with human writing."}}
+{"band":6.5,"taskAchievement":{"band":6.5,"comment":"Your argument addresses the task clearly, though some points would benefit from further development."},"coherenceCohesion":{"band":7.0,"comment":"Your ideas are logically organised, but linking devices could be more varied throughout."},"lexicalResource":{"band":6.5,"comment":"Good use of topic-specific vocabulary, though some repetition reduces the overall impact."},"grammaticalRange":{"band":6.0,"comment":"You demonstrate a reasonable range of structures, but some grammatical errors reduce clarity."},"wordCount":0,"summary":"A well-structured response that addresses the task. Developing your arguments further and varying your vocabulary will help raise your band score.","strengths":["Your ideas are clear and relevant to the topic.","Good use of topic-specific vocabulary in key sections."],"improvements":["Try to extend your main ideas with clearer, more specific examples.","Some grammatical errors reduce the overall clarity of your response."],"suggestions":["Use more complex sentence structures to demonstrate grammatical range.","Support your arguments with specific, real-world examples.","Avoid repeating simple vocabulary — vary your word choices."],"keyTip":"Focus on clarity over complexity — this is key to reaching Band 7+.","corrections":[{"original":"phrase from text","corrected":"corrected version","note":"brief reason"}],"aiDetection":{"risk":25,"verdict":"Human","signals":["natural hesitations present","minor grammatical errors typical of humans"],"explanation":"The response displays characteristics consistent with human writing."}}
+
+NOTE: Set "wordCount" to 0 — the system fills it automatically. Do NOT count words yourself.
+
+=== OFFICIAL IELTS BAND DESCRIPTORS ===
+Use these to calibrate your scores accurately:
+
+TASK ACHIEVEMENT / TASK RESPONSE:
+- Band 9: Fully addresses all parts; well-developed position; relevant, fully extended ideas
+- Band 8: Sufficiently addresses all parts; well-developed position; ideas well-extended
+- Band 7: Addresses all parts; clear position; main ideas relevant, some under-developed
+- Band 6: Addresses all parts (some may be more fully covered); position relevant; ideas not fully developed
+- Band 5: Addresses task only partially; position not always clear; irrelevant detail present
+- Band 4: Responds in a limited way; position unclear; limited ideas
+
+COHERENCE & COHESION:
+- Band 9: Seamless flow; cohesive devices accurate and skillful; paragraphing skillful
+- Band 8: Logically sequenced; cohesive devices well-managed; good paragraphing
+- Band 7: Logically organised; flexible range of cohesive devices; clear central topic per paragraph
+- Band 6: Coherently arranged; some cohesive devices (some inaccuracy); paragraphs present but not always logical
+- Band 5: Some organisation but not wholly logical; limited cohesive devices; paragraphing inadequate
+- Band 4: Ideas evident but lack overall progression; linking words used but often incorrectly
+
+LEXICAL RESOURCE:
+- Band 9: Wide range; natural and sophisticated; rare minor errors; full flexibility
+- Band 8: Wide range; skilled use; occasional errors; collocation well-managed
+- Band 7: Sufficient range; some less common items; some errors in word choice/collocation
+- Band 6: Adequate range; attempts less common vocabulary; some inappropriate word choices; noticeable errors
+- Band 5: Limited range; repetitive; spelling/word-formation errors may cause difficulty
+- Band 4: Basic vocabulary; common words repeated; spelling errors frequent
+
+GRAMMATICAL RANGE & ACCURACY:
+- Band 9: Wide range; majority error-free sentences; rare minor errors
+- Band 8: Wide range; mostly accurate; occasional slips
+- Band 7: Good range; some errors; good attempt at complex structures
+- Band 6: Mix of simple and complex; errors with complex forms; punctuation errors
+- Band 5: Limited range; some complex sentences; errors may cause difficulty
+- Band 4: Limited; rare complex sentences; systematic errors that distort meaning
+
+OVERALL BAND: Average all 4 criteria bands. Round to nearest 0.5. Use the full 1–9 range — do NOT cluster scores around 6–7.
+
+=== CORRECTIONS FIELD ===
+Include 3-5 actual errors from the student's text. Each correction must:
+- Quote the EXACT phrase from the text as "original"
+- Give the corrected version as "corrected"
+- Briefly explain the error type as "note"
+Only correct actual errors — do not invent phrases not in the text.
 
 === AI DETECTION RULES (apply these STRICTLY) ===
 You must independently assess whether this text was written by a human or generated by an AI (ChatGPT, Claude, Gemini, etc.). Be STRICT and err on the side of flagging AI content — it is better to flag a human as "Possibly AI" than to miss actual AI-generated text.
@@ -72,7 +118,7 @@ Verdict must be "Human" (0-25%), "Possibly AI" (26-55%), "Likely AI" (56-80%), o
       },
       body: JSON.stringify({
         model: "gpt-4o",
-        max_tokens: 1600,
+        max_tokens: 2000,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user",   content: userPrompt },
@@ -92,6 +138,8 @@ Verdict must be "Human" (0-25%), "Possibly AI" (26-55%), "Likely AI" (56-80%), o
     }
 
     const parsed = JSON.parse(raw);
+    // Always use server-calculated word count — AI tends to miscount
+    parsed.wordCount = wordCount;
     return res.status(200).json(parsed);
 
   } catch (e) {

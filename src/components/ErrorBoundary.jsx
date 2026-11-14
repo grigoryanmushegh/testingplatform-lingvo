@@ -21,18 +21,16 @@ export default class ErrorBoundary extends Component {
           <div style={{color:"rgba(255,255,255,.5)",fontSize:13,textAlign:"center",maxWidth:400,lineHeight:1.6}}>
             An unexpected error occurred. Your answers have been auto-saved.<br/>Please refresh the page to continue.
           </div>
-          <button onClick={()=>window.location.reload()} style={{
+          <button onClick={()=>{ window.location.href = "/student"; }} style={{
             background:"#11CD87",color:"#064E3B",border:"none",borderRadius:12,
             padding:"12px 32px",fontSize:14,fontWeight:800,cursor:"pointer"
           }}>
             Refresh Page
           </button>
-          {process.env.NODE_ENV === "development" && (
-            <details style={{color:"rgba(255,255,255,.3)",fontSize:11,maxWidth:600,wordBreak:"break-all"}}>
-              <summary style={{cursor:"pointer"}}>Error details</summary>
-              <pre style={{marginTop:8}}>{this.state.error?.toString()}</pre>
-            </details>
-          )}
+          <details open style={{color:"rgba(255,255,255,.3)",fontSize:11,maxWidth:600,wordBreak:"break-all"}}>
+            <summary style={{cursor:"pointer"}}>Error details</summary>
+            <pre style={{marginTop:8,whiteSpace:"pre-wrap"}}>{this.state.error?.toString()}{"\n"}{this.state.error?.stack}</pre>
+          </details>
         </div>
       );
     }

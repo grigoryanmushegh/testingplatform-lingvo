@@ -1,10 +1,23 @@
-import { useState, useEffect, useRef, useLayoutEffect } from "react";
+import { useState, useEffect, useRef, useLayoutEffect, useCallback } from "react";
+import { useNavigate, useLocation, Navigate } from "react-router-dom";
+import { LayoutDashboard, GraduationCap, Clock, BookOpen, ClipboardList, Users, Settings, UserCog, BookMarked, Mic, BarChart2, RefreshCw, LogOut, ArrowLeft, FileText, Award, CheckCircle, AlertCircle, TrendingUp, CalendarDays, MessageSquare, User, Info, ChevronRight, ChevronLeft, Trash2, Headphones, Pencil, Flag, ChevronUp, ChevronDown, Star, FlaskConical, FolderOpen, FilePlus, Download, Music, Volume2, Layers, School, CreditCard, Search } from "lucide-react";
+import GroupManager from "./components/lms/GroupManager.jsx";
+import MaterialsTasksManager from "./components/lms/MaterialsTasksManager.jsx";
+import PaymentsManager from "./components/lms/PaymentsManager.jsx";
+import LmsDashboard from "./components/lms/LmsDashboard.jsx";
+import LmsApp from "./components/lms/LmsApp.jsx";
+import NotificationBell from "./components/admin/NotificationBell.jsx";
+import { MOCK_PAYMENTS, MOCK_GROUPS } from "./lib/lmsDevMock.js";
+import { getPayments as lmsGetPayments, getGroups as lmsGetGroups } from "./lib/lmsDb.js";
+import { StudentLogin, SignUpForm, ChangePasswordScreen, StudentDashboard, PendingApprovalScreen, StudentsManager, PendingStudentsManager, StaffManager, DeletionRequestsManager } from "./components/StudentPortal.jsx";
+import { isStudentLoggedIn, getStudentSession, setStudentSession, clearStudentSession } from "./lib/studentAuth.js";
+import { submitAssignment, autoSaveAssignment } from "./lib/studentDb.js";
 
 // ── MAINTENANCE MODE ──────────────────────────────────────────────────────────
 // Set to true to show maintenance screen to all visitors (admin still works via #admin)
 const MAINTENANCE_MODE = false;
 
-function MaintenanceScreen() {
+export function MaintenanceScreen() {
   return (
     <div style={{minHeight:"100vh",background:"#0F172A",display:"flex",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"system-ui,sans-serif"}}>
       <div style={{textAlign:"center",maxWidth:480}}>
@@ -31,11 +44,14 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import emailjs from "@emailjs/browser";
 import { SpeedInsights } from "@vercel/speed-insights/react";
-import { C } from "./lib/constants.js";
+import { C, AD } from "./lib/constants.js";
+import { cardStyle, btnStyle } from "./lib/ui.js";
+import TopBar from "./components/TopBar.jsx";
+import HomePage from "./components/HomePage.jsx";
 import {
   supabase, setInternalDb,
   _flushConfig, _loadParticipants,
-  _upsertTestRow, _markTestDeleted,
+  _upsertTestRow, _markTestDeleted, _invalidateTestItemCache, syncAllTestsToCloud,
   loadDB, saveDB, saveDBNow,
   dbPush, dbPushNow, dbSave, dbSaveNow,
   reloadDB, initDB, quickInit, onDbChange, notifyDbChange, genId, DB_KEY,
@@ -51,38 +67,13 @@ import {
 const bandColor = b => b>=7.5?C.teal:b>=6?C.brand:b>=5?C.amber:C.rose;
 const bandBg    = b => b>=7.5?C.tealL:b>=6?C.brandL:b>=5?C.amberL:C.roseL;
 
-// ── MICRO UI HELPERS ──────────────────────────────────────────────────────────
-const cardStyle = (extra={}) => ({
-  background: C.surface,
-  border: `1px solid ${C.s200}`,
-  borderRadius: 16,
-  boxShadow: "0 2px 8px rgba(17,205,135,.06), 0 1px 3px rgba(0,0,0,.04)",
-  ...extra,
-});
-
-const btnStyle = (variant="primary", disabled=false) => {
-  const map = {
-    primary:   {background: disabled?C.s200:C.brand,    color: disabled?C.s400:"#fff", border:"none",                           boxShadow: disabled?"none":"0 2px 8px rgba(17,205,135,.3)"},
-    secondary: {background: "#fff",                      color: C.brand,                border: `1.5px solid ${C.brand}`},
-    ghost:     {background: "transparent",               color: C.s600,                 border: "none"},
-    teal:      {background: disabled?C.s200:C.teal,      color: "#fff",                 border: "none",                          boxShadow: disabled?"none":"0 2px 8px rgba(13,148,136,.25)"},
-    danger:    {background: C.rose,                      color: "#fff",                 border: "none"},
-    violet:    {background: disabled?C.s200:"#11CD87",   color: disabled?C.s400:"#fff", border: "none",                          boxShadow: disabled?"none":"0 2px 8px rgba(17,205,135,.3)"},
-  };
-  return {
-    ...(map[variant]||map.primary),
-    padding: "10px 22px", borderRadius: 10, fontSize: 13, fontWeight: 700,
-    cursor: disabled?"not-allowed":"pointer", transition: "all .15s",
-    letterSpacing: "0.02em", whiteSpace:"nowrap",
-  };
-};
-
+// ── MICRO UI HELPERS (cardStyle / btnStyle now imported from ./lib/ui.js) ──────
 const labelStyle = {
   display:"block", fontSize:11, fontWeight:700, color:C.s600,
   letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:6,
 };
 const inputStyle = {
-  background:"#fff", border:`1.5px solid ${C.s200}`, borderRadius:10,
+  background:C.surface, border:`1.5px solid ${C.s200}`, borderRadius:10,
   padding:"10px 14px", fontSize:14, color:C.s900, width:"100%",
   transition:"border-color .15s",
 };
@@ -94,6 +85,16 @@ const tagStyle = (color=C.brand) => ({
 
 // ── YOUTUBE AUDIO HELPERS ─────────────────────────────────────────────────────
 const isYouTubeUrl = url => /(?:youtube\.com\/(?:watch|embed|shorts)|youtu\.be\/)/.test(url||"");
+const isGoogleDriveUrl = url => /drive\.google\.com\/(file\/d\/|open\?id=|uc\?)/.test(url||"");
+const getGoogleDriveId = url => {
+  if(!url) return null;
+  const m = url.match(/(?:file\/d\/|id=)([a-zA-Z0-9_-]{20,})/);
+  return m ? m[1] : null;
+};
+const googleDriveEmbedUrl = url => {
+  const id = getGoogleDriveId(url);
+  return id ? `https://drive.google.com/file/d/${id}/preview` : null;
+};
 const getYouTubeId = url => {
   if(!url) return null;
   const m = url.match(/(?:v=|embed\/|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/);
@@ -212,34 +213,12 @@ function DemoShareLink() {
   );
 }
 
-function TopBar({ onAdmin }) {
-  return (
-    <div className="topbar" style={{
-      background: "#fff",
-      borderBottom: `2px solid ${C.lc}`,
-      padding: "0 32px",
-      display: "flex", alignItems:"center", justifyContent:"space-between",
-      height: 64,
-      boxShadow: `0 2px 12px rgba(0,191,178,.12)`,
-      position:"sticky", top:0, zIndex:100,
-    }}>
-      <img src="/logo-ielts.png" alt="LingvoConnect IELTS" className="topbar-logo" style={{height:26,width:"auto",display:"block"}}/>
-      <button type="button" onClick={onAdmin} className="topbar-admin-btn" style={{
-        ...btnStyle("ghost"),
-        color: C.s600, fontSize:13, border:`1px solid ${C.s200}`,
-        borderRadius:8, padding:"7px 16px", minHeight:44,
-      }}>
-        Admin Portal →
-      </button>
-    </div>
-  );
-}
 
-function StepNav({ step, steps }) {
+export function StepNav({ step, steps }) {
   // Filter out the "Lobby" step from the visible nav — it's an internal transition
   const visible = steps.map((s,i)=>({s,i})).filter(({s})=>s!=="Lobby");
   return (
-    <div className="step-nav section-tabbar" style={{ background:"#fff", borderBottom:`1px solid ${C.s200}`, padding:"0 32px", overflowX:"auto" }}>
+    <div className="step-nav section-tabbar" style={{ background:C.surface, borderBottom:`1px solid ${C.s200}`, padding:"0 32px", overflowX:"auto" }}>
       <div style={{ display:"flex", gap:0, minWidth:"fit-content" }}>
         {visible.map(({s,i}, vi) => {
           const done=i<step, active=i===step;
@@ -247,15 +226,15 @@ function StepNav({ step, steps }) {
             <div key={s} className="step-nav-item" style={{
               display:"flex", alignItems:"center", gap:10,
               padding:"14px 20px", fontSize:12, fontWeight:active?700:500,
-              color: active?C.brand:done?C.lc:C.s400,
-              borderBottom:`2px solid ${active?C.brand:done?C.lc:"transparent"}`,
+              color: active?"#2D5DDC":done?"#2D5DDC":C.s400,
+              borderBottom:`2px solid ${active?"#2D5DDC":done?"#93B4F8":"transparent"}`,
               transition:"all .2s", whiteSpace:"nowrap",
             }}>
               <div className="step-nav-dot" style={{
                 width:22, height:22, borderRadius:"50%", fontSize:11, fontWeight:800,
                 display:"flex", alignItems:"center", justifyContent:"center",
-                background: done?C.lcL:active?C.brandL:C.s100,
-                color: done?C.lc:active?C.brand:C.s400,
+                background: done?"#EBF0FF":active?"#EBF0FF":C.s100,
+                color: done?"#2D5DDC":active?"#2D5DDC":C.s400,
                 flexShrink:0,
               }}>{done?"✓":vi+1}</div>
               {s}
@@ -284,7 +263,7 @@ const exitFullscreen = () => {
 
 // Pre-test countdown screen — shown 60 s before each section starts
 // ── 10-MINUTE BREAK SCREEN between sections ───────────────────────────────────
-function BreakScreen({ nextSection, onContinue }) {
+export function BreakScreen({ nextSection, onContinue }) {
   const [left, setLeft] = useState(10 * 60);
   useEffect(()=>{
     if(left<=0){ onContinue(); return; }
@@ -297,13 +276,13 @@ function BreakScreen({ nextSection, onContinue }) {
   const urgent = left < 60;
   return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-      height:"calc(100dvh - 130px)",background:"#0F172A",gap:32,padding:32}}>
+      height:"calc(100dvh - 130px)",background:"#0D1B4B",gap:32,padding:32}}>
       <div style={{textAlign:"center"}}>
         <div style={{fontSize:13,color:"rgba(255,255,255,.5)",fontWeight:700,letterSpacing:"0.15em",
           textTransform:"uppercase",marginBottom:8}}>Section Complete</div>
         <div style={{fontSize:28,fontWeight:800,color:"#fff",marginBottom:4}}>Break Time ☕</div>
         <div style={{fontSize:14,color:"rgba(255,255,255,.4)",maxWidth:360,lineHeight:1.6}}>
-          Next up: <strong style={{color:"#11CD87"}}>{nextSection}</strong>.<br/>
+          Next up: <strong style={{color:"#93B4F8"}}>{nextSection}</strong>.<br/>
           The break will end automatically. You may leave your seat.
         </div>
       </div>
@@ -312,7 +291,7 @@ function BreakScreen({ nextSection, onContinue }) {
         <svg width="180" height="180" style={{transform:"rotate(-90deg)"}}>
           <circle cx="90" cy="90" r="80" fill="none" stroke="rgba(255,255,255,.08)" strokeWidth="10"/>
           <circle cx="90" cy="90" r="80" fill="none"
-            stroke={urgent?"#E11D48":"#11CD87"} strokeWidth="10"
+            stroke={urgent?"#E11D48":"#2D5DDC"} strokeWidth="10"
             strokeDasharray={`${2*Math.PI*80}`}
             strokeDashoffset={`${2*Math.PI*80*(1-pct)}`}
             strokeLinecap="round" style={{transition:"stroke-dashoffset 1s linear"}}/>
@@ -320,13 +299,13 @@ function BreakScreen({ nextSection, onContinue }) {
         <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
           alignItems:"center",justifyContent:"center"}}>
           <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:36,fontWeight:900,
-            color:urgent?"#E11D48":"#11CD87",lineHeight:1}}>
+            color:urgent?"#E11D48":"#93B4F8",lineHeight:1}}>
             {String(mins).padStart(2,"0")}:{String(secs).padStart(2,"0")}
           </div>
           <div style={{fontSize:11,color:"rgba(255,255,255,.4)",marginTop:4}}>remaining</div>
         </div>
       </div>
-      <button onClick={onContinue} style={{background:"#11CD87",color:"#064E3B",border:"none",
+      <button onClick={onContinue} style={{background:"#2D5DDC",color:"#fff",border:"none",
         borderRadius:12,padding:"12px 36px",fontSize:14,fontWeight:800,cursor:"pointer"}}>
         Skip Break — Start {nextSection} Now →
       </button>
@@ -334,7 +313,7 @@ function BreakScreen({ nextSection, onContinue }) {
   );
 }
 
-function PreTestScreen({ icon, label, color="#11CD87", onStart }) {
+function PreTestScreen({ icon: Icon, label, color="#2D5DDC", onStart }) {
   const [left, setLeft] = useState(60);
   const doStart = () => { onStart(); };
   useEffect(()=>{
@@ -345,8 +324,8 @@ function PreTestScreen({ icon, label, color="#11CD87", onStart }) {
   const pct = left/60;
   return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-      height:"calc(100dvh - 130px)",background:"#0F172A",gap:32,padding:32}}>
-      <div style={{fontSize:56}}>{icon}</div>
+      height:"calc(100dvh - 130px)",background:"#0D1B4B",gap:32,padding:32}}>
+      <div style={{color:color}}>{Icon&&<Icon size={56}/>}</div>
       <div style={{textAlign:"center"}}>
         <div style={{fontSize:13,color:"rgba(255,255,255,.5)",fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}}>
           Upcoming Section
@@ -368,7 +347,7 @@ function PreTestScreen({ icon, label, color="#11CD87", onStart }) {
           <div style={{fontSize:11,color:"rgba(255,255,255,.4)",marginTop:4}}>seconds</div>
         </div>
       </div>
-      <button onClick={doStart} style={{background:color,color:"#064E3B",border:"none",borderRadius:12,
+      <button onClick={doStart} style={{background:color,color:"#fff",border:"none",borderRadius:12,
         padding:"12px 32px",fontSize:14,fontWeight:800,cursor:"pointer",letterSpacing:"0.03em"}}>
         Start Now →
       </button>
@@ -407,7 +386,7 @@ function Countdown({ seconds, onExpire }) {
       animation: urgent ? "pulse 0.8s ease-in-out infinite" : "none",
     }}>
       {/* Time display */}
-      <span style={{fontSize:13,opacity:.6}}>{urgent?"🔴":warning?"🟡":"⏱"}</span>
+      <span style={{opacity:.7,display:"flex"}}>{urgent?<AlertCircle size={14} color="#F87171"/>:warning?<AlertCircle size={14} color="#FCD34D"/>:<Clock size={14} color="rgba(255,255,255,.6)"/>}</span>
       <div>
         <div style={{fontSize:9,color:"rgba(255,255,255,.45)",fontWeight:700,letterSpacing:"0.1em",
           textTransform:"uppercase",lineHeight:1,marginBottom:2}}>Time Left</div>
@@ -439,22 +418,22 @@ function Countdown({ seconds, onExpire }) {
   );
 }
 
-function SectionHeader({ icon, label, title, right, onExit, candidateInfo }) {
+function SectionHeader({ icon: Icon, label, title, right, onExit, candidateInfo }) {
   return (
     <div style={{
-      background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
+      background: "linear-gradient(135deg, #0D1B4B 0%, #162564 100%)",
       borderBottom: "1px solid rgba(255,255,255,.08)",
     }}>
       {/* Candidate identification bar */}
       {candidateInfo&&(
         <div style={{
-          background:"rgba(17,205,135,.08)",
-          borderBottom:"1px solid rgba(17,205,135,.15)",
+          background:"rgba(45,93,220,.1)",
+          borderBottom:"1px solid rgba(45,93,220,.2)",
           padding:"6px 32px",
           display:"flex",alignItems:"center",gap:16,
         }} className="cand-bar">
-          <span style={{fontSize:11,color:"rgba(17,205,135,.7)",fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase"}}>
-            👤 Candidate
+          <span style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"rgba(147,180,248,.9)",fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase"}}>
+            <User size={12}/>Candidate
           </span>
           <span style={{fontSize:13,color:"#fff",fontWeight:700}}>
             {candidateInfo.name||"—"}
@@ -475,7 +454,7 @@ function SectionHeader({ icon, label, title, right, onExit, candidateInfo }) {
       <div className="section-header" style={{padding:"14px 32px", display:"flex", justifyContent:"space-between", alignItems:"center"}}>
         <div>
           <div style={{ color:"rgba(255,255,255,.45)", fontSize:11, fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:4 }}>
-            {icon} {label}
+            {Icon&&<Icon size={12} style={{verticalAlign:"middle",marginRight:4}}/>} {label}
           </div>
           <h2 style={{ color:"#fff", fontSize:20, fontWeight:800, letterSpacing:"-0.02em" }}>{title}</h2>
         </div>
@@ -487,7 +466,7 @@ function SectionHeader({ icon, label, title, right, onExit, candidateInfo }) {
               borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",
               display:"flex",alignItems:"center",gap:5,letterSpacing:"0.02em",
               boxShadow:"0 2px 8px rgba(225,29,72,.35)",
-            }}>🚪 Exit</button>
+            }}><ArrowLeft size={13}/>Exit</button>
           )}
         </div>
       </div>
@@ -496,52 +475,159 @@ function SectionHeader({ icon, label, title, right, onExit, candidateInfo }) {
 }
 
 // ── REGISTRATION ──────────────────────────────────────────────────────────────
-function Registration({ onNext }) {
+export function Registration({ onNext }) {
   const [form, setForm] = useState({name:"",email:"",dob:"",testType:"Academic"});
   const [errors, setErrors] = useState({});
+  const [focused, setFocused] = useState("");
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const validate=()=>{
     const e={};
-    if(!form.name.trim())e.name="Required";
-    if(!/\S+@\S+\.\S+/.test(form.email))e.email="Valid email required";
-    if(!form.dob)e.dob="Required";
+    if(!form.name.trim())e.name="Full name is required";
+    if(!/\S+@\S+\.\S+/.test(form.email))e.email="Please enter a valid email";
+    if(!form.dob)e.dob="Date of birth is required";
     setErrors(e); return !Object.keys(e).length;
   };
+  const fieldBorder = (key) => errors[key]
+    ? `2px solid ${C.rose}`
+    : focused===key
+      ? `2px solid ${C.brand}`
+      : `1.5px solid ${C.s200}`;
+
   return (
-    <div className="reg-wrap" style={{maxWidth:520,margin:"48px auto",padding:"0 24px"}}>
-      <div style={{textAlign:"center",marginBottom:36}}>
-        <div style={{...tagStyle(),marginBottom:12}}>Candidate Registration</div>
-        <h2 style={{fontSize:28,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:8}}>Begin Your IELTS Test</h2>
-        <p style={{color:C.s400,fontSize:14}}>Please complete your details accurately before starting</p>
+    <div style={{minHeight:"100vh",background:`linear-gradient(160deg,#0D1B4B 0%,#1a3278 40%,#1e3a8a 100%)`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",fontFamily:"system-ui,sans-serif"}}>
+      {/* Hero header */}
+      <div style={{textAlign:"center",marginBottom:32,maxWidth:480}}>
+        <div style={{fontSize:56,lineHeight:1,marginBottom:16,animation:"owlBob 2.4s ease-in-out infinite",userSelect:"none"}}>🦉</div>
+        <div style={{display:"inline-flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.18)",borderRadius:99,padding:"4px 14px",marginBottom:16}}>
+          <div style={{width:6,height:6,borderRadius:"50%",background:"#4ade80"}}/>
+          <span style={{fontSize:11,color:"rgba(255,255,255,.8)",fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase"}}>IELTS Academic</span>
+        </div>
+        <h1 style={{fontSize:30,fontWeight:800,color:"#fff",letterSpacing:"-0.03em",lineHeight:1.2,marginBottom:10}}>
+          Ready for your IELTS test?
+        </h1>
+        <p style={{fontSize:14,color:"rgba(255,255,255,.55)",lineHeight:1.7,maxWidth:360,margin:"0 auto"}}>
+          Fill in your details below and we'll get you started. The whole test takes about 2 hours 45 minutes.
+        </p>
       </div>
-      <div className="reg-card" style={{...cardStyle(),padding:32}}>
-        <div style={{display:"flex",flexDirection:"column",gap:20,marginBottom:24}}>
-          {[["Full Name","name","text","John Smith",true],["Email","email","email","you@example.com",true],["Date of Birth","dob","date","",true]].map(([lbl,key,type,ph,req])=>(
-            <div key={key}>
-              <label style={labelStyle}>{lbl}{req&&<span style={{color:C.rose}}> *</span>}</label>
-              <input type={type} value={form[key]} onChange={e=>set(key,e.target.value)} placeholder={ph}
-                style={{...inputStyle,borderColor:errors[key]?C.rose:C.s200}}/>
-              {errors[key]&&<div style={{color:C.rose,fontSize:11,marginTop:4}}>{errors[key]}</div>}
+
+      {/* Form card */}
+      <div style={{width:"100%",maxWidth:440,background:"#fff",borderRadius:20,boxShadow:"0 24px 80px rgba(0,0,0,.35)",overflow:"hidden"}}>
+        {/* Card header strip */}
+        <div style={{background:`linear-gradient(90deg,${C.brand},#4f6fe8)`,padding:"16px 28px",display:"flex",alignItems:"center",gap:10}}>
+          <BookOpen size={16} color="#fff" style={{opacity:.85}}/>
+          <span style={{fontSize:13,fontWeight:700,color:"#fff",letterSpacing:"0.02em"}}>Candidate Registration</span>
+        </div>
+
+        <div style={{padding:"28px 28px 24px"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:18,marginBottom:20}}>
+            {/* Full Name */}
+            <div>
+              <label style={{...labelStyle,marginBottom:8,color:C.s700}}>
+                Full Name <span style={{color:C.rose}}>*</span>
+              </label>
+              <div style={{position:"relative"}}>
+                <User size={15} style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",color:focused==="name"?C.brand:C.s400,transition:"color .15s",pointerEvents:"none"}}/>
+                <input
+                  type="text"
+                  value={form.name}
+                  onChange={e=>set("name",e.target.value)}
+                  onFocus={()=>setFocused("name")}
+                  onBlur={()=>setFocused("")}
+                  placeholder="e.g. Aiko Tanaka"
+                  style={{...inputStyle,paddingLeft:38,border:fieldBorder("name"),transition:"border-color .15s, box-shadow .15s",boxShadow:focused==="name"?`0 0 0 3px ${C.brand}22`:"none"}}
+                />
+              </div>
+              {errors.name&&<div style={{color:C.rose,fontSize:11,marginTop:5,display:"flex",alignItems:"center",gap:4}}><AlertCircle size={11}/>{errors.name}</div>}
             </div>
-          ))}
-          <div style={{background:C.brandL,borderRadius:8,padding:"10px 14px",fontSize:13,color:C.brand,fontWeight:600}}>
-            📋 Test Type: <strong>IELTS Academic</strong>
+
+            {/* Email */}
+            <div>
+              <label style={{...labelStyle,marginBottom:8,color:C.s700}}>
+                Email Address <span style={{color:C.rose}}>*</span>
+              </label>
+              <div style={{position:"relative"}}>
+                <MessageSquare size={14} style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",color:focused==="email"?C.brand:C.s400,transition:"color .15s",pointerEvents:"none"}}/>
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={e=>set("email",e.target.value)}
+                  onFocus={()=>setFocused("email")}
+                  onBlur={()=>setFocused("")}
+                  placeholder="you@example.com"
+                  style={{...inputStyle,paddingLeft:38,border:fieldBorder("email"),transition:"border-color .15s, box-shadow .15s",boxShadow:focused==="email"?`0 0 0 3px ${C.brand}22`:"none"}}
+                />
+              </div>
+              {errors.email&&<div style={{color:C.rose,fontSize:11,marginTop:5,display:"flex",alignItems:"center",gap:4}}><AlertCircle size={11}/>{errors.email}</div>}
+            </div>
+
+            {/* Date of Birth */}
+            <div>
+              <label style={{...labelStyle,marginBottom:8,color:C.s700}}>
+                Date of Birth <span style={{color:C.rose}}>*</span>
+              </label>
+              <div style={{position:"relative"}}>
+                <CalendarDays size={14} style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",color:focused==="dob"?C.brand:C.s400,transition:"color .15s",pointerEvents:"none"}}/>
+                <input
+                  type="date"
+                  value={form.dob}
+                  onChange={e=>set("dob",e.target.value)}
+                  onFocus={()=>setFocused("dob")}
+                  onBlur={()=>setFocused("")}
+                  style={{...inputStyle,paddingLeft:38,border:fieldBorder("dob"),transition:"border-color .15s, box-shadow .15s",boxShadow:focused==="dob"?`0 0 0 3px ${C.brand}22`:"none",color:form.dob?C.s900:C.s400}}
+                />
+              </div>
+              {errors.dob&&<div style={{color:C.rose,fontSize:11,marginTop:5,display:"flex",alignItems:"center",gap:4}}><AlertCircle size={11}/>{errors.dob}</div>}
+            </div>
+          </div>
+
+          {/* Test info banner */}
+          <div style={{background:`linear-gradient(90deg,${C.brandL},#f0f4ff)`,borderRadius:10,padding:"11px 14px",marginBottom:22,display:"flex",alignItems:"center",gap:10,border:`1px solid ${C.brand}22`}}>
+            <div style={{width:32,height:32,borderRadius:8,background:C.brand,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <Award size={15} color="#fff"/>
+            </div>
+            <div>
+              <div style={{fontSize:12,fontWeight:700,color:C.brand}}>IELTS Academic</div>
+              <div style={{fontSize:11,color:C.s500,marginTop:1}}>Listening · Reading · Writing · Speaking</div>
+            </div>
+            <div style={{marginLeft:"auto",fontSize:11,color:C.s400,fontWeight:600,whiteSpace:"nowrap"}}>~2h 45m</div>
+          </div>
+
+          {/* CTA */}
+          <button
+            onClick={()=>validate()&&onNext({...form,id:genId("CAND")})}
+            style={{...btnStyle("primary"),width:"100%",padding:"14px",fontSize:15,fontWeight:700,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:`linear-gradient(90deg,${C.brand},#4f6fe8)`,boxShadow:"0 4px 20px rgba(45,93,220,.35)",transition:"transform .1s, box-shadow .1s"}}
+            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-1px)";e.currentTarget.style.boxShadow="0 6px 24px rgba(45,93,220,.45)";}}
+            onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="0 4px 20px rgba(45,93,220,.35)";}}
+          >
+            Begin Test <ChevronRight size={17}/>
+          </button>
+
+          {/* Fine print */}
+          <div style={{textAlign:"center",marginTop:14,display:"flex",alignItems:"center",justifyContent:"center",gap:5,color:C.s400,fontSize:11}}>
+            <Info size={11} style={{flexShrink:0}}/>
+            Your details are stored securely and used only for this test session.
           </div>
         </div>
-        <div style={{background:C.brandL,borderRadius:10,padding:"12px 16px",fontSize:12,color:C.brand,marginBottom:24}}>
-          ℹ️ Your details will be stored securely and visible in the admin dashboard.
-        </div>
-        <button onClick={()=>validate()&&onNext({...form,id:genId("CAND")})}
-          style={{...btnStyle("primary"),width:"100%",padding:"13px",fontSize:15,borderRadius:12}}>
-          Start Test →
-        </button>
       </div>
+
+      <style>{`
+        @keyframes owlBob{0%,100%{transform:translateY(0) rotate(0deg)}30%{transform:translateY(-10px) rotate(-6deg)}70%{transform:translateY(-5px) rotate(6deg)}}
+      `}</style>
     </div>
   );
 }
 
 // ── LISTENING TEST ────────────────────────────────────────────────────────────
-function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
+const proxyAudioUrl = url => {
+  if (!url) return url;
+  if (url.includes(".supabase.co/storage/")) return `/api/audio-proxy?url=${encodeURIComponent(url)}`;
+  return url;
+};
+
+export function ListeningTest({ onComplete, testData: rawTestData, onExit, candidateInfo }) {
+  // Fallback: if the test was saved without an audio URL, use the global listeningAudioUrl from DB
+  const rawUrl = rawTestData?.audioUrl || loadDB().listeningAudioUrl || null;
+  const testData = rawTestData ? {...rawTestData, audioUrl: proxyAudioUrl(rawUrl)} : rawTestData;
   const [ready, setReady]           = useState(false); // pre-test countdown
   const [phase, setPhase]           = useState("main"); // "main" | "checking"
   const [answers, setAnswers]       = useState({});
@@ -554,6 +640,8 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
   useEffect(()=>{ hlColorRef.current = hlColor; }, [hlColor]);
   const questRef                    = useRef(null);
   const audioRef                    = useRef(null);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const [audioStarted, setAudioStarted] = useState(false);
   const lastTimeRef                 = useRef(0);
   const seekingGuardRef             = useRef(false); // prevent onSeeking infinite loop
   const testActiveRef               = useRef(false);
@@ -618,7 +706,22 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
   const isSingleAudio = testData?.audioMode === "single";
   useEffect(()=>{ if(!isSingleAudio) lastTimeRef.current = 0; }, [secIdx, isSingleAudio]);
 
-  if(!ready) return <PreTestScreen icon="🎧" label="Listening Test" onStart={()=>setReady(true)}/>;
+  // Per-section mode: play new audio when section changes
+  useLayoutEffect(()=>{
+    if(!ready || isSingleAudio) return;
+    setAudioPlaying(false);
+    setAudioStarted(false);
+    audioRef.current?.play().catch(()=>{});
+  },[secIdx, ready, isSingleAudio]);
+
+  // Stable ref callback — useCallback prevents recreation on every render,
+  // so React won't null+reassign the ref (and call play() again) on every state update.
+  const audioCallbackRef = useCallback(el => {
+    audioRef.current = el;
+    if(el) el.play().catch(err => console.warn("[ListeningTest] autoplay:", err.name, err.message));
+  }, []); // eslint-disable-line
+
+  if(!ready) return <PreTestScreen icon={Headphones} label="Listening Test" onStart={()=>setReady(true)}/>;
   // Build sections — supports new multi-section format, old flat questions array, or built-in
   let sections;
   if(testData?.sections?.length>0) {
@@ -627,7 +730,7 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
       const qs=(s.questions||[]).map((q,j)=>({...q,id:qOffset+j+1}));
       qOffset+=qs.length;
       // Per-section audio takes priority; fall back to global test audio if not set
-      return {label:s.title||`Section ${i+1}`,instructions:s.instructions||"Answer the following questions.",questions:qs,audioUrl:s.audioUrl||testData.audioUrl||null};
+      return {label:s.title||`Section ${i+1}`,instructions:s.instructions||"Answer the following questions.",questions:qs,audioUrl:proxyAudioUrl(s.audioUrl||testData.audioUrl||null)};
     });
   } else if(testData?.questions?.length>0) {
     sections=[{label:testData.title||"Section 1",instructions:"Answer the following questions.",questions:testData.questions.map((q,i)=>({...q,id:i+1}))}];
@@ -636,7 +739,11 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
   }
 
   const allQ   = sections.flatMap(s=>s.questions);
-  const answered = Object.keys(answers).length;
+  const totalQCount = allQ.reduce((s,q)=>s+(q.type==="table_inline"?Math.max(1,(q.answers||[]).length):1),0);
+  const answered = allQ.reduce((s,q)=>{
+    if(q.type==="table_inline") return s+(q.answers||[]).filter((_,gi)=>!!answers[`${q.id}_gap_${gi}`]).length;
+    return s+(answers[q.id]?1:0);
+  },0);
 
   // MCQ answers are stored as {text, idx} objects; other types are plain strings
   const answerText = raw => (raw && typeof raw==="object") ? raw.text : (raw||"");
@@ -655,19 +762,39 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
     if(q.type==="yesno"||q.type==="truefalse") return a===c;
     if(TEXT_INPUT_TYPES.has(q.type)||q.type==="short"||q.type==="fillblank"||q.type==="form_table")
       return a===c || a.includes(c) || c.includes(a);
-    // option-based (mcq, matching)
-    if(raw && typeof raw==="object" && typeof q.correctIdx==="number") return raw.idx===q.correctIdx;
+    // option-based (mcq, matching) — answer stored as {text, idx}
+    if(raw && typeof raw==="object" && typeof raw.idx==="number") {
+      if(typeof q.correctIdx==="number") return raw.idx===q.correctIdx;
+      const cs=(q.correct||"").trim();
+      if(/^[A-Ha-h]$/.test(cs)) return raw.idx===(cs.toUpperCase().charCodeAt(0)-65);
+      const pm=cs.match(/^([A-Ha-h])[.\s]/i); if(pm) return raw.idx===(pm[1].toUpperCase().charCodeAt(0)-65);
+      // Roman numerals / other prefixed identifiers (e.g. "iii" matches "iii. heading text")
+      const st=(raw.text||"").trim().toLowerCase(); const cl2=cs.toLowerCase();
+      if(st&&cl2&&(st===cl2||st.startsWith(cl2+".")||st.startsWith(cl2+" ")||cl2.startsWith(st+"."))) return true;
+      return a===c;
+    }
     if(a===c) return true;
     const al=a.replace(/[^a-h]/g,"")[0], cl=c.replace(/[^a-h]/g,"")[0];
     return !!(al&&cl&&al===cl);
   };
 
+  const scoreInlineGap = (a, c) => {
+    const av=(a||"").trim().toLowerCase(), cv=(c||"").trim().toLowerCase();
+    if(!av||!cv) return false;
+    return av===cv||av.includes(cv)||cv.includes(av);
+  };
   const handleSubmit = () => {
     if(submitted) return;
     setSubmitted(true);
     let correct=0;
-    allQ.forEach(q=>{ if(scoreAnswer(q,answers[q.id])) correct++; });
-    setTimeout(()=>onComplete({correct,total:allQ.length,answers,allQuestions:allQ}),600);
+    allQ.forEach(q=>{
+      if(q.type==="table_inline"){
+        (q.answers||[]).forEach((c,gi)=>{ if(scoreInlineGap(answers[`${q.id}_gap_${gi}`],c)) correct++; });
+      } else {
+        if(scoreAnswer(q,answers[q.id])) correct++;
+      }
+    });
+    setTimeout(()=>onComplete({correct,total:totalQCount,answers,allQuestions:allQ}),600);
   };
 
   const handleMainExpire = () => { if(!submitted) setPhase("checking"); };
@@ -675,19 +802,19 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
   // 10-min checking phase overlay
   if(phase==="checking" && !submitted) return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)"}}>
-      <SectionHeader icon="🎧" label="Listening Test" title="Checking Time"
+      <SectionHeader icon={Headphones} label="Listening Test" title="Checking Time"
         right={<Countdown seconds={10*60} onExpire={handleSubmit}/>} onExit={onExit} candidateInfo={candidateInfo}/>
       <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-        background:"#0F172A",gap:24,padding:32}}>
-        <div style={{fontSize:48}}>🔍</div>
+        background:"#0D1B4B",gap:24,padding:32}}>
+        <div style={{width:72,height:72,borderRadius:20,background:"rgba(255,255,255,.08)",display:"flex",alignItems:"center",justifyContent:"center"}}><CheckCircle size={40} color="#2D5DDC" strokeWidth={1.5}/></div>
         <div style={{textAlign:"center"}}>
           <div style={{fontSize:24,fontWeight:800,color:"#fff",marginBottom:8}}>Checking Time</div>
           <div style={{fontSize:14,color:"rgba(255,255,255,.5)",maxWidth:420,lineHeight:1.6}}>
-            The listening section has ended. You have <strong style={{color:"#11CD87"}}>10 minutes</strong> to review and check your answers before they are submitted automatically.
+            The listening section has ended. You have <strong style={{color:"#93B4F8"}}>10 minutes</strong> to review and check your answers before they are submitted automatically.
           </div>
         </div>
         <button onClick={handleSubmit}
-          style={{background:"#11CD87",color:"#064E3B",border:"none",borderRadius:12,padding:"12px 32px",fontSize:14,fontWeight:800,cursor:"pointer"}}>
+          style={{background:"#2D5DDC",color:"#fff",border:"none",borderRadius:12,padding:"12px 32px",fontSize:14,fontWeight:800,cursor:"pointer"}}>
           Submit Answers Now
         </button>
       </div>
@@ -698,7 +825,7 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
 
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)"}}>
-      <SectionHeader icon="🎧" label="Listening Test" title="IELTS Academic Listening"
+      <SectionHeader icon={Headphones} label="Listening Test" title="IELTS Academic Listening"
         right={<Countdown seconds={40*60} onExpire={handleMainExpire}/>} onExit={onExit} candidateInfo={candidateInfo}/>
 
       <div className="listen-grid">
@@ -724,19 +851,51 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                         style={{width:"100%",height:120,border:"none",borderRadius:8}}
                         allow="autoplay; encrypted-media" allowFullScreen={false}
                         title="Listening Audio"/>
+                    ):isGoogleDriveUrl(testData.audioUrl)?(
+                      <iframe
+                        src={googleDriveEmbedUrl(testData.audioUrl)}
+                        style={{width:"100%",height:80,border:"none",borderRadius:8}}
+                        allow="autoplay" allowFullScreen={false}
+                        title="Listening Audio"/>
                     ):(
-                      <audio ref={audioRef} controls autoPlay src={testData.audioUrl} style={{width:"100%",height:36}}
-                        controlsList="nodownload noplaybackrate" preload="auto"
-                        onTimeUpdate={e=>{ lastTimeRef.current = e.target.currentTime; }}
-                        onSeeking={e=>{
-                          if(seekingGuardRef.current) return;
-                          if(e.target.currentTime < lastTimeRef.current - 1) {
-                            seekingGuardRef.current = true;
-                            e.target.currentTime = lastTimeRef.current;
-                            seekingGuardRef.current = false;
-                          }
-                        }}/>
+                      <>
+                        <audio ref={audioCallbackRef} controls src={testData.audioUrl} style={{width:"100%",height:36}}
+                          controlsList="nodownload noplaybackrate" preload="auto" crossOrigin="anonymous"
+                          onPlay={()=>setAudioPlaying(true)}
+                          onPause={()=>setAudioPlaying(false)}
+                          onCanPlay={()=>{ if(!audioStarted) audioRef.current?.play().catch(()=>{}); }}
+                          onError={e=>{ console.error("[ListeningTest] audio error:", e.target.error?.code, e.target.error?.message, "src:", testData.audioUrl); }}
+                          onTimeUpdate={e=>{
+                            lastTimeRef.current = e.target.currentTime;
+                            if(e.target.currentTime > 0 && !audioStarted) setAudioStarted(true);
+                          }}
+                          onSeeking={e=>{
+                            if(seekingGuardRef.current) return;
+                            if(e.target.currentTime < lastTimeRef.current - 1) {
+                              seekingGuardRef.current = true;
+                              e.target.currentTime = lastTimeRef.current;
+                              seekingGuardRef.current = false;
+                            }
+                          }}/>
+                        {!audioStarted && audioPlaying && (
+                          <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,color:"rgba(255,255,255,.6)",fontSize:12}}>
+                            <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{animation:"spin 1s linear infinite",flexShrink:0}}>
+                              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+                            </svg>
+                            Loading audio…
+                          </div>
+                        )}
+                        {!audioStarted && !audioPlaying && (
+                          <button onClick={()=>audioRef.current?.play().catch(err=>console.warn("[ListeningTest] play failed:", err.name, err.message))} style={{
+                            marginTop:8,width:"100%",padding:"8px 0",background:"#2D5DDC",color:"#fff",
+                            border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",
+                            display:"flex",alignItems:"center",justifyContent:"center",gap:6
+                          }}>▶ Start Audio</button>
+                        )}
+                      </>
                     )}
+
                   </div>
                   <div style={{marginTop:8,padding:"6px 10px",background:"rgba(13,148,136,.12)",border:"1px solid rgba(13,148,136,.25)",borderRadius:7}}>
                     <p style={{color:"rgba(100,255,220,.8)",fontSize:11,lineHeight:1.5}}>🎧 One continuous recording for all sections — do not pause.</p>
@@ -764,23 +923,55 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                         style={{width:"100%",height:120,border:"none",borderRadius:8}}
                         allow="autoplay; encrypted-media" allowFullScreen={false}
                         title={`${sec.label} Audio`}/>
+                    ):isGoogleDriveUrl(sec.audioUrl)?(
+                      <iframe
+                        src={googleDriveEmbedUrl(sec.audioUrl)}
+                        style={{width:"100%",height:80,border:"none",borderRadius:8}}
+                        allow="autoplay" allowFullScreen={false}
+                        title={`${sec.label} Audio`}/>
                     ):(
-                      <audio ref={audioRef} controls autoPlay src={sec.audioUrl} style={{width:"100%",height:36}}
-                        controlsList="nodownload noplaybackrate" preload="auto"
-                        onTimeUpdate={e=>{ lastTimeRef.current = e.target.currentTime; }}
-                        onSeeking={e=>{
-                          if(seekingGuardRef.current) return;
-                          if(e.target.currentTime < lastTimeRef.current - 1) {
-                            seekingGuardRef.current = true;
-                            e.target.currentTime = lastTimeRef.current;
-                            seekingGuardRef.current = false;
-                          }
-                        }}
-                        onEnded={()=>{ if(secIdx < sections.length-1) setTimeout(()=>setSecIdx(i=>i+1), 800); }}/>
+                      <>
+                        <audio ref={audioCallbackRef} controls src={sec.audioUrl} style={{width:"100%",height:36}}
+                          controlsList="nodownload noplaybackrate" preload="auto" crossOrigin="anonymous"
+                          onPlay={()=>setAudioPlaying(true)}
+                          onPause={()=>setAudioPlaying(false)}
+                          onCanPlay={()=>{ if(!audioStarted) audioRef.current?.play().catch(()=>{}); }}
+                          onTimeUpdate={e=>{
+                            lastTimeRef.current = e.target.currentTime;
+                            if(e.target.currentTime > 0 && !audioStarted) setAudioStarted(true);
+                          }}
+                          onSeeking={e=>{
+                            if(seekingGuardRef.current) return;
+                            if(e.target.currentTime < lastTimeRef.current - 1) {
+                              seekingGuardRef.current = true;
+                              e.target.currentTime = lastTimeRef.current;
+                              seekingGuardRef.current = false;
+                            }
+                          }}
+                          onEnded={()=>{ if(secIdx < sections.length-1) setTimeout(()=>setSecIdx(i=>i+1), 800); }}/>
+                        {!audioStarted && audioPlaying && (
+                          <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,color:"rgba(255,255,255,.6)",fontSize:12}}>
+                            <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{animation:"spin 1s linear infinite",flexShrink:0}}>
+                              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+                            </svg>
+                            Loading audio…
+                          </div>
+                        )}
+                        {!audioStarted && !audioPlaying && (
+                          <button onClick={()=>audioRef.current?.play().catch(()=>{})} style={{
+                            marginTop:8,width:"100%",padding:"8px 0",background:"#2D5DDC",color:"#fff",
+                            border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",
+                            display:"flex",alignItems:"center",justifyContent:"center",gap:6
+                          }}>▶ Start Audio</button>
+                        )}
+                        <a href={sec.audioUrl} target="_blank" rel="noreferrer" style={{display:"block",marginTop:6,textAlign:"center",color:"rgba(255,255,255,.35)",fontSize:11,textDecoration:"underline",cursor:"pointer"}}>Open audio in new tab ↗</a>
+                      </>
                     )}
+
                   </div>
                   <div style={{marginTop:8,padding:"6px 10px",background:"rgba(13,148,136,.12)",border:"1px solid rgba(13,148,136,.25)",borderRadius:7}}>
-                    <p style={{color:"rgba(100,255,220,.8)",fontSize:11,lineHeight:1.5}}>▶ Press play to start. Audio changes with each section.</p>
+                    <p style={{color:"rgba(100,255,220,.8)",fontSize:11,lineHeight:1.5}}>Press play to start. Audio changes with each section.</p>
                   </div>
                 </div>
               ):(
@@ -797,7 +988,8 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
           <div style={{padding:16,flex:1}}>
             <div style={{color:"rgba(255,255,255,.3)",fontSize:10,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:10}}>Sections</div>
             {sections.map((s,i)=>{
-              const n=s.questions.filter(q=>answers[q.id]).length;
+              const n=s.questions.reduce((sum,q)=>sum+(q.type==="table_inline"?(q.answers||[]).filter((_,gi)=>!!answers[`${q.id}_gap_${gi}`]).length:answers[q.id]?1:0),0);
+              const tot=countQs(s.questions);
               const active=secIdx===i;
               return (
                 <button key={i} onClick={()=>setSecIdx(i)} style={{
@@ -807,7 +999,7 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                   borderLeft:`3px solid ${active?C.brandM:"transparent"}`,
                 }}>
                   <span style={{color:active?"#fff":"rgba(255,255,255,.5)",fontSize:12,fontWeight:active?700:400}}>{s.label}</span>
-                  <span style={{fontSize:11,color:n===s.questions.length?C.teal:"rgba(255,255,255,.3)",fontWeight:700}}>{n}/{s.questions.length}</span>
+                  <span style={{fontSize:11,color:n===tot?C.teal:"rgba(255,255,255,.3)",fontWeight:700}}>{n}/{tot}</span>
                 </button>
               );
             })}
@@ -817,10 +1009,10 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
           <div style={{padding:"14px 16px",borderTop:"1px solid rgba(255,255,255,.08)"}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
               <span style={{color:"rgba(255,255,255,.4)",fontSize:11}}>Progress</span>
-              <span style={{color:"#fff",fontSize:11,fontFamily:"'JetBrains Mono',monospace",fontWeight:700}}>{answered}/{allQ.length}</span>
+              <span style={{color:"#fff",fontSize:11,fontFamily:"'JetBrains Mono',monospace",fontWeight:700}}>{answered}/{totalQCount}</span>
             </div>
             <div style={{height:4,background:"rgba(255,255,255,.08)",borderRadius:99}}>
-              <div style={{width:`${answered/allQ.length*100}%`,height:"100%",background:"linear-gradient(90deg,#11CD87,#0BA870)",borderRadius:99,transition:"width .3s"}}/>
+              <div style={{width:`${totalQCount?answered/totalQCount*100:0}%`,height:"100%",background:"linear-gradient(90deg,#2D5DDC,#4A7FE8)",borderRadius:99,transition:"width .3s"}}/>
             </div>
           </div>
         </div>
@@ -828,7 +1020,7 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
         {/* Questions panel */}
         <div style={{display:"flex",flexDirection:"column",overflow:"hidden",background:C.bg}}>
           {/* Highlight toolbar */}
-          <div style={{background:"#fff",borderBottom:`1px solid ${C.s200}`,padding:"6px 20px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <div style={{background:C.surface,borderBottom:`1px solid ${C.s200}`,padding:"6px 20px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
             <span style={{fontSize:11,color:C.s400,fontWeight:600}}>HIGHLIGHT:</span>
             {[["y",C.hlY],["b",C.hlB]].map(([val,bg])=>(
               <button key={val} onClick={()=>setHlColor(val)} title={val==="y"?"Yellow":"Blue"} style={{
@@ -865,7 +1057,8 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                     scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
                 } else if(q.type==="table_grid"){
                   const grp=[];
-                  while(i<sec.questions.length&&sec.questions[i].type==="table_grid"){grp.push(sec.questions[i]);i++;}
+                  grp.push(sec.questions[i]); i++;
+                  while(i<sec.questions.length&&sec.questions[i].type==="table_grid"&&!sec.questions[i].tableGridLeader){grp.push(sec.questions[i]);i++;}
                   rendered.push(<TableGridGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted}
                     scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
                 } else if(q.type==="mcq_multi"){
@@ -882,6 +1075,14 @@ function ListeningTest({ onComplete, testData, onExit, candidateInfo }) {
                   }
                   rendered.push(<FormTableGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted}
                     scoreQ={scoreAnswer} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
+                } else if(q.type==="table_inline"){
+                  const prevSectionsCount=sections.slice(0,secIdx).reduce((s,ss)=>s+countQs(ss.questions),0);
+                  const prevInSection=countQs(sec.questions.slice(0,i));
+                  const gapStartNum=1+prevSectionsCount+prevInSection;
+                  rendered.push(<TableInlineRenderer key={q.id} q={q} answers={answers} submitted={submitted}
+                    scoreGap={scoreInlineGap} onChange={(key,v)=>setAnswers(a=>({...a,[key]:v}))}
+                    gapStartNum={gapStartNum}/>);
+                  i++;
                 } else {
                   rendered.push(<ListeningQ key={q.id} q={q} answer={answers[q.id]} submitted={submitted}
                     correct={submitted?scoreAnswer(q,answers[q.id]):null}
@@ -938,9 +1139,9 @@ function ListeningQ({ q, answer, submitted, correct, onChange, flagged, onFlag }
     {q.diagramImage&&(
       <div style={{marginBottom:8,borderRadius:10,overflow:"hidden",border:`2px solid ${C.brand}`,background:C.s100,cursor:"pointer"}}
         onClick={()=>{ const w=window.open(); w.document.write(`<img src="${q.diagramImage}" style="max-width:100%;height:auto;display:block;margin:auto;">`); }}>
-        <img src={q.diagramImage} alt="Diagram / Map" style={{width:"100%",maxHeight:340,objectFit:"contain",display:"block",background:"#fff"}}/>
+        <img src={q.diagramImage} alt="Diagram / Map" style={{width:"100%",maxHeight:340,objectFit:"contain",display:"block",background:C.surface}}/>
         <div style={{background:"linear-gradient(transparent,rgba(15,23,42,.6))",padding:"10px",textAlign:"center"}}>
-          <span style={{color:"#fff",fontSize:11,fontWeight:700}}>🔍 Click to open full size</span>
+          <span style={{color:"#fff",fontSize:11,fontWeight:700}}>Click to open full size</span>
         </div>
       </div>
     )}
@@ -949,19 +1150,20 @@ function ListeningQ({ q, answer, submitted, correct, onChange, flagged, onFlag }
       <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start"}}>
         <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:6,padding:"2px 7px",flexShrink:0,marginTop:2}}>{q.id}</span>
         <p style={{color:C.s900,fontSize:13,lineHeight:1.5,flex:1,fontWeight:500,whiteSpace:"pre-line"}}>{q.text}</p>
-        {!submitted&&<button onClick={()=>onFlag?.(q.id)} title="Flag for review" style={{background:"none",border:"none",cursor:"pointer",fontSize:16,opacity:flagged?1:.35,flexShrink:0,padding:0}}>{flagged?"🚩":"⚑"}</button>}
+        {!submitted&&<button onClick={()=>onFlag?.(q.id)} title="Flag for review" style={{background:"none",border:"none",cursor:"pointer",opacity:flagged?1:.35,flexShrink:0,padding:0,color:flagged?C.rose:C.s600,display:"flex"}}><Flag size={15}/></button>}
       </div>
 
       {isOptionType&&(
         <div style={{display:"flex",flexDirection:"column",gap:5,marginLeft:40}}>
           {(q.options||[]).map((opt,oi)=>{
             const sel = answer && (typeof answer==="object" ? answer.idx===oi : answer===opt);
-            const correctLetter = (q.correct||"").trim().toUpperCase()[0];
-            const optLetter     = opt.trim().toUpperCase()[0];
-            const isAns = submitted && (
-              q.correct.trim()===opt.trim() ||
-              (correctLetter && optLetter && correctLetter===optLetter && /^[A-H]/.test(correctLetter))
-            );
+            const _cs=(q.correct||"").trim(), _pm=_cs.match(/^([A-Ha-h])[.\s]/i);
+            const _cl=_cs.toLowerCase();
+            const correctOi = typeof q.correctIdx==="number" ? q.correctIdx :
+              /^[A-Ha-h]$/.test(_cs) ? (_cs.toUpperCase().charCodeAt(0)-65) :
+              _pm ? (_pm[1].toUpperCase().charCodeAt(0)-65) :
+              (() => { const opts=q.options||[]; let i=opts.findIndex(o=>o.trim().toLowerCase()===_cl); if(i>=0) return i; return opts.findIndex(o=>{const ol=o.trim().toLowerCase();return ol.startsWith(_cl+".")||ol.startsWith(_cl+" ")||_cl.startsWith(ol+".");}); })();
+            const isAns = submitted && correctOi===oi;
             const isWrong = submitted && sel && !isAns;
             return (
               <button key={oi} onClick={()=>!submitted&&onChange({text:opt,idx:oi})} style={{
@@ -1025,7 +1227,7 @@ function McqMultiGroup({ questions, answers, submitted, scoreQ, onChange }) {
     <div style={{marginBottom:16}}>
       {leader.instructions&&<TaskInstructionBlock instructions={leader.instructions}/>}
       {/* Options panel — shown once for the whole group */}
-      <div style={{...cardStyle({padding:"14px 18px",marginBottom:8,background:"#F8FAFC",border:`1.5px solid ${C.s200}`})}}>
+      <div style={{...cardStyle({padding:"14px 18px",marginBottom:8,background:C.s100,border:`1.5px solid ${C.s200}`})}}>
         <div style={{fontSize:10,color:C.s400,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:10}}>Options</div>
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {opts.filter(o=>o.trim()).map((opt,oi)=>{
@@ -1064,6 +1266,7 @@ function McqMultiGroup({ questions, answers, submitted, scoreQ, onChange }) {
             <select value={ans} onChange={e=>!submitted&&onChange(q.id,e.target.value.toUpperCase())} disabled={submitted}
               style={{...inputStyle,width:80,padding:"6px 8px",cursor:submitted?"default":"pointer",
                 fontFamily:"'JetBrains Mono',monospace",fontWeight:800,fontSize:15,textAlign:"center",
+                appearance:"none",WebkitAppearance:"none",
                 borderColor:submitted?(correct?C.teal:ans?C.rose:C.s200):C.brand,
                 background:submitted?(correct?C.tealL:ans?C.roseL:"#fff"):C.brandL,
                 color:submitted?(correct?C.teal:ans?C.rose:C.s600):C.brand,
@@ -1109,7 +1312,7 @@ function FormTableGroup({ questions, answers, submitted, scoreQ, onChange }) {
                 <tr key={q.id} style={{borderBottom:qi<questions.length-1?`1px solid ${C.s200}`:"none"}}>
                   <td style={{
                     padding:"12px 18px",fontWeight:600,fontSize:13,color:C.s800,
-                    borderRight:`1.5px solid ${C.s300}`,width:"40%",background:"#FAFBFC",
+                    borderRight:`1.5px solid ${C.s300}`,width:"40%",background:C.s100,
                     verticalAlign:"middle",
                   }}>
                     {q.rowLabel||"—"}
@@ -1149,7 +1352,7 @@ function FormTableGroup({ questions, answers, submitted, scoreQ, onChange }) {
 }
 
 // ── READING TEST ──────────────────────────────────────────────────────────────
-function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }) {
+export function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }) {
   const [ready, setReady]         = useState(false);
   const [pIdx, setPIdx]           = useState(0);
   const [answers, setAnswers]     = useState({});
@@ -1198,7 +1401,7 @@ function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }
     });
   }, [qHighlights]);
 
-  if(!ready) return <PreTestScreen icon="📖" label="Reading Test" onStart={()=>setReady(true)}/>;
+  if(!ready) return <PreTestScreen icon={BookOpen} label="Reading Test" onStart={()=>setReady(true)}/>;
   // Build sections & passage map — supports new multi-passage format, old single-passage, or built-in
   let extraPassages = {};
   let sections;
@@ -1222,7 +1425,16 @@ function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }
   const sec = sections[pIdx];
   const passage = allPassages[sec.passageKey] || {title:sec.label||"Passage",text:""};
   const allQ = sections.flatMap(s=>s.questions);
-  const answered = Object.keys(answers).length;
+  const totalQCount = allQ.reduce((s,q)=>s+(q.type==="table_inline"?Math.max(1,(q.answers||[]).length):1),0);
+  const answered = allQ.reduce((s,q)=>{
+    if(q.type==="table_inline") return s+(q.answers||[]).filter((_,gi)=>!!answers[`${q.id}_gap_${gi}`]).length;
+    return s+(answers[q.id]?1:0);
+  },0);
+  const scoreInlineGap = (a,c) => {
+    const av=(a||"").trim().toLowerCase(), cv=(c||"").trim().toLowerCase();
+    if(!av||!cv) return false;
+    return av===cv||av.includes(cv)||cv.includes(av);
+  };
 
   const onMouseUp = () => {
     const sel = window.getSelection();
@@ -1273,7 +1485,17 @@ function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }
     // All text-input types — substring match, case-insensitive
     if(TEXT_INPUT_TYPES.has(q.type)||q.type==="fillblank"||q.type==="short_answer"||q.type==="short"||q.type==="form_table")
       return av===cv || av.includes(cv) || cv.includes(av);
-    // Option-based: full text match first, then letter prefix
+    // option-based (mcq, matching) — answer stored as {text, idx}
+    if(a && typeof a==="object" && typeof a.idx==="number") {
+      if(typeof q.correctIdx==="number") return a.idx===q.correctIdx;
+      const cs=(q.correct||"").trim();
+      if(/^[A-Ha-h]$/.test(cs)) return a.idx===(cs.toUpperCase().charCodeAt(0)-65);
+      const pm=cs.match(/^([A-Ha-h])[.\s]/i); if(pm) return a.idx===(pm[1].toUpperCase().charCodeAt(0)-65);
+      // Roman numerals / other prefixed identifiers (e.g. "iii" matches "iii. heading text")
+      const st=(a.text||"").trim().toLowerCase(); const cl2=cs.toLowerCase();
+      if(st&&cl2&&(st===cl2||st.startsWith(cl2+".")||st.startsWith(cl2+" ")||cl2.startsWith(st+"."))) return true;
+      return av===cv;
+    }
     if(av===cv) return true;
     const al=av.replace(/[^a-h]/g,"")[0], cl=cv.replace(/[^a-h]/g,"")[0];
     return !!(al&&cl&&al===cl);
@@ -1283,24 +1505,30 @@ function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }
     if(submitted) return;
     setSubmitted(true);
     let correct=0;
-    allQ.forEach(q=>{ if(scoreQ(q,answers[q.id])) correct++; });
-    const result = {correct, total:allQ.length, answers, allQuestions:allQ};
-    setScore({correct, total:allQ.length});
-    // Auto-save immediately so data is never lost if candidate closes browser before clicking Continue
+    allQ.forEach(q=>{
+      if(q.type==="table_inline"){
+        (q.answers||[]).forEach((c,gi)=>{ if(scoreInlineGap(answers[`${q.id}_gap_${gi}`],c)) correct++; });
+      } else {
+        if(scoreQ(q,answers[q.id])) correct++;
+      }
+    });
+    const result = {correct, total:totalQCount, answers, allQuestions:allQ};
+    setScore({correct, total:totalQCount});
     if(onAutoSave) onAutoSave(result);
   };
   const handleContinue = () => onComplete({correct:score.correct, total:score.total, answers, allQuestions:allQ});
 
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)"}}>
-      <SectionHeader icon="📖" label="Reading Test" title="IELTS Academic Reading"
+      <SectionHeader icon={BookOpen} label="Reading Test" title="IELTS Academic Reading"
         right={<Countdown seconds={60*60} onExpire={handleSubmit}/>} onExit={onExit} candidateInfo={candidateInfo}/>
 
       {/* Tab bar + highlight tools */}
-      <div style={{background:"#fff",borderBottom:`1px solid ${C.s200}`,padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.s200}`,padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
         <div style={{display:"flex"}}>
           {sections.map((s,i)=>{
-            const done=s.questions.filter(q=>answers[q.id]).length;
+            const done=s.questions.reduce((sum,q)=>sum+(q.type==="table_inline"?(q.answers||[]).filter((_,gi)=>!!answers[`${q.id}_gap_${gi}`]).length:answers[q.id]?1:0),0);
+            const tot=countQs(s.questions);
             const active=pIdx===i;
             return (
               <button key={s.id||i} onClick={()=>setPIdx(i)} style={{
@@ -1309,7 +1537,7 @@ function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }
                 background:"transparent",color:active?C.brand:C.s400,transition:"all .15s",
               }}>
                 {s.label.split("—")[0].trim()}
-                <span style={{marginLeft:6,fontSize:11,color:done===s.questions.length?C.teal:C.s400}}>({done}/{s.questions.length})</span>
+                <span style={{marginLeft:6,fontSize:11,color:done===tot?C.teal:C.s400}}>({done}/{tot})</span>
               </button>
             );
           })}
@@ -1334,7 +1562,7 @@ function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }
 
       <div className="split-grid">
         {/* Passage */}
-        <div style={{overflow:"auto",padding:28,borderRight:`1px solid ${C.s200}`,background:"#fff"}} ref={passRef} onMouseUp={onMouseUp} onTouchEnd={onMouseUp}>
+        <div style={{overflow:"auto",padding:28,borderRight:`1px solid ${C.s200}`,background:C.surface}} ref={passRef} onMouseUp={onMouseUp} onTouchEnd={onMouseUp}>
           <h3 style={{fontSize:18,fontWeight:800,color:C.s900,marginBottom:20,letterSpacing:"-0.02em"}}>{passage.title}</h3>
           <div style={{fontSize:14,lineHeight:1.95,color:C.s800}}
             dangerouslySetInnerHTML={{__html:`<p style='margin-bottom:16px'>${renderPassage(passage.text,sec.passageKey)}</p>`}}/>
@@ -1344,7 +1572,7 @@ function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }
         <div style={{overflow:"auto",padding:28,background:C.bg}} ref={questRef} onMouseUp={onMouseUp} onTouchEnd={onMouseUp}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <h3 style={{fontSize:16,fontWeight:700,color:C.s900}}>{sec.label}</h3>
-            <span style={{fontSize:12,color:C.s400,fontWeight:600}}>{answered}/{allQ.length} answered</span>
+            <span style={{fontSize:12,color:C.s400,fontWeight:600}}>{answered}/{totalQCount} answered</span>
           </div>
           {(()=>{
             // Group consecutive same-type questions; render all others individually
@@ -1368,13 +1596,22 @@ function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }
                 rendered.push(<NoteCompletionGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted} scoreQ={scoreQ} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
               } else if(q.type==="table_grid"){
                 const grp=[];
-                while(i<sec.questions.length&&sec.questions[i].type==="table_grid"){grp.push(sec.questions[i]);i++;}
+                grp.push(sec.questions[i]); i++;
+                while(i<sec.questions.length&&sec.questions[i].type==="table_grid"&&!sec.questions[i].tableGridLeader){grp.push(sec.questions[i]);i++;}
                 rendered.push(<TableGridGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted} scoreQ={scoreQ} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
               } else if(q.type==="mcq_multi"){
                 const grp=[];
                 grp.push(sec.questions[i]); i++;
                 while(i<sec.questions.length&&sec.questions[i].type==="mcq_multi"&&!sec.questions[i].newGroup){grp.push(sec.questions[i]);i++;}
                 rendered.push(<McqMultiGroup key={grp[0].id} questions={grp} answers={answers} submitted={submitted} scoreQ={scoreQ} onChange={(id,v)=>setAnswers(a=>({...a,[id]:v}))}/>);
+              } else if(q.type==="table_inline"){
+                const prevSectionsCount=sections.slice(0,pIdx).reduce((s,ss)=>s+countQs(ss.questions),0);
+                const prevInSection=countQs(sec.questions.slice(0,i));
+                const gapStartNum=1+prevSectionsCount+prevInSection;
+                rendered.push(<TableInlineRenderer key={q.id} q={q} answers={answers} submitted={submitted}
+                  scoreGap={scoreInlineGap} onChange={(key,v)=>setAnswers(a=>({...a,[key]:v}))}
+                  gapStartNum={gapStartNum}/>);
+                i++;
               } else {
                 rendered.push(<ReadingQ key={q.id} q={q} answer={answers[q.id]} submitted={submitted}
                   correct={submitted?scoreQ(q,answers[q.id]):null} onChange={v=>setAnswers(a=>({...a,[q.id]:v}))}
@@ -1389,7 +1626,7 @@ function ReadingTest({ onComplete, onAutoSave, testData, onExit, candidateInfo }
             {score?(
               <div>
                 <div style={{...cardStyle({padding:20,marginBottom:14,borderLeft:`4px solid ${bandColor(readingBand(score.correct,score.total))}`}),background:bandBg(readingBand(score.correct,score.total))}}>
-                  <div style={{fontSize:11,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>📊 Reading Completed</div>
+                  <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}><BarChart2 size={11}/>Reading Completed</div>
                   <div style={{display:"flex",alignItems:"baseline",gap:12,marginBottom:10}}>
                     <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:40,fontWeight:900,color:bandColor(readingBand(score.correct,score.total)),lineHeight:1}}>{score.correct}/{score.total}</span>
                     <div>
@@ -1458,7 +1695,7 @@ function MatchingHeadingsGroup({ questions, answers, submitted, scoreQ, onChange
               <div key={i} style={{display:"flex",gap:8,fontSize:12,padding:"3px 0",alignItems:"baseline"}}>
                 <span style={{fontWeight:800,color:C.brand,fontFamily:"'JetBrains Mono',monospace",minWidth:32,flexShrink:0}}>{toRoman(i+1)}.</span>
                 <span style={{color:isUsed?C.s400:C.s800,lineHeight:1.4,textDecoration:isUsed?"line-through":"none"}}>{h}</span>
-                {isUsed&&<span style={{fontSize:9,color:C.brand,fontWeight:700,background:"#fff",borderRadius:3,padding:"1px 5px",flexShrink:0}}>USED</span>}
+                {isUsed&&<span style={{fontSize:9,color:C.brand,fontWeight:700,background:C.surface,borderRadius:3,padding:"1px 5px",flexShrink:0}}>USED</span>}
               </div>
             );
           })}
@@ -1486,6 +1723,7 @@ function MatchingHeadingsGroup({ questions, answers, submitted, scoreQ, onChange
                   onChange(q.id,{text:e.target.value,idx});
                 }}
                 style={{...inputStyle,width:240,fontSize:12,padding:"6px 10px",
+                  appearance:"none",WebkitAppearance:"none",
                   borderColor:submitted?(correct?C.teal:ansText?C.rose:C.s200):ansText?C.brand:C.s200,
                   background:submitted?(correct?C.tealL:ansText?C.roseL:"#fff"):"#fff"}}>
                 <option value="">— Select heading —</option>
@@ -1556,7 +1794,7 @@ function MatchingGroup({ questions, answers, submitted, scoreQ, onChange }) {
               <div key={i} style={{display:"flex",gap:8,fontSize:12,padding:"3px 0",alignItems:"baseline"}}>
                 <span style={{fontWeight:800,color:C.brand,fontFamily:"'JetBrains Mono',monospace",minWidth:24,flexShrink:0}}>{String.fromCharCode(65+i)}.</span>
                 <span style={{color:isUsed?C.s400:C.s800,lineHeight:1.4,textDecoration:isUsed?"line-through":"none"}}>{opt}</span>
-                {isUsed&&<span style={{fontSize:9,color:C.brand,fontWeight:700,background:"#fff",borderRadius:3,padding:"1px 5px",flexShrink:0}}>USED</span>}
+                {isUsed&&<span style={{fontSize:9,color:C.brand,fontWeight:700,background:C.surface,borderRadius:3,padding:"1px 5px",flexShrink:0}}>USED</span>}
               </div>
             );
           })}
@@ -1588,6 +1826,7 @@ function MatchingGroup({ questions, answers, submitted, scoreQ, onChange }) {
                   onChange(q.id,{text:e.target.value,idx});
                 }}
                 style={{...inputStyle,width:240,fontSize:12,padding:"6px 10px",
+                  appearance:"none",WebkitAppearance:"none",
                   borderColor:submitted?(correct?C.teal:ansText?C.rose:C.s200):ansText?C.brand:C.s200,
                   background:submitted?(correct?C.tealL:ansText?C.roseL:"#fff"):"#fff"}}>
                 <option value="">— Select —</option>
@@ -1717,7 +1956,7 @@ function NoteCompletionGroup({ questions, answers, submitted, scoreQ, onChange }
   return (
     <>
       {instructions&&<TaskInstructionBlock instructions={instructions}/>}
-      <div style={{...cardStyle({padding:20,marginBottom:12}),background:"#F8FAFC",border:`1.5px solid ${C.s200}`}}>
+      <div style={{...cardStyle({padding:20,marginBottom:12}),background:C.s100,border:`1.5px solid ${C.s200}`}}>
         {renderTemplate()}
       </div>
     </>
@@ -1812,6 +2051,92 @@ function TableGridGroup({ questions, answers, submitted, scoreQ, onChange }) {
   );
 }
 
+function TableInlineRenderer({ q, answers, submitted, scoreGap, onChange, gapStartNum=1 }) {
+  const title    = q.tableTitle    || "";
+  const subtitle = q.tableSubtitle || "";
+  const headers  = q.tableHeaders  || [];
+  const rows     = q.tableRows     || [];
+  const qAnswers = q.answers       || [];
+  const hint     = q.hint          || "NO MORE THAN TWO WORDS OR A NUMBER";
+  const instructions = q.instructions || "";
+  let gapIdx = 0;
+
+  const renderCell = (cellText) => {
+    if (!cellText) return null;
+    if (!cellText.includes("[Q]")) return <span>{cellText}</span>;
+    const parts = cellText.split("[Q]");
+    return parts.map((part, pi) => {
+      const els = [<span key={`t${pi}`}>{part}</span>];
+      if (pi < parts.length - 1) {
+        const idx = gapIdx;
+        const gapNum = gapStartNum + idx;
+        const ansKey = `${q.id}_gap_${idx}`;
+        const ans = answers[ansKey] || "";
+        const correctAns = qAnswers[idx] || "";
+        const isCorrect = submitted ? scoreGap(ans, correctAns) : null;
+        gapIdx++;
+        els.push(
+          <span key={`g${idx}`} style={{display:"inline-flex",flexDirection:"column",alignItems:"center",gap:2,margin:"2px 4px",verticalAlign:"middle"}}>
+            <span style={{display:"inline-flex",alignItems:"center",gap:3}}>
+              <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:4,padding:"1px 5px",flexShrink:0}}>{gapNum}</span>
+              <input
+                value={ans}
+                onChange={e => !submitted && onChange(ansKey, e.target.value)}
+                disabled={submitted}
+                placeholder={hint}
+                style={{border:`1.5px solid ${submitted?(isCorrect===true?C.teal:ans?C.rose:C.s300):C.brand}`,
+                  borderRadius:6,padding:"4px 8px",fontSize:12,width:120,textAlign:"center",
+                  background:submitted?(isCorrect===true?"#F0FDF4":ans?"#FFF1F2":"#f8f9fa"):"#fff",
+                  color:C.s900,outline:"none",fontFamily:"inherit"}}
+              />
+            </span>
+            {submitted && (
+              <span style={{fontSize:10,fontWeight:700,color:isCorrect===true?C.teal:C.rose,whiteSpace:"nowrap"}}>
+                {isCorrect===true ? "✓" : ans ? `✗ "${correctAns}"` : `— "${correctAns}"`}
+              </span>
+            )}
+          </span>
+        );
+      }
+      return els;
+    });
+  };
+
+  const thStyle = {border:`1px solid ${C.s300}`,padding:"8px 10px",background:C.s100,
+    fontWeight:700,fontSize:12,color:C.s800,textAlign:"center",whiteSpace:"pre-line",lineHeight:1.4};
+  const tdStyle = (ci) => ({border:`1px solid ${C.s300}`,padding:"10px 12px",fontSize:13,
+    color:C.s800,verticalAlign:"middle",
+    background:ci===0?"#F8FAFC":"#fff"});
+
+  return (
+    <>
+      {instructions && <TaskInstructionBlock instructions={instructions}/>}
+      <div style={{marginBottom:12}}>
+        {title    && <div style={{textAlign:"center",fontWeight:700,fontSize:15,color:C.s900,marginBottom:4}}>{title}</div>}
+        {subtitle && <div style={{textAlign:"center",fontWeight:600,fontSize:13,color:C.s700,marginBottom:10}}>{subtitle}</div>}
+        <div style={{overflowX:"auto",borderRadius:8,border:`1px solid ${C.s200}`}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:360}}>
+            {headers.some(h=>h) && (
+              <thead>
+                <tr>{headers.map((h,hi)=><th key={hi} style={thStyle}>{h}</th>)}</tr>
+              </thead>
+            )}
+            <tbody>
+              {rows.map((row,ri)=>(
+                <tr key={ri}>
+                  {(Array.isArray(row)?row:[]).map((cell,ci)=>(
+                    <td key={ci} style={tdStyle(ci)}>{renderCell(cell)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function ReadingQ({ q, answer, submitted, correct, onChange, flagged, onFlag }) {
   const borderCol = submitted?(correct===true?C.teal:correct===false?C.rose:C.s200):flagged?"#F59E0B":C.s200;
   const isOptionType = OPTION_TYPES.has(q.type);
@@ -1827,9 +2152,9 @@ function ReadingQ({ q, answer, submitted, correct, onChange, flagged, onFlag }) 
     {q.diagramImage&&(
       <div style={{marginBottom:8,borderRadius:10,overflow:"hidden",border:`2px solid ${C.brand}`,background:C.s100,cursor:"pointer"}}
         onClick={()=>{ const w=window.open(); w.document.write(`<img src="${q.diagramImage}" style="max-width:100%;height:auto;display:block;margin:auto;">`); }}>
-        <img src={q.diagramImage} alt="Diagram / Map" style={{width:"100%",maxHeight:340,objectFit:"contain",display:"block",background:"#fff"}}/>
+        <img src={q.diagramImage} alt="Diagram / Map" style={{width:"100%",maxHeight:340,objectFit:"contain",display:"block",background:C.surface}}/>
         <div style={{background:"linear-gradient(transparent,rgba(15,23,42,.6))",padding:"10px",textAlign:"center"}}>
-          <span style={{color:"#fff",fontSize:11,fontWeight:700}}>🔍 Click to open full size</span>
+          <span style={{color:"#fff",fontSize:11,fontWeight:700}}>Click to open full size</span>
         </div>
       </div>
     )}
@@ -1837,7 +2162,7 @@ function ReadingQ({ q, answer, submitted, correct, onChange, flagged, onFlag }) 
       <div style={{display:"flex",gap:10,marginBottom:10,alignItems:"flex-start"}}>
         <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:6,padding:"2px 7px",flexShrink:0,marginTop:1}}>Q{q.id}</span>
         <p style={{color:C.s900,fontSize:13,lineHeight:1.5,flex:1,fontWeight:500,whiteSpace:"pre-line"}}>{q.text}</p>
-        {!submitted&&<button onClick={()=>onFlag?.(q.id)} title="Flag for review" style={{background:"none",border:"none",cursor:"pointer",fontSize:16,opacity:flagged?1:.35,flexShrink:0,padding:0}}>{flagged?"🚩":"⚑"}</button>}
+        {!submitted&&<button onClick={()=>onFlag?.(q.id)} title="Flag for review" style={{background:"none",border:"none",cursor:"pointer",opacity:flagged?1:.35,flexShrink:0,padding:0,color:flagged?C.rose:C.s600,display:"flex"}}><Flag size={15}/></button>}
       </div>
 
       {/* Options list (MCQ, Matching variants) */}
@@ -1845,12 +2170,13 @@ function ReadingQ({ q, answer, submitted, correct, onChange, flagged, onFlag }) 
         <div style={{display:"flex",flexDirection:"column",gap:5,marginLeft:40}}>
           {(q.options||[]).map((opt,oi)=>{
             const sel = answer && (typeof answer==="object" ? answer.idx===oi : answer===opt);
-            const correctLetter = (q.correct||"").trim().toUpperCase()[0];
-            const optLetter     = opt.trim().toUpperCase()[0];
-            const isAns = submitted && (
-              q.correct.trim()===opt.trim() ||
-              (correctLetter && optLetter && correctLetter===optLetter && /^[A-H]/.test(correctLetter))
-            );
+            const _cs=(q.correct||"").trim(), _pm=_cs.match(/^([A-Ha-h])[.\s]/i);
+            const _cl=_cs.toLowerCase();
+            const correctOi = typeof q.correctIdx==="number" ? q.correctIdx :
+              /^[A-Ha-h]$/.test(_cs) ? (_cs.toUpperCase().charCodeAt(0)-65) :
+              _pm ? (_pm[1].toUpperCase().charCodeAt(0)-65) :
+              (() => { const opts=q.options||[]; let i=opts.findIndex(o=>o.trim().toLowerCase()===_cl); if(i>=0) return i; return opts.findIndex(o=>{const ol=o.trim().toLowerCase();return ol.startsWith(_cl+".")||ol.startsWith(_cl+" ")||_cl.startsWith(ol+".");}); })();
+            const isAns = submitted && correctOi===oi;
             const isWrong = submitted && sel && !isAns;
             return (
               <button key={oi} onClick={()=>!submitted&&onChange({text:opt,idx:oi})} style={{
@@ -1902,11 +2228,14 @@ function ReadingQ({ q, answer, submitted, correct, onChange, flagged, onFlag }) 
 }
 
 // ── WRITING TEST (no AI — AI runs after speaking) ─────────────────────────────
-function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
+export function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
+  const DRAFT_KEY = `lv_writing_draft_${candidateInfo?.email||candidateInfo?.id||"anon"}`;
+  const savedDraft = (() => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY)||"null"); } catch { return null; } })();
+
   const [ready, setReady]         = useState(false);
   const [tIdx, setTIdx]           = useState(0);
   const [imgZoom, setImgZoom]     = useState(false);
-  const [texts, setTexts]         = useState({0:"",1:""});
+  const [texts, setTexts]         = useState(savedDraft || {0:"",1:""});
   const [submitted, setSubmitted] = useState(false);
   const [dbCustomTasks, setDbCustomTasks] = useState(null);
   const [hlColor, setHlColor]     = useState("y");
@@ -1968,34 +2297,44 @@ function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
-  if(!ready) return <PreTestScreen icon="✍️" label="Writing Test" onStart={()=>setReady(true)}/>;
+  // Autosave writing draft to localStorage on every keystroke
+  // MUST be before the early return to satisfy React's Rules of Hooks
+  useEffect(() => {
+    if (submitted) return;
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(texts)); } catch {}
+  }, [texts, submitted]);
+
+  if(!ready) return <PreTestScreen icon={Pencil} label="Writing Test" onStart={()=>setReady(true)}/>;
 
   const customTasks = testData || dbCustomTasks;
   const builtinTask = WRITING_TASKS[tIdx];
+  const toStr = v => { if(typeof v === "string") return v; if(v && typeof v === "object") return String(v.text || v.prompt || builtinTask.prompt || ""); return String(builtinTask.prompt || ""); };
   const task = tIdx===0 && customTasks?.task1Prompt
-    ? {...builtinTask, prompt: customTasks.task1Prompt, image: customTasks.task1Image||null}
+    ? {...builtinTask, prompt: toStr(customTasks.task1Prompt), image: customTasks.task1Image||null}
     : tIdx===1 && customTasks?.task2Prompt
-    ? {...builtinTask, prompt: customTasks.task2Prompt, image: null}
+    ? {...builtinTask, prompt: toStr(customTasks.task2Prompt), image: null}
     : {...builtinTask, image: null};
 
-  const wc       = countWords(texts[tIdx]||"");
+  const safeText = (v) => typeof v === "string" ? v : "";
+  const wc       = countWords(safeText(texts[tIdx]));
   const meetsMin = wc >= task.minWords;
-  const bothDone = countWords(texts[0])>=30 && countWords(texts[1])>=30;
+  const bothDone = countWords(safeText(texts[0]))>=30 && countWords(safeText(texts[1]))>=30;
 
   const handleSubmit = () => {
     setSubmitted(true);
+    try { localStorage.removeItem(DRAFT_KEY); } catch {}
     setTimeout(()=>onComplete({texts, taskData: customTasks}), 300);
   };
 
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)"}}>
-      <SectionHeader icon="✍️" label="Writing Test" title="IELTS Academic Writing"
+      <SectionHeader icon={Pencil} label="Writing Test" title="IELTS Academic Writing"
         right={
           <div style={{display:"flex",gap:10,alignItems:"center"}}>
             {/* Task switcher */}
             <div style={{display:"flex",gap:4}}>
               {WRITING_TASKS.map((t,i)=>{
-                const done = countWords(texts[i]||"")>=30;
+                const done = countWords(safeText(texts[i]))>=30;
                 return (
                   <button key={i} onClick={()=>!submitted&&setTIdx(i)} style={{
                     padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700,border:"none",cursor:submitted?"default":"pointer",transition:"all .15s",
@@ -2015,7 +2354,7 @@ function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
       <div className="split-grid">
 
         {/* LEFT — Task prompt */}
-        <div style={{overflow:"auto",padding:28,borderRight:`1px solid ${C.s200}`,background:"#fff",display:"flex",flexDirection:"column",gap:16}}
+        <div style={{overflow:"auto",padding:28,borderRight:`1px solid ${C.s200}`,background:C.surface,display:"flex",flexDirection:"column",gap:16}}
           ref={promptRef} onMouseUp={onPromptMouseUp} onTouchEnd={onPromptMouseUp}>
           {/* Highlight toolbar */}
           <div style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${C.s200}`,marginBottom:4}}>
@@ -2039,15 +2378,15 @@ function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
                 {imgZoom&&(
                   <div onClick={()=>setImgZoom(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.85)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:24,cursor:"zoom-out"}}>
                     <div style={{position:"relative",maxWidth:"90vw",maxHeight:"90vh",borderRadius:16,overflow:"hidden",boxShadow:"0 32px 80px rgba(0,0,0,.6)"}}>
-                      <img src={task.image} alt="Task" style={{display:"block",maxWidth:"90vw",maxHeight:"88vh",objectFit:"contain",background:"#fff"}}/>
+                      <img src={task.image} alt="Task" style={{display:"block",maxWidth:"90vw",maxHeight:"88vh",objectFit:"contain",background:C.surface}}/>
                       <div style={{position:"absolute",top:12,right:12,background:"rgba(0,0,0,.55)",borderRadius:8,padding:"4px 10px",color:"#fff",fontSize:12,fontWeight:600}}>✕ Click anywhere to close</div>
                     </div>
                   </div>
                 )}
                 <div onClick={()=>setImgZoom(true)} style={{marginTop:14,borderRadius:10,overflow:"hidden",border:`2px solid ${C.brand}`,background:C.s100,cursor:"zoom-in",position:"relative",boxShadow:"0 4px 12px rgba(17,205,135,.15)"}}>
-                  <img src={task.image} alt="Task" style={{width:"100%",maxHeight:320,objectFit:"contain",display:"block",background:"#fff"}}/>
+                  <img src={task.image} alt="Task" style={{width:"100%",maxHeight:320,objectFit:"contain",display:"block",background:C.surface}}/>
                   <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(15,23,42,.7))",padding:"16px 14px 10px",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                    <span style={{fontSize:13}}>🔍</span><span style={{color:"#fff",fontSize:12,fontWeight:700}}>Click to enlarge</span>
+                    <span style={{color:"#fff",fontSize:12,fontWeight:700}}>Click to enlarge</span>
                   </div>
                 </div>
               </>
@@ -2057,7 +2396,7 @@ function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
           {/* Navigation hint */}
           <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
             {[0,1].map(i=>{
-              const wci = countWords(texts[i]||"");
+              const wci = countWords(safeText(texts[i]));
               const mini = WRITING_TASKS[i].minWords;
               const met  = wci>=mini;
               return (
@@ -2086,7 +2425,7 @@ function WritingTest({ onComplete, testData, onExit, candidateInfo }) {
           </div>
 
           <textarea
-            value={texts[tIdx]}
+            value={safeText(texts[tIdx])}
             onChange={e=>!submitted&&setTexts(t=>({...t,[tIdx]:e.target.value}))}
             disabled={submitted}
             placeholder={`Write your ${task.task} response here…`}
@@ -2174,7 +2513,7 @@ Criteria: Fluency & Coherence, Lexical Resource, Grammatical Range & Accuracy, P
   }
 }
 
-function SpeakingExam({ candidateInfo, onComplete, onSkip }) {
+export function SpeakingExam({ candidateInfo, onComplete, onSkip }) {
   const [part, setPart]             = useState(1);        // 1, 2, 3
   const [qIdx, setQIdx]             = useState(0);
   const [answers, setAnswers]       = useState({p1:{},p2:"",p3:{}});
@@ -2287,7 +2626,7 @@ function SpeakingExam({ candidateInfo, onComplete, onSkip }) {
   // ── Results screen ──
   if(results) {
     const band = results.band;
-    const CRITERIA = [["fluency","Fluency & Coherence","🗣️"],["lexical","Lexical Resource","📚"],["grammar","Grammatical Range","⚙️"],["pronunciation","Pronunciation","🎵"]];
+    const CRITERIA = [["fluency","Fluency & Coherence",Mic],["lexical","Lexical Resource",BookMarked],["grammar","Grammatical Range",Settings],["pronunciation","Pronunciation",BarChart2]];
     return (
       <div style={{maxWidth:700,margin:"0 auto",padding:"40px 24px"}}>
         <div style={{background:"linear-gradient(135deg,#064E3B 0%,#0BA870 100%)",borderRadius:20,padding:"40px 36px",textAlign:"center",marginBottom:24}}>
@@ -2300,10 +2639,10 @@ function SpeakingExam({ candidateInfo, onComplete, onSkip }) {
           <p style={{fontSize:13,color:C.s800,lineHeight:1.8,margin:0}}>{results.summary}</p>
         </div>}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
-          {CRITERIA.map(([k,lbl,icon])=>{const c=results[k]||{};const b=c.band;return b!=null?(
+          {CRITERIA.map(([k,lbl,CritIcon])=>{const c=results[k]||{};const b=c.band;return b!=null?(
             <div key={k} style={{...cardStyle({padding:16})}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.s400,textTransform:"uppercase"}}>{icon} {lbl}</div>
+                <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:700,color:C.s400,textTransform:"uppercase"}}><CritIcon size={11}/>{lbl}</div>
                 <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:22,fontWeight:900,color:bandColor(b)}}>{b}</div>
               </div>
               <div style={{height:4,background:C.s200,borderRadius:99,marginBottom:8}}><div style={{width:`${(b-1)/8*100}%`,height:"100%",background:bandColor(b),borderRadius:99}}/></div>
@@ -2314,11 +2653,11 @@ function SpeakingExam({ candidateInfo, onComplete, onSkip }) {
         {(results.strengths?.length>0||results.improvements?.length>0)&&(
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
             {results.strengths?.length>0&&<div style={{background:"#F0FDF4",border:"1.5px solid #BBF7D0",borderRadius:12,padding:"14px 16px"}}>
-              <div style={{fontSize:11,fontWeight:700,color:"#16A34A",textTransform:"uppercase",marginBottom:10}}>✓ Strengths</div>
+              <div style={{fontSize:11,fontWeight:700,color:"#16A34A",textTransform:"uppercase",marginBottom:10,display:"flex",alignItems:"center",gap:5}}><CheckCircle size={11}/>Strengths</div>
               {results.strengths.map((s,i)=><div key={i} style={{fontSize:12,color:"#166534",marginBottom:5}}>• {s}</div>)}
             </div>}
             {results.improvements?.length>0&&<div style={{background:"#FFFBEB",border:"1.5px solid #FDE68A",borderRadius:12,padding:"14px 16px"}}>
-              <div style={{fontSize:11,fontWeight:700,color:"#B45309",textTransform:"uppercase",marginBottom:10}}>📈 Areas to Improve</div>
+              <div style={{fontSize:11,fontWeight:700,color:"#B45309",textTransform:"uppercase",marginBottom:10,display:"flex",alignItems:"center",gap:5}}><TrendingUp size={11}/>Areas to Improve</div>
               {results.improvements.map((s,i)=><div key={i} style={{fontSize:12,color:"#92400E",marginBottom:5}}>• {s}</div>)}
             </div>}
           </div>
@@ -2359,7 +2698,7 @@ function SpeakingExam({ candidateInfo, onComplete, onSkip }) {
       {part===2&&!prepDone&&(
         <div style={{...cardStyle({padding:20,marginBottom:20,borderLeft:`4px solid ${C.amber}`,background:C.amberL})}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div style={{fontWeight:700,color:C.amber}}>⏱ Preparation Time</div>
+            <div style={{fontWeight:700,color:C.amber,display:"flex",alignItems:"center",gap:6}}><Clock size={14}/>Preparation Time</div>
             <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:32,fontWeight:900,color:C.amber}}>{prepTimer}s</div>
           </div>
           <button onClick={()=>setPrepDone(true)} style={{...btnStyle("primary"),marginTop:12,width:"100%"}}>I'm ready — Start speaking</button>
@@ -2406,7 +2745,7 @@ function SpeakingExam({ candidateInfo, onComplete, onSkip }) {
 }
 
 // ── SPEAKING BOOKING ──────────────────────────────────────────────────────────
-function SpeakingBooking({ candidateInfo, onComplete }) {
+export function SpeakingBooking({ candidateInfo, onComplete }) {
   const [selDate, setSelDate]       = useState(null);
   const [selSlot, setSelSlot]       = useState(null); // the full slot object
   const [mode, setMode]             = useState("online");
@@ -2444,10 +2783,10 @@ function SpeakingBooking({ candidateInfo, onComplete }) {
 
   if(confirmed) return (
     <div style={{maxWidth:500,margin:"80px auto",textAlign:"center",padding:"0 24px"}}>
-      <div style={{width:80,height:80,borderRadius:20,background:C.tealL,border:`2px solid ${C.teal}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:36,margin:"0 auto 20px"}}>✓</div>
+      <div style={{width:80,height:80,borderRadius:20,background:C.tealL,border:`2px solid ${C.teal}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px"}}><CheckCircle size={36} color={C.teal} strokeWidth={2}/></div>
       <h2 style={{fontSize:26,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:8}}>Speaking Test Booked!</h2>
       <p style={{color:C.s600,fontSize:14,marginBottom:6}}>{fmtDate(selDate)} at {selSlot?.time}</p>
-      <p style={{color:C.s400,fontSize:13}}>{mode==="online"?"🎥 Online video call — secure link sent 24hrs before":"🏛️ In-person at test centre"}</p>
+      <p style={{color:C.s400,fontSize:13}}>{mode==="online"?"Online video call — secure link sent 24hrs before":"In-person at test centre"}</p>
       <p style={{color:C.brand,fontSize:12,fontWeight:600,marginTop:12}}>Loading your results…</p>
     </div>
   );
@@ -2457,7 +2796,7 @@ function SpeakingBooking({ candidateInfo, onComplete }) {
     <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999,padding:24}}>
       <div style={{...cardStyle({padding:32,maxWidth:460,width:"100%"}),animation:"fadeUp .2s ease both"}}>
         <div style={{textAlign:"center",marginBottom:24}}>
-          <div style={{width:60,height:60,borderRadius:16,background:C.tealL,border:`2px solid ${C.teal}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 16px"}}>🗓️</div>
+          <div style={{width:60,height:60,borderRadius:16,background:C.tealL,border:`2px solid ${C.teal}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}><CalendarDays size={28} color={C.teal}/></div>
           <h3 style={{fontSize:20,fontWeight:800,color:C.s900,letterSpacing:"-0.02em",marginBottom:6}}>Confirm Your Booking</h3>
           <p style={{fontSize:13,color:C.s400}}>Please review the details below before confirming</p>
         </div>
@@ -2467,7 +2806,7 @@ function SpeakingBooking({ candidateInfo, onComplete }) {
             ["Candidate", candidateInfo?.name||"—"],
             ["Date",      fmtDate(selDate)],
             ["Time",      selSlot?.time],
-            ["Format",    mode==="online"?"🎥 Online Video Call":"🏛️ In-Person at Centre"],
+            ["Format",    mode==="online"?"Online Video Call":"In-Person at Centre"],
           ].map(([k,v])=>(
             <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.s200}`,fontSize:13}}>
               <span style={{color:C.s400,fontWeight:600}}>{k}</span>
@@ -2476,13 +2815,13 @@ function SpeakingBooking({ candidateInfo, onComplete }) {
           ))}
         </div>
 
-        <div style={{background:C.brandL,borderRadius:8,padding:"10px 14px",fontSize:12,color:C.brand,marginBottom:20}}>
-          ℹ️ Once confirmed, your booking will be visible in the admin dashboard. Contact us to reschedule.
+        <div style={{display:"flex",alignItems:"center",gap:8,background:C.brandL,borderRadius:8,padding:"10px 14px",fontSize:12,color:C.brand,marginBottom:20}}>
+          <Info size={13} style={{flexShrink:0}}/>Once confirmed, your booking will be visible in the admin dashboard. Contact us to reschedule.
         </div>
 
         <div style={{display:"flex",gap:12}}>
-          <button onClick={()=>setShowConfirm(false)} style={{...btnStyle("secondary"),flex:1}}>← Edit Selection</button>
-          <button onClick={doConfirm} style={{...btnStyle("teal"),flex:1}}>✓ Confirm Booking</button>
+          <button onClick={()=>setShowConfirm(false)} style={{...btnStyle("secondary"),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><ChevronLeft size={14}/>Edit Selection</button>
+          <button onClick={doConfirm} style={{...btnStyle("teal"),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><CheckCircle size={14}/>Confirm Booking</button>
         </div>
       </div>
     </div>
@@ -2491,7 +2830,7 @@ function SpeakingBooking({ candidateInfo, onComplete }) {
   // No slots available at all
   if(!hasSlots) return (
     <div style={{maxWidth:520,margin:"80px auto",textAlign:"center",padding:"0 24px"}}>
-      <div style={{fontSize:48,marginBottom:16}}>📅</div>
+      <div style={{width:64,height:64,borderRadius:20,background:C.s100,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}><CalendarDays size={32} color={C.s400} strokeWidth={1.5}/></div>
       <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:10}}>No Speaking Slots Available</h2>
       <p style={{color:C.s400,fontSize:14,marginBottom:20}}>The administrator hasn't opened any speaking slots yet. Please check back later or contact your test centre.</p>
       <button onClick={()=>onComplete(null)} style={btnStyle("secondary")}>Skip for now →</button>
@@ -2615,8 +2954,6 @@ async function runAICheck(text, taskMeta) {
     summary:msg, strengths:[], improvements:[], keyTip:"", corrections:[], _error:msg
   });
   if(!text?.trim()) return errFb("No writing text provided.");
-  // Read key from DB (admin settings) with fallback to env var
-  const openaiKey = loadDB().openaiKey || import.meta.env.VITE_OPENAI_API_KEY || "";
   try {
     const controller = new AbortController();
     const timeoutId  = setTimeout(()=>controller.abort(), 60000); // 60s for server round-trip
@@ -2624,7 +2961,7 @@ async function runAICheck(text, taskMeta) {
       signal: controller.signal,
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({text, taskMeta, openaiKey}),
+      body: JSON.stringify({text, taskMeta}),
     });
     clearTimeout(timeoutId);
     const data = await res.json();
@@ -2645,7 +2982,7 @@ const NOVA_LOADING_MSGS = [
   "Just a moment… great results take a few seconds.",
 ];
 
-function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
+export function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
   const [status,   setStatus]   = useState({0:"pending",1:"pending"});
   const [aiFb,     setAiFb]     = useState({});
   const [msgIdx,   setMsgIdx]   = useState(0);
@@ -2655,10 +2992,11 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
   const statusRef= useRef({0:"pending",1:"pending"});
 
   const customTasks = writingTaskData;
+  const toPromptStr = (v, base) => typeof v === "string" ? v : (v && typeof v === "object" ? (v.text || v.prompt || base.prompt) : base.prompt);
   const getTask = idx => {
     const base = WRITING_TASKS[idx];
-    if(idx===0 && customTasks?.task1Prompt) return {...base, prompt:customTasks.task1Prompt};
-    if(idx===1 && customTasks?.task2Prompt) return {...base, prompt:customTasks.task2Prompt};
+    if(idx===0 && customTasks?.task1Prompt) return {...base, prompt:toPromptStr(customTasks.task1Prompt, base)};
+    if(idx===1 && customTasks?.task2Prompt) return {...base, prompt:toPromptStr(customTasks.task2Prompt, base)};
     return base;
   };
 
@@ -2728,7 +3066,7 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
   };
 
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#f0fdf8 0%,#e8faf3 50%,#f0f9ff 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
       <div style={{maxWidth:520,width:"100%",textAlign:"center"}}>
 
         {/* Nova avatar */}
@@ -2742,10 +3080,10 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
             <img src="/nova.png" alt="Nova" style={{width:"100%",height:"100%",objectFit:"contain",display:"block"}}/>
           </div>
           {!allDone&&(
-            <div style={{position:"absolute",bottom:-6,right:-6,width:28,height:28,borderRadius:"50%",background:"#FFB703",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,boxShadow:"0 2px 8px rgba(0,0,0,.15)"}}>⚡</div>
+            <div style={{position:"absolute",bottom:-6,right:-6,width:28,height:28,borderRadius:"50%",background:"#FFB703",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 8px rgba(0,0,0,.15)"}}><AlertCircle size={14} color="#fff" strokeWidth={2.5}/></div>
           )}
           {allDone&&(
-            <div style={{position:"absolute",bottom:-6,right:-6,width:28,height:28,borderRadius:"50%",background:C.teal,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,boxShadow:"0 2px 8px rgba(0,0,0,.15)"}}>✓</div>
+            <div style={{position:"absolute",bottom:-6,right:-6,width:28,height:28,borderRadius:"50%",background:C.teal,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 8px rgba(0,0,0,.15)"}}><CheckCircle size={14} color="#fff" strokeWidth={2.5}/></div>
           )}
         </div>
 
@@ -2779,7 +3117,7 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
                 <div style={{width:44,height:44,borderRadius:12,background:isDone?C.tealL:isErr?C.roseL:isChecking?"#FEF3C7":C.s100,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                   {isChecking
                     ? <div style={{width:22,height:22,borderRadius:"50%",border:`2.5px solid #FDE68A`,borderTop:"2.5px solid #F59E0B",animation:"spin 0.9s linear infinite"}}/>
-                    : <span style={{fontSize:20}}>{isDone?"✅":isErr?"⚠️":"⏳"}</span>}
+                    : isDone?<CheckCircle size={22} color={C.teal} strokeWidth={2}/>:isErr?<AlertCircle size={22} color={C.rose} strokeWidth={2}/>:<Clock size={22} color={C.s400} strokeWidth={1.5}/>}
                 </div>
                 <div style={{flex:1}}>
                   <div style={{fontWeight:700,color:C.s900,fontSize:14,marginBottom:3}}>{WRITING_TASKS[i].task}</div>
@@ -2806,7 +3144,7 @@ function ResultsLoading({ writingTexts, writingTaskData, onComplete }) {
 
         {/* Fallback: show "Proceed to Results" if stuck >60s */}
         {showSkip&&(
-          <div style={{marginTop:28,padding:"18px 24px",background:"#fff",border:`1px solid ${C.s200}`,borderRadius:14,textAlign:"center"}}>
+          <div style={{marginTop:28,padding:"18px 24px",background:C.surface,border:`1px solid ${C.s200}`,borderRadius:14,textAlign:"center"}}>
             <div style={{fontSize:12,color:C.s400,marginBottom:12}}>
               Taking longer than expected? You can proceed with partial results.
             </div>
@@ -3165,7 +3503,7 @@ function exportResultsPDF({ candidateInfo, lBand, rBand, wBand, overall, L, R, W
 }
 
 // ── RESULTS ───────────────────────────────────────────────────────────────────
-function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId, speakingBand: propSpeakingBand }) {
+export function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId, speakingBand: propSpeakingBand, activeAssignmentId }) {
   // Use raw (may be null) for sections not taken — avoids saving fake 0-scores
   const Lraw = scores.listening||null;
   const Rraw = scores.reading  ||null;
@@ -3208,13 +3546,31 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
       supabase.from("participants").insert({id:rowId, email, type:"attempt", data:record})
         .then(({error})=>{ if(error) console.warn("[Results] Supabase insert failed:",error.message); });
     }
+    // Submit student assignment if this was a portal-assigned test
+    if(activeAssignmentId) {
+      const submittedScores = {
+        ...(lBand != null ? { listeningBand: lBand } : {}),
+        ...(rBand != null ? { readingBand:   rBand } : {}),
+        ...(wBand != null ? { writingBand:   wBand } : {}),
+        ...(sBand != null ? { speakingBand:  sBand } : {}),
+        overall: allBands.length ? overall : null,
+      };
+      const resultData = {
+        ...(Lraw ? { listeningScore:`${L.correct}/${L.total}`, listeningAnswers:L.answers, allListeningQuestions:L.allQuestions||[] } : {}),
+        ...(Rraw ? { readingScore:`${R.correct}/${R.total}`,   readingAnswers:R.answers,   allReadingQuestions:R.allQuestions||[]   } : {}),
+        ...(Wraw ? { writingTexts:W.texts, writingFeedback:W.aiFeedback } : {}),
+        ...(sBand != null ? { speakingBand:sBand } : {}),
+      };
+      submitAssignment(activeAssignmentId, submittedScores, finalId, resultData)
+        .catch(e => console.warn("[Results] submitAssignment failed:", e));
+    }
   },[]);
 
   const sections=[
-    {name:"Listening",band:lBand,icon:"🎧",detail:`${L.correct}/${L.total} correct`},
-    {name:"Reading",band:rBand,icon:"📖",detail:`${R.correct}/${R.total} correct`},
-    {name:"Writing",band:wBand,icon:"✍️",detail:aiChecked?"AI evaluated":"Task not checked"},
-    {name:"Speaking",band:sBand,icon:"🗣️",detail:sBand!=null?`AI Band: ${sBand}`:booking?`${booking.dateFormatted||booking.date} · ${booking.slot}`:"Booking pending"},
+    {name:"Listening",band:lBand,Icon:Headphones,detail:`${L.correct}/${L.total} correct`},
+    {name:"Reading",band:rBand,Icon:BookOpen,detail:`${R.correct}/${R.total} correct`},
+    {name:"Writing",band:wBand,Icon:Pencil,detail:aiChecked?"AI evaluated":"Task not checked"},
+    {name:"Speaking",band:sBand,Icon:Mic,detail:sBand!=null?`AI Band: ${sBand}`:booking?`${booking.dateFormatted||booking.date} · ${booking.slot}`:"Booking pending"},
   ];
 
   return (
@@ -3229,21 +3585,21 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
         <div className="results-overall-score" style={{fontSize:108,fontWeight:900,color:bc,lineHeight:1,letterSpacing:"-0.05em"}}>{overall.toFixed(1)}</div>
         <div style={{fontSize:20,color:"rgba(255,255,255,.85)",fontWeight:700,marginBottom:12,letterSpacing:"-0.02em"}}>{bandLabel(overall)}</div>
         <div style={{color:"rgba(255,255,255,.4)",fontSize:14}}>{info.name} · {new Date().toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</div>
-        {suiteName&&<div style={{display:"inline-block",background:"rgba(255,255,255,.08)",borderRadius:8,padding:"5px 14px",marginTop:8,fontSize:12,color:"rgba(255,255,255,.55)"}}>🧪 {suiteName}</div>}
+        {suiteName&&<div style={{display:"inline-flex",alignItems:"center",gap:5,background:"rgba(255,255,255,.08)",borderRadius:8,padding:"5px 14px",marginTop:8,fontSize:12,color:"rgba(255,255,255,.55)"}}><FlaskConical size={11}/> {suiteName}</div>}
         {booking&&(
-          <div style={{display:"inline-block",background:"rgba(255,255,255,.1)",borderRadius:10,padding:"8px 20px",marginTop:14,fontSize:13,color:"rgba(255,255,255,.7)"}}>
-            🗓 Speaking: {booking.dateFormatted||booking.date} at {booking.slot}
+          <div style={{display:"inline-flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.1)",borderRadius:10,padding:"8px 20px",marginTop:14,fontSize:13,color:"rgba(255,255,255,.7)"}}>
+            <CalendarDays size={13}/> Speaking: {booking.dateFormatted||booking.date} at {booking.slot}
           </div>
         )}
       </div>
 
       {/* Sections */}
       <div className="results-band-grid" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:24}}>
-        {sections.map(({name,band,icon,detail})=>{
+        {sections.map(({name,band,Icon,detail})=>{
           const col=band?bandColor(band):C.s400;
           return (
             <div key={name} style={{...cardStyle({padding:20,textAlign:"center"})}}>
-              <div style={{fontSize:26,marginBottom:10}}>{icon}</div>
+              <div style={{marginBottom:10,display:"flex",justifyContent:"center",color:col}}><Icon size={26}/></div>
               <div style={{fontSize:11,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>{name}</div>
               {band!=null?(
                 <>
@@ -3297,10 +3653,10 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
             const fb = W.aiFeedback[tIdx];
             if(!fb||fb._error) return null;
             const CRITERIA = [
-              ["taskAchievement","Task Response","📋"],
-              ["coherenceCohesion","Coherence & Cohesion","🔗"],
-              ["lexicalResource","Lexical Resource","📚"],
-              ["grammaticalRange","Grammatical Range & Accuracy","⚙️"],
+              ["taskAchievement","Task Response",ClipboardList],
+              ["coherenceCohesion","Coherence & Cohesion",BookOpen],
+              ["lexicalResource","Lexical Resource",FileText],
+              ["grammaticalRange","Grammatical Range & Accuracy",Settings],
             ];
             return (
               <div key={tIdx} style={{...cardStyle({padding:28,marginBottom:16})}}>
@@ -3329,15 +3685,15 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
                 {/* 4 Criteria */}
                 <div style={{fontSize:13,fontWeight:700,color:C.s900,marginBottom:12}}>Criteria Breakdown</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20}}>
-                  {CRITERIA.map(([k,lbl,icon])=>{
+                  {CRITERIA.map(([k,lbl,CritIcon])=>{
                     const crit = fb[k]||{};
                     const b = typeof crit==="object"?crit.band:null;
                     const comment = typeof crit==="object"?crit.comment:"";
                     if(!b) return null;
                     return (
-                      <div key={k} style={{background:"#fff",border:`1.5px solid ${bandColor(b)}25`,borderRadius:12,padding:"14px 16px",boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
+                      <div key={k} style={{background:C.surface,border:`1.5px solid ${bandColor(b)}25`,borderRadius:12,padding:"14px 16px",boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
                         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                          <div style={{fontSize:11,fontWeight:700,color:C.s400,textTransform:"uppercase",letterSpacing:"0.06em"}}>{icon} {lbl}</div>
+                          <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:700,color:C.s400,textTransform:"uppercase",letterSpacing:"0.06em"}}><CritIcon size={11}/>{lbl}</div>
                           <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:20,fontWeight:900,color:bandColor(b)}}>{b}</div>
                         </div>
                         <div style={{height:4,background:C.s200,borderRadius:99,marginBottom:8}}>
@@ -3357,7 +3713,7 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
                         <div style={{fontSize:11,fontWeight:700,color:"#16A34A",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>✓ Positive Feedback</div>
                         {fb.strengths.map((s,i)=>(
                           <div key={i} style={{display:"flex",gap:8,marginBottom:6,fontSize:12,color:"#166534",lineHeight:1.6}}>
-                            <span style={{color:"#16A34A",flexShrink:0}}>•</span><span>{s}</span>
+                            <span style={{color:"#16A34A",flexShrink:0}}>•</span><span>{typeof s==="string"?s:s?.text??String(s)}</span>
                           </div>
                         ))}
                       </div>
@@ -3367,7 +3723,7 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
                         <div style={{fontSize:11,fontWeight:700,color:"#D97706",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>↑ Areas for Improvement</div>
                         {fb.improvements.map((s,i)=>(
                           <div key={i} style={{display:"flex",gap:8,marginBottom:6,fontSize:12,color:"#92400E",lineHeight:1.6}}>
-                            <span style={{color:"#D97706",flexShrink:0}}>•</span><span>{s}</span>
+                            <span style={{color:"#D97706",flexShrink:0}}>•</span><span>{typeof s==="string"?s:s?.text??String(s)}</span>
                           </div>
                         ))}
                       </div>
@@ -3378,10 +3734,10 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
                 {/* How to improve */}
                 {fb.suggestions?.length>0&&(
                   <div style={{background:"#F8F7FF",border:"1.5px solid #DDD6FE",borderRadius:12,padding:"14px 16px",marginBottom:16}}>
-                    <div style={{fontSize:11,fontWeight:700,color:C.violet,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>📈 How to Improve Your Score</div>
+                    <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:700,color:C.violet,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}><TrendingUp size={11}/>How to Improve Your Score</div>
                     {fb.suggestions.map((s,i)=>(
                       <div key={i} style={{display:"flex",gap:8,marginBottom:6,fontSize:12,color:"#4C1D95",lineHeight:1.6}}>
-                        <span style={{color:C.violet,flexShrink:0}}>→</span><span>{s}</span>
+                        <span style={{color:C.violet,flexShrink:0}}>→</span><span>{typeof s==="string"?s:s?.text??String(s)}</span>
                       </div>
                     ))}
                   </div>
@@ -3413,11 +3769,11 @@ function Results({ scores, candidateInfo, booking, suiteName, suiteId, sessionId
                           <div style={{fontSize:11,color:"#64748B"}}>Analysed by Nova · GPT-4o</div>
                         </div>
                         <div style={{display:"flex",gap:10,alignItems:"center"}}>
-                          <div style={{textAlign:"center",background:"#fff",borderRadius:10,padding:"8px 14px",border:`1.5px solid #16A34A`}}>
+                          <div style={{textAlign:"center",background:C.surface,borderRadius:10,padding:"8px 14px",border:`1.5px solid #16A34A`}}>
                             <div style={{fontSize:22,fontWeight:900,color:"#16A34A",lineHeight:1,fontFamily:"'JetBrains Mono',monospace"}}>{humanPct}%</div>
                             <div style={{fontSize:9,fontWeight:700,color:"#16A34A",marginTop:2}}>HUMAN</div>
                           </div>
-                          <div style={{textAlign:"center",background:"#fff",borderRadius:10,padding:"8px 14px",border:`1.5px solid ${riskColor}`}}>
+                          <div style={{textAlign:"center",background:C.surface,borderRadius:10,padding:"8px 14px",border:`1.5px solid ${riskColor}`}}>
                             <div style={{fontSize:22,fontWeight:900,color:riskColor,lineHeight:1,fontFamily:"'JetBrains Mono',monospace"}}>{d.risk}%</div>
                             <div style={{fontSize:9,fontWeight:700,color:riskColor,marginTop:2}}>AI RISK</div>
                           </div>
@@ -3519,7 +3875,7 @@ function AISpeakingManager({ onRefresh }) {
         }}>
           <span style={{
             position:"absolute",top:3,left:enabled?28:4,width:24,height:24,borderRadius:"50%",
-            background:"#fff",transition:"left .2s",boxShadow:"0 1px 4px rgba(0,0,0,.25)",
+            background:C.surface,transition:"left .2s",boxShadow:"0 1px 4px rgba(0,0,0,.25)",
           }}/>
         </button>
       </div>
@@ -4106,8 +4462,6 @@ function buildTodaysTests() {
 
 // ── ADMIN SETTINGS ────────────────────────────────────────────────────────────
 function AdminSettings() {
-  const [openaiKey, setOpenaiKey] = useState(loadDB().openaiKey||"");
-  const [saved, setSaved]         = useState(false);
   const [testing, setTesting]     = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [importing, setImporting] = useState(false);
@@ -4201,21 +4555,13 @@ function AdminSettings() {
     setImporting(false);
   };
 
-  const handleSave = async () => {
-    const db = loadDB();
-    const updated = {...db, openaiKey: openaiKey.trim()};
-    await saveDBNow(updated);
-    setSaved(true); setTestResult(null);
-    setTimeout(()=>setSaved(false), 3000);
-  };
-
   const handleTest = async () => {
     setTesting(true); setTestResult(null);
     try {
       const res = await fetch("/api/ai-check", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({text:"This is a test sentence for verifying the API key works correctly.", taskMeta:{task:"Task 2",prompt:"Test"}, openaiKey: openaiKey.trim()}),
+        body: JSON.stringify({text:"This is a test sentence for verifying the API key works correctly.", taskMeta:{task:"Task 2",prompt:"Test"}}),
       });
       const data = await res.json();
       if(data._error) setTestResult({ok:false, msg: data._error});
@@ -4228,33 +4574,19 @@ function AdminSettings() {
 
   return (
     <div style={{maxWidth:600}}>
-      <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:24}}>⚙️ Settings</h2>
+      <h2 style={{fontSize:22,fontWeight:800,color:"#151313",letterSpacing:"-0.03em",marginBottom:24}}>Settings</h2>
 
       <div style={{...cardStyle({padding:24}),marginBottom:16}}>
         <h3 style={{fontSize:15,fontWeight:700,color:C.s900,marginBottom:4}}>OpenAI API Key</h3>
         <p style={{fontSize:12,color:C.s500,marginBottom:16}}>
-          Used for AI writing evaluation (Nova). Stored securely in Supabase — no need to touch Vercel env vars.
+          Used for AI writing evaluation (Nova). The key is set as a <strong>Vercel environment variable</strong> (OPENAI_API_KEY) — it never leaves the server.
         </p>
 
-        <label style={labelStyle}>API Key</label>
-        <input
-          type="password"
-          value={openaiKey}
-          onChange={e=>setOpenaiKey(e.target.value)}
-          placeholder="sk-proj-..."
-          style={{...inputStyle, fontFamily:"'JetBrains Mono',monospace", fontSize:12, marginBottom:12}}
-        />
-
-        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-          <button onClick={handleSave}
-            style={{...btnStyle("primary"),padding:"9px 20px"}}>
-            {saved ? "✓ Saved!" : "Save Key"}
-          </button>
-          <button onClick={handleTest} disabled={!openaiKey.trim()||testing}
-            style={{...btnStyle("secondary"),padding:"9px 20px",opacity:(!openaiKey.trim()||testing)?0.5:1}}>
-            {testing ? "Testing…" : "Test Key"}
-          </button>
-        </div>
+        <button onClick={handleTest} disabled={testing}
+          style={{padding:"9px 20px",borderRadius:8,border:"1.5px solid #2D5DDC",background:"#fff",
+            color:"#2D5DDC",fontSize:13,fontWeight:700,cursor:testing?"not-allowed":"pointer",opacity:testing?0.5:1,transition:"all .15s"}}>
+          {testing ? "Testing…" : "Test AI Connection"}
+        </button>
 
         {testResult&&(
           <div style={{marginTop:12,padding:"10px 14px",borderRadius:8,
@@ -4268,10 +4600,7 @@ function AdminSettings() {
 
       <div style={{...cardStyle({padding:16}),background:"#FFFBEB",border:`1px solid #FCD34D`}}>
         <p style={{fontSize:12,color:"#92400E",margin:0}}>
-          <strong>How to get a key:</strong> Go to{" "}
-          <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer"
-            style={{color:C.brand}}>platform.openai.com/api-keys</a>{" "}
-          → Create new secret key → paste it above → Save → Test.
+          <strong>To update the key:</strong> Go to Vercel Dashboard → your project → Settings → Environment Variables → set <code>OPENAI_API_KEY</code> → Redeploy.
         </p>
       </div>
     </div>
@@ -4352,7 +4681,7 @@ function syncToSheets() {
 
   const step = (n, title, body) => (
     <div key={n} style={{display:"flex",gap:16,marginBottom:20}}>
-      <div style={{width:28,height:28,borderRadius:"50%",background:C.brand,color:"#fff",fontSize:13,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}>{n}</div>
+      <div style={{width:28,height:28,borderRadius:"50%",background:"#2D5DDC",color:"#fff",fontSize:13,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}>{n}</div>
       <div>
         <div style={{fontWeight:700,fontSize:14,color:C.s900,marginBottom:4}}>{title}</div>
         <div style={{fontSize:13,color:C.s600,lineHeight:1.6}}>{body}</div>
@@ -4383,8 +4712,8 @@ function syncToSheets() {
       </div>
 
       {/* Quick-start banner */}
-      <div style={{...cardStyle({padding:20,marginBottom:24}),background:"linear-gradient(135deg,#f0fdf4,#dcfce7)",border:`1px solid ${C.brand}40`}}>
-        <div style={{fontSize:13,fontWeight:700,color:C.brand,marginBottom:4}}>📌 Recommended: Google Sheets → Looker Studio</div>
+      <div style={{...cardStyle({padding:20,marginBottom:24}),background:"linear-gradient(135deg,#EBF0FF,#dce8ff)",border:`1px solid ${"#2D5DDC"}40`}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#2D5DDC",marginBottom:4}}>📌 Recommended: Google Sheets → Looker Studio</div>
         <div style={{fontSize:13,color:C.s700,lineHeight:1.6}}>
           Paste the Apps Script below into <strong>script.google.com</strong>, set it to run hourly, then connect Looker Studio to the Google Sheet it fills.
           No paid connectors needed — completely free.
@@ -4396,7 +4725,7 @@ function syncToSheets() {
         {/* Left: Apps Script setup */}
         <div style={{...cardStyle({padding:24})}}>
           <div style={{fontSize:11,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:16}}>Step 1 — Google Apps Script (auto-sync)</div>
-          {step(1,"Go to script.google.com",<>Open <a href="https://script.google.com" target="_blank" rel="noopener noreferrer" style={{color:C.brand}}>script.google.com</a> → <strong>New Project</strong></>)}
+          {step(1,"Go to script.google.com",<>Open <a href="https://script.google.com" target="_blank" rel="noopener noreferrer" style={{color:"#2D5DDC"}}>script.google.com</a> → <strong>New Project</strong></>)}
           {step(2,"Paste the script",<>Select all existing code, delete it, paste the script below. Replace <code style={{background:C.s100,padding:"1px 5px",borderRadius:4}}>PASTE_YOUR_GOOGLE_SHEET_ID_HERE</code> with your Sheet ID.</>)}
           {step(3,"Run once",<>Click <strong>Run → syncToSheets</strong>. Accept the permissions popup. Check the Sheet — it should fill with your data.</>)}
           {step(4,"Set hourly trigger",<>Triggers (⏱ icon on left sidebar) → <strong>+ Add Trigger</strong> → Function: <em>syncToSheets</em> → Time-driven → Hour timer → Every hour → Save.</>)}
@@ -4406,7 +4735,7 @@ function syncToSheets() {
         {/* Right: Looker Studio connection */}
         <div style={{...cardStyle({padding:24})}}>
           <div style={{fontSize:11,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:16}}>Step 2 — Connect Looker Studio</div>
-          {step(1,"Open Looker Studio",<><a href="https://lookerstudio.google.com" target="_blank" rel="noopener noreferrer" style={{color:C.brand}}>lookerstudio.google.com</a> → <strong>Create → Report</strong></>)}
+          {step(1,"Open Looker Studio",<><a href="https://lookerstudio.google.com" target="_blank" rel="noopener noreferrer" style={{color:"#2D5DDC"}}>lookerstudio.google.com</a> → <strong>Create → Report</strong></>)}
           {step(2,"Add a data source",<>Choose <strong>Google Sheets</strong> → pick the Sheet the script created → select the <em>IELTS Results</em> tab → click <strong>Add</strong>.</>)}
           {step(3,"Enable auto-refresh",<>In the data source settings set <strong>Data freshness</strong> to 1 hour. Looker Studio will re-read the Sheet after every Apps Script sync.</>)}
           {step(4,"Build your charts",<>Drag fields onto the canvas. Suggested charts below ↓</>)}
@@ -4422,7 +4751,7 @@ function syncToSheets() {
               ["Scorecard","COUNT(Attempt ID) → total tests completed"],
             ].map(([type,desc],i)=>(
               <div key={i} style={{display:"flex",gap:10,padding:"6px 0",borderBottom:i<5?`1px solid ${C.s200}`:"none",fontSize:12}}>
-                <span style={{...tagStyle(C.brand),fontSize:10,flexShrink:0}}>{type}</span>
+                <span style={{...tagStyle("#2D5DDC"),fontSize:10,flexShrink:0}}>{type}</span>
                 <span style={{color:C.s600}}>{desc}</span>
               </div>
             ))}
@@ -4505,7 +4834,7 @@ function SuperAdminPanel({ currentUser }) {
     if(editId) {
       const patch = {
         name:uDisplay.trim()||uname.trim(), role:uRole,
-        access: uRole==="superadmin" ? null : uAccess,
+        access: (uRole==="superadmin"||uRole==="teacher") ? null : uAccess,
         updatedAt:new Date().toISOString()
       };
       if(uPw.trim()) patch.passwordHash = await hashPassword(uPw.trim());
@@ -4516,7 +4845,7 @@ function SuperAdminPanel({ currentUser }) {
       const nu = {
         id:genId("ADM"), username:uname.trim().toLowerCase(), name:uDisplay.trim()||uname.trim(),
         passwordHash: await hashPassword(uPw.trim()), role:uRole,
-        access: uRole==="superadmin" ? null : uAccess,
+        access: (uRole==="superadmin"||uRole==="teacher") ? null : uAccess,
         createdAt:new Date().toISOString(), createdBy:currentUser?.username||"system"
       };
       updated = [...existing, nu];
@@ -4556,7 +4885,7 @@ function SuperAdminPanel({ currentUser }) {
     setTimeout(()=>setMsg(""),3000);
   };
 
-  const card = {background:"#fff",borderRadius:12,border:"1px solid #E2E8F0",padding:20,marginBottom:12};
+  const card = {background:C.surface,borderRadius:12,border:"1px solid #E2E8F0",padding:20,marginBottom:12};
 
   // Inline access editor panel
   const AccessEditor = ({u}) => {
@@ -4569,18 +4898,18 @@ function SuperAdminPanel({ currentUser }) {
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{fontSize:13,fontWeight:700,color:C.s700}}>Section Access</div>
           <button onClick={()=>setLocalAccess(allSelected?[]:ALL_TABS.map(t=>t.key))}
-            style={{fontSize:11,color:C.brand,background:"none",border:"none",cursor:"pointer",fontWeight:600,padding:"2px 6px"}}>
+            style={{fontSize:11,color:"#2D5DDC",background:"none",border:"none",cursor:"pointer",fontWeight:600,padding:"2px 6px"}}>
             {allSelected?"Deselect all":"Select all"}
           </button>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:14}}>
           {ALL_TABS.map(t=>(
             <label key={t.key} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",padding:"7px 10px",borderRadius:8,
-              background:localAccess.includes(t.key)?C.brandL:"#f8fafc",
-              border:`1px solid ${localAccess.includes(t.key)?C.brand:C.s200}`,fontSize:13,userSelect:"none"}}>
+              background:localAccess.includes(t.key)?"#EBF0FF":"#f8fafc",
+              border:`1px solid ${localAccess.includes(t.key)?"#2D5DDC":C.s200}`,fontSize:13,userSelect:"none"}}>
               <input type="checkbox" checked={localAccess.includes(t.key)} onChange={()=>toggle(t.key)}
-                style={{accentColor:C.brand,width:15,height:15,cursor:"pointer"}}/>
-              <span style={{color:localAccess.includes(t.key)?C.brand:C.s700,fontWeight:localAccess.includes(t.key)?600:400}}>{t.label}</span>
+                style={{accentColor:"#2D5DDC",width:15,height:15,cursor:"pointer"}}/>
+              <span style={{color:localAccess.includes(t.key)?"#2D5DDC":C.s700,fontWeight:localAccess.includes(t.key)?600:400}}>{t.label}</span>
             </label>
           ))}
         </div>
@@ -4598,60 +4927,64 @@ function SuperAdminPanel({ currentUser }) {
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
         <div>
           <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:4}}>Admin Users</h2>
-          <p style={{color:C.s400,fontSize:13}}>Manage who can access the admin dashboard and which sections they can see.</p>
+          <p style={{color:C.s400,fontSize:13}}>View and edit admin accounts. To create new users, use the <strong>Staff</strong> tab.</p>
         </div>
-        <button onClick={openCreate} style={btnStyle("primary")}>+ New Admin</button>
       </div>
       {msg&&<div style={{marginBottom:14,padding:"10px 16px",background:msg.startsWith("✓")?C.tealL:C.roseL,borderRadius:8,color:msg.startsWith("✓")?C.teal:C.rose,fontWeight:700,fontSize:13}}>{msg}</div>}
       {creating&&(
-        <div style={{...card,border:`2px solid ${C.brand}`,marginBottom:20}}>
-          <div style={{fontSize:15,fontWeight:800,color:C.s900,marginBottom:16}}>{editId?"Edit Admin User":"Create Admin User"}</div>
+        <div style={{...card,border:"2px solid #2D5DDC",marginBottom:20}}>
+          <div style={{fontSize:15,fontWeight:800,color:C.s900,marginBottom:16}}>Edit Admin User</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
             <div>
-              <label style={labelStyle}>Username *</label>
-              <input value={uname} onChange={e=>setUname(e.target.value)} disabled={!!editId}
-                placeholder="e.g. john.doe" style={{...inputStyle,background:editId?"#f8fafc":"#fff"}}/>
+              <label style={labelStyle}>Username</label>
+              <input value={uname} disabled style={{...inputStyle,background:"#f8fafc"}}/>
             </div>
             <div>
               <label style={labelStyle}>Display Name</label>
               <input value={uDisplay} onChange={e=>setUDisplay(e.target.value)} placeholder="e.g. John Doe" style={inputStyle}/>
             </div>
             <div>
-              <label style={labelStyle}>{editId?"New Password (leave blank to keep)":"Password *"}</label>
-              <input type="password" value={uPw} onChange={e=>setUPw(e.target.value)} placeholder="Enter password" style={inputStyle}/>
+              <label style={labelStyle}>New Password (leave blank to keep)</label>
+              <input type="password" value={uPw} onChange={e=>setUPw(e.target.value)} placeholder="Enter new password" style={inputStyle}/>
             </div>
             <div>
               <label style={labelStyle}>Role</label>
               <select value={uRole} onChange={e=>setURole(e.target.value)} style={{...inputStyle,cursor:"pointer"}}>
                 <option value="admin">Admin</option>
+                <option value="teacher">Teacher (results & feedback only)</option>
                 <option value="superadmin">Super Admin</option>
               </select>
             </div>
           </div>
+          {uRole==="teacher"&&(
+            <div style={{marginBottom:14,padding:"10px 14px",background:"#EDE9FE",borderRadius:8,fontSize:13,color:"#6D28D9",fontWeight:600}}>
+              Teachers can view student results and add speaking/writing feedback. They cannot manage students, assign tests, or access admin sections.
+            </div>
+          )}
           {uRole==="admin"&&(
             <div style={{marginBottom:14}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <label style={{...labelStyle,marginBottom:0}}>Section Access</label>
                 <button type="button" onClick={()=>setUAccess(uAccess.length===ALL_TABS.length?[]:ALL_TABS.map(t=>t.key))}
-                  style={{fontSize:11,color:C.brand,background:"none",border:"none",cursor:"pointer",fontWeight:600,padding:"2px 6px"}}>
+                  style={{fontSize:11,color:"#2D5DDC",background:"none",border:"none",cursor:"pointer",fontWeight:600,padding:"2px 6px"}}>
                   {uAccess.length===ALL_TABS.length?"Deselect all":"Select all"}
                 </button>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
                 {ALL_TABS.map(t=>(
                   <label key={t.key} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",padding:"7px 10px",borderRadius:8,
-                    background:uAccess.includes(t.key)?C.brandL:"#f8fafc",
-                    border:`1px solid ${uAccess.includes(t.key)?C.brand:C.s200}`,fontSize:13,userSelect:"none"}}>
+                    background:uAccess.includes(t.key)?"#EBF0FF":"#f8fafc",
+                    border:`1px solid ${uAccess.includes(t.key)?"#2D5DDC":C.s200}`,fontSize:13,userSelect:"none"}}>
                     <input type="checkbox" checked={uAccess.includes(t.key)} onChange={()=>toggleAccess(t.key)}
-                      style={{accentColor:C.brand,width:15,height:15,cursor:"pointer"}}/>
-                    <span style={{color:uAccess.includes(t.key)?C.brand:C.s700,fontWeight:uAccess.includes(t.key)?600:400}}>{t.label}</span>
+                      style={{accentColor:"#2D5DDC",width:15,height:15,cursor:"pointer"}}/>
+                    <span style={{color:uAccess.includes(t.key)?"#2D5DDC":C.s700,fontWeight:uAccess.includes(t.key)?600:400}}>{t.label}</span>
                   </label>
                 ))}
               </div>
             </div>
           )}
           {uRole==="superadmin"&&(
-            <div style={{marginBottom:14,padding:"10px 14px",background:C.brandL,borderRadius:8,fontSize:13,color:C.brand,fontWeight:600}}>
+            <div style={{marginBottom:14,padding:"10px 14px",background:"#EBF0FF",borderRadius:8,fontSize:13,color:"#2D5DDC",fontWeight:600}}>
               Super Admins have access to all sections automatically.
             </div>
           )}
@@ -4664,23 +4997,22 @@ function SuperAdminPanel({ currentUser }) {
       )}
       {users.length===0?(
         <div style={{...card,textAlign:"center",padding:40}}>
-          <div style={{fontSize:32,marginBottom:12}}>👤</div>
-          <div style={{color:C.s400,fontSize:14}}>No admin users yet. Create the first one above.</div>
+          <div style={{color:C.s400,fontSize:14}}>No admin users yet. Use the Staff tab to create accounts.</div>
         </div>
       ):users.map(u=>(
         <div key={u.id} style={{...card}}>
           <div style={{display:"flex",alignItems:"center",gap:16}}>
-            <div style={{width:40,height:40,borderRadius:12,background:u.role==="superadmin"?C.brandL:C.s100,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>
-              {u.role==="superadmin"?"👑":"👤"}
+            <div style={{width:40,height:40,borderRadius:12,background:u.role==="superadmin"?"#EBF0FF":u.role==="teacher"?"#EDE9FE":C.s100,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              {u.role==="superadmin"?<Award size={18} color="#2D5DDC"/>:u.role==="teacher"?<GraduationCap size={18} color="#6D28D9"/>:<UserCog size={18} color={C.s500}/>}
             </div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:700,fontSize:14,color:C.s900}}>{u.name||u.username} <span style={{fontSize:11,color:C.s400,fontWeight:400}}>@{u.username}</span></div>
               <div style={{fontSize:12,color:C.s400,marginTop:2}}>
-                <span style={{background:u.role==="superadmin"?C.brandL:C.s100,color:u.role==="superadmin"?C.brand:C.s600,padding:"1px 7px",borderRadius:4,fontWeight:600,fontSize:11}}>{u.role}</span>
+                <span style={{background:u.role==="superadmin"?"#EBF0FF":u.role==="teacher"?"#EDE9FE":C.s100,color:u.role==="superadmin"?"#2D5DDC":u.role==="teacher"?"#6D28D9":C.s600,padding:"1px 7px",borderRadius:4,fontWeight:600,fontSize:11}}>{u.role}</span>
                 {u.createdAt&&<span style={{marginLeft:8}}>Created {new Date(u.createdAt).toLocaleDateString("en-GB")}</span>}
                 {u.createdBy&&<span style={{marginLeft:8}}>by {u.createdBy}</span>}
                 {u.role==="admin"&&u.access&&(
-                  <span style={{marginLeft:8,color:C.brand}}>{u.access.length}/{ALL_TABS.length} sections</span>
+                  <span style={{marginLeft:8,color:"#2D5DDC"}}>{u.access.length}/{ALL_TABS.length} sections</span>
                 )}
                 {u.role==="admin"&&!u.access&&(
                   <span style={{marginLeft:8,color:C.s400}}>all sections</span>
@@ -4689,7 +5021,7 @@ function SuperAdminPanel({ currentUser }) {
             </div>
             <div style={{display:"flex",gap:8}}>
               {u.role!=="superadmin"&&(
-                <button onClick={()=>setAccessUser(accessUser?.id===u.id?null:u)} style={{...btnStyle("secondary"),color:C.brand,borderColor:C.brand}}>
+                <button onClick={()=>setAccessUser(accessUser?.id===u.id?null:u)} style={{...btnStyle("secondary"),color:"#2D5DDC",borderColor:"#2D5DDC"}}>
                   {accessUser?.id===u.id?"Hide Access":"Set Access"}
                 </button>
               )}
@@ -4704,25 +5036,243 @@ function SuperAdminPanel({ currentUser }) {
   );
 }
 
+// ── EXPORT TAB ────────────────────────────────────────────────────────────────
+function ExportTab() {
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0,10));
+  const [pts, setPts] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  // Parse "dd/mm/yyyy" or ISO date string to "yyyy-mm-dd" for comparison
+  const toISO = dateStr => {
+    if(!dateStr) return "";
+    if(dateStr.includes("-")) return dateStr.slice(0,10);
+    const [d,m,y] = dateStr.split("/");
+    return y && m && d ? `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}` : "";
+  };
+
+  // Fetch participants for a specific date directly from Supabase (no 7-day cache limit)
+  useEffect(() => {
+    if(!selectedDate) return;
+    setLoading(true);
+    const dayStart = selectedDate + "T00:00:00.000Z";
+    const dayEnd   = selectedDate + "T23:59:59.999Z";
+    const fromCache = (loadDB().participants || []).filter(p => {
+      const d = p.date ? toISO(p.date) : (p.timestamp ? new Date(p.timestamp).toISOString().slice(0,10) : "");
+      return d === selectedDate;
+    });
+    setPts(fromCache);
+    if(supabase) {
+      supabase.from("participants")
+        .select("id,email,type,data")
+        .not("type","in","(test_item,test_del)")
+        .gte("created_at", dayStart)
+        .lte("created_at", dayEnd)
+        .order("created_at", { ascending: false })
+        .limit(1000)
+        .then(({ data }) => {
+          if(data) {
+            const rows = data.map(r => r.data).filter(Boolean);
+            // Deduplicate by p.id (keep first seen per session id)
+            const seen = {}; const deduped = [];
+            for(const p of rows) { const k = p.id || p.timestamp; if(!seen[k]){ seen[k]=true; deduped.push(p); } }
+            setPts(deduped);
+          }
+          setLoading(false);
+        }).catch(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
+  }, [selectedDate]);
+
+  const attemptsOnDate = pts;
+
+  const esc = v => `"${String(v||"").replace(/"/g,'""')}"`;
+
+  const exportScores = () => {
+    const headers = ["Name","Email","Phone","Nationality","Date","Listening Band","Listening Score","Reading Band","Reading Score","Writing Band","Speaking Band","Overall Band"];
+    const rows = attemptsOnDate.map(p => {
+      const c = p.candidate || p;
+      return [
+        esc(c.name||""), esc((c.email||p.email||"").toLowerCase()), esc(c.phone||""), esc(c.nationality||""),
+        esc(p.date||(p.timestamp?new Date(p.timestamp).toLocaleDateString("en-GB"):"")),
+        esc(p.listeningBand||""), esc(p.listeningScore||""),
+        esc(p.readingBand||""), esc(p.readingScore||""),
+        esc(p.writingBand||""), esc(p.speakingBand||""), esc(p.overall||""),
+      ].join(",");
+    });
+    const csv = [headers.join(","), ...rows].join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+    a.download = `scores-${selectedDate}.csv`;
+    a.click();
+  };
+
+  const exportWriting = () => {
+    const headers = ["Name","Email","Date","Task 1 Answer","Task 2 Answer"];
+    const rows = attemptsOnDate.filter(p => p.writingTexts && (p.writingTexts[0]||p.writingTexts[1]||p.writingTexts.task1||p.writingTexts.task2)).map(p => {
+      const c = p.candidate || p;
+      const wt = p.writingTexts || {};
+      return [
+        esc(c.name||""), esc((c.email||p.email||"").toLowerCase()),
+        esc(p.date||(p.timestamp?new Date(p.timestamp).toLocaleDateString("en-GB"):"")),
+        esc(wt[0]||wt.task1||""), esc(wt[1]||wt.task2||""),
+      ].join(",");
+    });
+    const csv = [headers.join(","), ...rows].join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+    a.download = `writing-answers-${selectedDate}.csv`;
+    a.click();
+  };
+
+  const exportAllAnswers = () => {
+    const lines = ["Name,Email,Date,Section,Question No.,Student Answer,Correct Answer,Result"];
+    attemptsOnDate.forEach(p => {
+      const c = p.candidate || p;
+      const name = esc(c.name||"");
+      const email = esc((c.email||p.email||"").toLowerCase());
+      const date = esc(p.date||(p.timestamp?new Date(p.timestamp).toLocaleDateString("en-GB"):""));
+      // Listening answers
+      if(p.listeningAnswers) {
+        const qs = p.allListeningQuestions || [];
+        Object.entries(p.listeningAnswers).forEach(([idx, ans]) => {
+          const q = qs[idx] || {};
+          const correct = Array.isArray(q.correct) ? q.correct.join(";") : (q.correct||"");
+          const given = Array.isArray(ans) ? ans.join(";") : (ans||"");
+          lines.push([name,email,date,esc("Listening"),esc(String(Number(idx)+1)),esc(given),esc(correct),esc(given&&correct&&given.trim().toLowerCase()===correct.trim().toLowerCase()?"Correct":"Wrong")].join(","));
+        });
+      }
+      // Reading answers
+      if(p.readingAnswers) {
+        const qs = p.allReadingQuestions || [];
+        Object.entries(p.readingAnswers).forEach(([idx, ans]) => {
+          const q = qs[idx] || {};
+          const correct = Array.isArray(q.correct) ? q.correct.join(";") : (q.correct||"");
+          const given = Array.isArray(ans) ? ans.join(";") : (ans||"");
+          lines.push([name,email,date,esc("Reading"),esc(String(Number(idx)+1)),esc(given),esc(correct),esc(given&&correct&&given.trim().toLowerCase()===correct.trim().toLowerCase()?"Correct":"Wrong")].join(","));
+        });
+      }
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([lines.join("\n")],{type:"text/csv"}));
+    a.download = `all-answers-${selectedDate}.csv`;
+    a.click();
+  };
+
+  const bandColor = b => !b?"":b>=7?"#D1FAE5":b>=5.5?"#FEF3C7":"#FEE2E2";
+  const bandText  = b => !b?"":b>=7?"#065F46":b>=5.5?"#92400E":"#991B1B";
+
+  return (
+    <div>
+      <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:6}}>Export Results</h2>
+      <p style={{color:C.s400,fontSize:14,marginBottom:28}}>Select a date to see who took tests and export their scores and answers.</p>
+
+      {/* Date picker */}
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:28,flexWrap:"wrap"}}>
+        <label style={{fontSize:13,fontWeight:700,color:C.s700}}>Test Date</label>
+        <input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)}
+          style={{border:`1px solid ${C.s200}`,borderRadius:8,padding:"8px 14px",fontSize:14,color:C.s900,background:C.surface,cursor:"pointer",fontFamily:"inherit"}}/>
+        <span style={{fontSize:13,color:C.s400}}>{loading ? "Loading…" : `${attemptsOnDate.length} test taker${attemptsOnDate.length!==1?"s":""} found`}</span>
+      </div>
+
+      {attemptsOnDate.length > 0 && (
+        <>
+          {/* Export buttons */}
+          <div style={{display:"flex",gap:10,marginBottom:24,flexWrap:"wrap"}}>
+            <button onClick={exportScores} style={{display:"flex",alignItems:"center",gap:7,background:"#2D5DDC",color:"#fff",border:"none",borderRadius:9,padding:"10px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+              <Download size={14}/>Export Scores (CSV)
+            </button>
+            <button onClick={exportWriting} style={{display:"flex",alignItems:"center",gap:7,background:C.violet||"#7C3AED",color:"#fff",border:"none",borderRadius:9,padding:"10px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+              <Download size={14}/>Export Writing Answers (CSV)
+            </button>
+            <button onClick={exportAllAnswers} style={{display:"flex",alignItems:"center",gap:7,background:C.s800||"#1E293B",color:"#fff",border:"none",borderRadius:9,padding:"10px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+              <Download size={14}/>Export All Answers (CSV)
+            </button>
+          </div>
+
+          {/* Preview table */}
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <thead>
+                <tr style={{background:C.s100}}>
+                  {["Name","Email","Listening","Reading","Writing","Speaking","Overall"].map(h=>(
+                    <th key={h} style={{padding:"10px 14px",textAlign:"left",fontWeight:700,color:C.s600,fontSize:11,letterSpacing:"0.05em",textTransform:"uppercase",borderBottom:`1px solid ${C.s200}`,whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {attemptsOnDate.map((p,i)=>{
+                  const c = p.candidate||p;
+                  const Band = ({v})=>v?<span style={{background:bandColor(v),color:bandText(v),borderRadius:6,padding:"2px 8px",fontWeight:700,fontSize:12}}>{v}</span>:<span style={{color:C.s300}}>—</span>;
+                  return (
+                    <tr key={p.id||i} style={{borderBottom:`1px solid ${C.s100}`}}>
+                      <td style={{padding:"12px 14px",fontWeight:600,color:C.s900}}>{c.name||"—"}</td>
+                      <td style={{padding:"12px 14px",color:C.s500,fontSize:12}}>{(c.email||p.email||"").toLowerCase()}</td>
+                      <td style={{padding:"12px 14px"}}><Band v={p.listeningBand}/></td>
+                      <td style={{padding:"12px 14px"}}><Band v={p.readingBand}/></td>
+                      <td style={{padding:"12px 14px"}}><Band v={p.writingBand}/></td>
+                      <td style={{padding:"12px 14px"}}><Band v={p.speakingBand}/></td>
+                      <td style={{padding:"12px 14px"}}><Band v={p.overall}/></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {attemptsOnDate.length === 0 && (
+        <div style={{textAlign:"center",padding:"60px 20px",color:C.s400}}>
+          <CalendarDays size={40} style={{marginBottom:12,opacity:.3}}/>
+          <p style={{fontSize:15,fontWeight:600,marginBottom:4}}>No tests found for this date</p>
+          <p style={{fontSize:13}}>Try selecting a different date</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── ADMIN DASHBOARD ───────────────────────────────────────────────────────────
-function AdminDashboard({ onExit }) {
-  const LEGACY_PW = import.meta.env.VITE_ADMIN_PASSWORD || "Lingvo.2025!";
-  const [session, setSession] = useState(()=>getAdminSession());
+const DEV_AUTO_LOGIN = import.meta.env.DEV; // auto-login in local dev, never in production build
+
+export function AdminDashboard({ onExit }) {
+  const LEGACY_PW = import.meta.env.VITE_ADMIN_PASSWORD || "";
+  const devSession = DEV_AUTO_LOGIN ? { username:"dev", role:"superadmin", legacy:true, access:null } : null;
+  const [session, setSession] = useState(()=> devSession || getAdminSession());
   const [loginUser, setLoginUser] = useState("");
   const [loginPw, setLoginPw]   = useState("");
   const [loginErr, setLoginErr] = useState("");
   const [failCount, setFailCount] = useState(0);
   const [lockedUntil, setLockedUntil] = useState(0);
   const [loggingIn, setLoggingIn] = useState(false);
-  const [tab, setTab]         = useState("overview");
+  const navigate = useNavigate();
+  const location = useLocation();
+  // Derive tab from URL — no useState needed
+  const tab = (() => {
+    const seg = location.pathname.replace(/^\/admin\/?/,"").split("/")[0];
+    return { "":"overview", students:"students", pending:"pending", tests:"suites",
+             assignments:"assign", staff:"staff", settings:"settings",
+             users:"users", participants:"participants", create:"addtest", export:"export",
+             lms:"lms", materials:"materials", payments:"payments" }[seg] ?? "overview";
+  })();
+  const navTo = t => {
+    const seg = { overview:"", students:"students", pending:"pending", suites:"tests",
+                  assign:"assignments", staff:"staff", settings:"settings",
+                  users:"users", participants:"participants", addtest:"create", export:"export",
+                  lms:"lms", materials:"materials", payments:"payments" }[t] ?? "";
+    navigate(seg ? `/admin/${seg}` : "/admin");
+  };
   const [db, setDb]           = useState(loadDB());
   const [selected, setSelected] = useState(null);
+  const [overdueCount, setOverdueCount] = useState(0);
+  useEffect(() => {
+    lmsGetPayments({ status:"overdue" }).then(p => setOverdueCount(p.length)).catch(()=>{});
+  }, [tab]);
 
-  // Push history when opening/closing a profile so back button works inside admin
   const openProfile = async profile => {
-    window.history.pushState({adminProfile:true},"");
+    navigate("/admin/participants");
     setSelected(profile);
-    setTab("participants");
     // Refresh from Supabase so the detail view shows the latest attempt data
     await reloadDB();
     const freshDb = loadDB();
@@ -4739,18 +5289,22 @@ function AdminDashboard({ onExit }) {
   const closeProfile = () => {
     setSelected(null);
   };
-  // Handle back button inside admin
+  // Clear selected profile when navigating away from the participants view
   useEffect(()=>{
-    const handler = e => {
-      if(selected){ setSelected(null); window.history.pushState({adminProfile:false},""); }
-    };
-    window.addEventListener("popstate", handler);
-    return ()=>window.removeEventListener("popstate", handler);
-  },[selected]);
+    if(tab !== "participants") setSelected(null);
+  },[tab]);
+
+  const [lmsGroups, setLmsGroups] = useState([]);
+  const [lmsPayments, setLmsPayments] = useState([]);
+  useEffect(()=>{
+    lmsGetGroups().then(gs=>setLmsGroups(gs||[])).catch(()=>{});
+    lmsGetPayments().then(ps=>setLmsPayments(ps||[])).catch(()=>{});
+  },[]);
 
   const [refreshing, setRefreshing] = useState(false);
   const [recalculating, setRecalculating] = useState(false);
   const [recalcMsg, setRecalcMsg] = useState("");
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [candidateSearch, setCandidateSearch] = useState("");
   const refresh = async () => {
     setRefreshing(true);
@@ -4766,7 +5320,7 @@ function AdminDashboard({ onExit }) {
   },[]);
   // Also refresh immediately whenever the admin switches to participants/overview tab
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(()=>{ if(tab==="participants"||tab==="overview") refresh(); },[tab]);
+  useEffect(()=>{ if(tab==="participants"||tab==="overview") refresh(); },[location.pathname]);
 
   const recalculateAllBands = async () => {
     setRecalculating(true);
@@ -4834,7 +5388,20 @@ function AdminDashboard({ onExit }) {
         if(TEXT_INPUT_TYPES.has(q.type)||q.type==="short"||q.type==="short_answer"||q.type==="fillblank"||q.type==="form_table"){
           if(a===c||a.includes(c)||c.includes(a)){n++;return;}
         }
-        if(raw&&typeof raw==="object"&&typeof q.correctIdx==="number"){if(raw.idx===q.correctIdx){n++;return;}}
+        if(raw&&typeof raw==="object"&&typeof raw.idx==="number"){
+          if(typeof q.correctIdx==="number"){if(raw.idx===q.correctIdx)n++;}
+          else{const cs=(q.correct||"").trim();
+            if(/^[A-Ha-h]$/.test(cs)){if(raw.idx===(cs.toUpperCase().charCodeAt(0)-65))n++;}
+            else{const pm=cs.match(/^([A-Ha-h])[.\s]/i);
+              if(pm){if(raw.idx===(pm[1].toUpperCase().charCodeAt(0)-65))n++;}
+              else{
+                // Roman numerals / other prefixed identifiers
+                const st=(raw.text||"").trim().toLowerCase(); const cl2=cs.toLowerCase();
+                if(st&&cl2&&(st===cl2||st.startsWith(cl2+".")||st.startsWith(cl2+" ")||cl2.startsWith(st+".")))n++;
+                else if(a===c)n++;
+              }}}
+          return;
+        }
         if(a===c){n++;return;}
         const al=a.replace(/[^a-h]/g,"")[0],cl=c.replace(/[^a-h]/g,"")[0];
         if(al&&cl&&al===cl)n++;
@@ -4845,7 +5412,9 @@ function AdminDashboard({ onExit }) {
     // Load fresh participants from Supabase, fall back to local
     const freshPts=supabase?(await _loadParticipants()||[]):[];
     const allPtsMap={};
-    [...(loadDB().participants||[]),...freshPts].forEach(p=>{if(p.id)allPtsMap[p.id]=p;});
+    // Newest-first: loadDB().participants may already have overrides applied; freshPts (newest-first) fill gaps
+    // Use first-seen wins so the most recent/complete record is not overwritten by older duplicates
+    [...(loadDB().participants||[]),...freshPts].forEach(p=>{if(p.id&&!allPtsMap[p.id])allPtsMap[p.id]=p;});
     const participants=Object.values(allPtsMap);
 
     // Safety check — if both key maps are empty (e.g. tests failed to load),
@@ -4884,7 +5453,27 @@ function AdminDashboard({ onExit }) {
 
       if(hasRKeys) {
         const newRQs=(p.allReadingQuestions||[]).map(q=>({...q,correct:getKeyR(q)}));
-        if(newRQs.length&&p.readingAnswers&&Object.keys(p.readingAnswers).length){
+        const hasRAns=p.readingAnswers&&Object.keys(p.readingAnswers).length>0;
+        // Debug: log first participant with reading answers to diagnose scoring
+        if(newRQs.length>0&&hasRAns&&rc===0&&!window._rcDebugLogged){
+          window._rcDebugLogged=true;
+          const q0=newRQs[0]; const ans0=p.readingAnswers[q0.id];
+          const q1=newRQs[1]||{}; const ans1=p.readingAnswers[q1.id];
+          const q2=newRQs[2]||{}; const ans2=p.readingAnswers[q2.id];
+          const dbg={
+            keyByIdR_count:Object.keys(keyByIdR).length,
+            keyByTextR_count:Object.keys(keyByTextR).length,
+            keyByIdR_sample:Object.entries(keyByIdR).slice(0,5),
+            allRQs_count:newRQs.length,
+            readingAns_count:Object.keys(p.readingAnswers).length,
+            q0:{id:q0.id,type:q0.type,correct:q0.correct,ans:ans0},
+            q1:{id:q1.id,type:q1.type,correct:q1.correct,ans:ans1},
+            q2:{id:q2.id,type:q2.type,correct:q2.correct,ans:ans2},
+            ansKeys:Object.keys(p.readingAnswers).slice(0,5),
+          };
+          setRecalcMsg("DEBUG: "+JSON.stringify(dbg));
+        }
+        if(newRQs.length&&hasRAns){
           const rescored=scoreAll(newRQs,p.readingAnswers);
           // Only update if rescored > 0 OR original was also 0 (don't zero out valid scores)
           if(rescored>0||rc===0) rc=rescored;
@@ -4946,8 +5535,8 @@ function AdminDashboard({ onExit }) {
       if(!matched && !loginUser.trim() && loginPw === LEGACY_PW) {
         matched = { username: "admin", role: "superadmin", legacy: true };
       }
-      // Also allow "admin" username with legacy password if no admin users exist yet
-      if(!matched && loginUser.trim() === "admin" && loginPw === LEGACY_PW && adminUsers.length === 0) {
+      // Always allow "admin" username with legacy password as master fallback
+      if(!matched && loginUser.trim() === "admin" && loginPw === LEGACY_PW) {
         matched = { username: "admin", role: "superadmin", legacy: true };
       }
 
@@ -4981,36 +5570,66 @@ function AdminDashboard({ onExit }) {
     const locked = now < lockedUntil;
     const remaining = locked ? Math.ceil((lockedUntil - now) / 1000) : 0;
     return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#0F172A,#064E3B)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{...cardStyle({padding:40,width:380})}}>
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#0D1B4B,#1a3278 50%,#1e3a8a)",display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 16px",fontFamily:"system-ui,sans-serif"}}>
+      <div style={{width:"100%",maxWidth:420}}>
+        {/* Header */}
         <div style={{textAlign:"center",marginBottom:28}}>
-          <Logo size={11}/>
-          <div style={{marginTop:12,fontSize:13,color:C.s400}}>Admin Portal — Sign In</div>
-        </div>
-        {locked ? (
-          <div style={{textAlign:"center",padding:"18px",background:C.roseL,borderRadius:10,color:C.rose,fontWeight:700,fontSize:14}}>
-            Too many failed attempts.<br/>
-            <span style={{fontWeight:400,fontSize:12}}>Try again in {Math.floor(remaining/60)}m {remaining%60}s</span>
+          <div style={{display:"inline-flex",alignItems:"center",gap:8,marginBottom:16}}>
+            <div style={{width:42,height:42,borderRadius:12,background:AD.blue,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 16px ${AD.blue}55`}}>
+              <UserCog size={22} color="#fff" strokeWidth={2}/>
+            </div>
+            <span style={{fontSize:17,fontWeight:800,color:"#fff",letterSpacing:"-0.02em"}}>LingvoConnect</span>
           </div>
-        ) : (
-          <>
-            {loginErr&&<div style={{marginBottom:10,padding:"10px 14px",background:C.roseL,borderRadius:8,color:C.rose,fontSize:13,fontWeight:600}}>
-              {loginErr}
-            </div>}
-            <label style={labelStyle}>Username</label>
-            <input type="text" value={loginUser} onChange={e=>setLoginUser(e.target.value)}
-              onKeyDown={e=>e.key==="Enter"&&handleLogin()}
-              placeholder="Username" style={{...inputStyle,marginBottom:12}} autoFocus/>
-            <label style={labelStyle}>Password</label>
-            <input type="password" value={loginPw} onChange={e=>setLoginPw(e.target.value)}
-              onKeyDown={e=>e.key==="Enter"&&handleLogin()}
-              placeholder="Password" style={inputStyle}/>
-            <button onClick={handleLogin} disabled={loggingIn}
-              style={{...btnStyle("primary"),width:"100%",marginTop:14,padding:"12px",borderRadius:10,fontSize:15,opacity:loggingIn?0.7:1}}>
-              {loggingIn ? "Signing in…" : "Sign In →"}
-            </button>
-          </>
-        )}
+          <h1 style={{fontSize:24,fontWeight:800,color:"#fff",letterSpacing:"-0.03em",marginBottom:6,lineHeight:1.2}}>Admin Portal</h1>
+          <p style={{color:"rgba(255,255,255,.5)",fontSize:13,margin:0}}>Sign in with your admin credentials</p>
+        </div>
+        {/* Card */}
+        <div style={{background:"#fff",borderRadius:20,boxShadow:"0 24px 80px rgba(0,0,0,.3)",overflow:"hidden"}}>
+          <div style={{padding:"28px 28px 24px"}}>
+            {locked ? (
+              <div style={{textAlign:"center",padding:"20px",background:"#FEF2F2",borderRadius:12,color:"#DC2626",fontWeight:700,fontSize:14}}>
+                Too many failed attempts.<br/>
+                <span style={{fontWeight:400,fontSize:12}}>Try again in {Math.floor(remaining/60)}m {remaining%60}s</span>
+              </div>
+            ) : (
+              <>
+                {loginErr&&(
+                  <div style={{display:"flex",alignItems:"center",gap:8,background:"#FEF2F2",border:"1px solid #FECACA",
+                    borderRadius:10,padding:"10px 14px",marginBottom:16,color:"#DC2626",fontSize:13}}>
+                    <AlertCircle size={14} style={{flexShrink:0}}/>{loginErr}
+                  </div>
+                )}
+                <div style={{marginBottom:16}}>
+                  <label style={{...labelStyle,marginBottom:7}}>Username</label>
+                  <div style={{position:"relative"}}>
+                    <User size={15} style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",color:AD.muted,pointerEvents:"none"}}/>
+                    <input type="text" value={loginUser} onChange={e=>setLoginUser(e.target.value)}
+                      onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+                      placeholder="admin" autoFocus
+                      style={{...inputStyle,paddingLeft:38,border:`1.5px solid ${AD.border}`,borderRadius:10}}/>
+                  </div>
+                </div>
+                <div style={{marginBottom:20}}>
+                  <label style={{...labelStyle,marginBottom:7}}>Password</label>
+                  <div style={{position:"relative"}}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",color:AD.muted,pointerEvents:"none"}}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                    <input type="password" value={loginPw} onChange={e=>setLoginPw(e.target.value)}
+                      onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+                      placeholder="Password"
+                      style={{...inputStyle,paddingLeft:38,border:`1.5px solid ${AD.border}`,borderRadius:10}}/>
+                  </div>
+                </div>
+                <button onClick={handleLogin} disabled={loggingIn}
+                  style={{...btnStyle("primary"),width:"100%",padding:"14px",borderRadius:12,fontSize:15,fontWeight:700,
+                    background:loggingIn?"#93A3B8":`linear-gradient(90deg,${AD.blue},#4f6fe8)`,
+                    boxShadow:loggingIn?"none":`0 4px 20px ${AD.blue}44`,
+                    border:"none",cursor:loggingIn?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                  {loggingIn ? "Signing in…" : <><span>Sign In</span><ChevronRight size={17}/></>}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -5019,15 +5638,25 @@ function AdminDashboard({ onExit }) {
   const pts=db.participants||[], bks=db.bookings||[];
   const avg=arr=>arr.length?(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1):"—";
   const isSuperAdmin = session?.role === "superadmin";
+  const isTeacher    = session?.role === "teacher";
   const allowedAccess = isSuperAdmin ? null : (session?.access || null); // null = all
+  const NAV_ICONS = {
+    overview: LayoutDashboard, students: GraduationCap, pending: Clock,
+    suites: BookOpen, addtest: Flag, assign: ClipboardList, staff: Users,
+    lms: School, materials: BookMarked, payments: CreditCard,
+    settings: Settings, users: UserCog, export: Download,
+  };
   const allNavItems=[
-    ["overview","📊","Overview"],["participants","👥","Test Takers"],["bookings","🗓️","Bookings"],
-    ["slots","🕐","Speaking Slots"],["analytics","📈","Analytics"],
-    ["suites","🧪","Test Suites"],["assign","📋","Assignments"],["speaking","🗣️","AI Speaking"],
-    ["addtest","➕","Section Builder"],["settings","⚙️","Settings"],
-    ...(isSuperAdmin ? [["users","👤","Admin Users"]] : []),
+    ["overview","Dashboard"],["students","Students"],["pending","Pending Students"],
+    ["suites","Tests"],["addtest","Create Test"],["assign","Assignments"],
+    ["lms","LMS Groups"],["materials","Materials & Tasks"],["payments","Payments"],
+    ["export","Export"],
+    ["settings","Settings"],
+    ...(isSuperAdmin ? [["staff","Staff Accounts"]] : []),
   ];
-  const navItems = allowedAccess ? allNavItems.filter(([t])=>allowedAccess.includes(t)||t==="users") : allNavItems;
+  const navItems = isTeacher
+    ? allNavItems.filter(([t])=>t==="students")
+    : (allowedAccess ? allNavItems.filter(([t])=>allowedAccess.includes(t)||t==="users") : allNavItems);
 
   const exportCSV = () => {
     const rows=[["Name","Email","Phone","Nationality","Test Type","DOB","Date","Listening Band","Listening Score","Reading Band","Reading Score","Writing Band","Speaking Band","Overall Band","Attempt ID"]];
@@ -5052,80 +5681,366 @@ function AdminDashboard({ onExit }) {
     const a=document.createElement("a"); a.href=url; a.download=`ielts-results-${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
   };
 
-  return (
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",fontFamily:"'Montserrat',sans-serif"}}>
-      {/* Admin topbar */}
-      <div style={{background:"#0F172A",borderBottom:"2px solid #11CD87",padding:"0 28px",height:64,display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:200}}>
-        <div style={{display:"flex",alignItems:"center",gap:14}}>
-          <img src="/logo-white.png" alt="LingvoConnect IELTS" style={{height:24,width:"auto",display:"block"}}/>
-          <div style={{width:1,height:24,background:"rgba(255,255,255,.12)"}}/>
-          <span style={{background:"#11CD87",color:"#064E3B",fontSize:10,fontWeight:800,padding:"3px 10px",borderRadius:20,letterSpacing:"0.1em"}}>ADMIN PORTAL</span>
-          {selected&&<span style={{color:"rgba(255,255,255,.3)",fontSize:12}}>/ {selected.candidate?.name||selected.email||"Profile"}</span>}
-        </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          {session&&<span style={{color:"rgba(255,255,255,.5)",fontSize:12,padding:"0 4px"}}>
-            {session.username} <span style={{color:isSuperAdmin?"#11CD87":"rgba(255,255,255,.3)",fontSize:10,fontWeight:700,marginLeft:4}}>{isSuperAdmin?"SUPER ADMIN":"ADMIN"}</span>
-          </span>}
-          <button type="button" onClick={refresh} disabled={refreshing} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.06)",color:"rgba(255,255,255,.7)",border:"1px solid rgba(255,255,255,.12)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600,opacity:refreshing?.6:1,minHeight:44}}>
-            <span aria-hidden="true" style={{display:"inline-block",animation:refreshing?"spin 0.6s linear infinite":"none"}}>↻</span>
-            {refreshing?"Syncing…":"Refresh"}
-          </button>
-          <button type="button" onClick={()=>{setAdminSession(null);setSession(null);}} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,.06)",color:"rgba(255,255,255,.5)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600,minHeight:44}}>Sign Out</button>
-          <button type="button" onClick={onExit} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(225,29,72,.12)",color:"#FDA4AF",border:"1px solid rgba(225,29,72,.25)",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontSize:12,fontWeight:600,minHeight:44}}>← Exit Admin</button>
-        </div>
-      </div>
+  // AD tokens imported from constants.js — no local redefinition needed
 
-      <div style={{display:"flex",flex:1}}>
-        {/* Sidebar */}
-        <nav aria-label="Admin navigation" style={{width:220,background:"#fff",borderRight:`1px solid ${C.s200}`,paddingTop:16}}>
-          {navItems.map(([t,icon,lbl])=>(
-            <button type="button" key={t} onClick={()=>{setTab(t);closeProfile();}} aria-current={tab===t?"page":undefined} style={{
-              display:"flex",alignItems:"center",gap:12,width:"100%",padding:"11px 20px",minHeight:44,
-              border:"none",cursor:"pointer",textAlign:"left",fontSize:13,transition:"all .15s",
-              background:tab===t?C.brandL:"transparent",
-              color:tab===t?C.brand:C.s600,fontWeight:tab===t?700:500,
-              borderLeft:`3px solid ${tab===t?C.brand:"transparent"}`,
-            }}><span aria-hidden="true">{icon}</span> {lbl}</button>
-          ))}
+  return (
+    <div style={{minHeight:"100vh",background:AD.bg,display:"flex",fontFamily:"'Inter',system-ui,sans-serif"}}>
+
+      {/* ── Sidebar — full labels, 220px (matches Teacher Portal style) ── */}
+      <aside style={{width:220,background:"#FCFCFC",flexShrink:0,display:"flex",flexDirection:"column",borderRight:`1px solid ${AD.border}`,position:"sticky",top:0,height:"100vh",paddingTop:14,paddingBottom:14}}>
+
+        {/* Account info */}
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"0 16px",marginBottom:24,flexShrink:0}}>
+          <div style={{width:36,height:36,borderRadius:10,background:AD.blue,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:12,fontWeight:800,color:"#fff",letterSpacing:"0.02em"}}>
+            {(session?.username||"A").slice(0,2).toUpperCase()}
+          </div>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:800,color:AD.text,letterSpacing:"-0.02em",lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{session?.username||"Admin"}</div>
+            <div style={{fontSize:11,color:AD.muted,marginTop:1}}>{isSuperAdmin?"Super Admin":isTeacher?"Teacher":"Admin"}</div>
+          </div>
+        </div>
+
+        {/* Nav items with labels */}
+        <nav aria-label="Admin navigation" style={{flex:1,display:"flex",flexDirection:"column",gap:2,padding:"0 10px",overflowY:"auto"}}>
+          {navItems.map(([t,lbl])=>{
+            const Icon = NAV_ICONS[t] || LayoutDashboard;
+            const active = tab===t;
+            return (
+              <button type="button" key={t} onClick={()=>{navTo(t);closeProfile();}}
+                aria-current={active?"page":undefined}
+                style={{
+                  width:"100%",height:40,borderRadius:10,border:"none",cursor:"pointer",
+                  display:"flex",alignItems:"center",gap:10,padding:"0 12px",
+                  background: active ? AD.blueLt : "transparent",
+                  color: active ? AD.blue : AD.sub,
+                  position:"relative", transition:"background .12s, color .12s",
+                  fontFamily:"inherit",fontSize:13,fontWeight: active ? 700 : 500,
+                  textAlign:"left",
+                }}
+                onMouseEnter={e=>{if(!active){e.currentTarget.style.background=AD.bg;e.currentTarget.style.color=AD.text;}}}
+                onMouseLeave={e=>{if(!active){e.currentTarget.style.background="transparent";e.currentTarget.style.color=AD.sub;}}}
+              >
+                <Icon size={16} strokeWidth={active?2:1.5} style={{flexShrink:0}}/>
+                <span>{lbl}</span>
+                {t==="payments"&&overdueCount>0&&(
+                  <span style={{marginLeft:"auto",minWidth:18,height:18,borderRadius:9,background:AD.red,color:"#fff",fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>{overdueCount}</span>
+                )}
+              </button>
+            );
+          })}
         </nav>
 
+        {/* Bottom: refresh + sign out */}
+        <div style={{display:"flex",flexDirection:"column",gap:2,padding:"0 10px",borderTop:`1px solid ${AD.border}`,paddingTop:10,marginTop:4}}>
+          <button type="button" onClick={refresh} disabled={refreshing}
+            style={{width:"100%",height:40,borderRadius:10,border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:10,padding:"0 12px",background:"transparent",color:AD.sub,fontFamily:"inherit",fontSize:13,fontWeight:500,transition:"all .1s"}}
+            onMouseEnter={e=>{e.currentTarget.style.background=AD.bg;e.currentTarget.style.color=AD.text;}}
+            onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color=AD.sub;}}>
+            <RefreshCw size={16} strokeWidth={1.5} style={{flexShrink:0,animation:refreshing?"spin 0.6s linear infinite":"none"}}/>
+            <span>{refreshing?"Syncing…":"Refresh data"}</span>
+          </button>
+          <button type="button" onClick={()=>{setAdminSession(null);setSession(null);}}
+            style={{width:"100%",height:40,borderRadius:10,border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:10,padding:"0 12px",background:"transparent",color:AD.sub,fontFamily:"inherit",fontSize:13,fontWeight:500,transition:"all .1s"}}
+            onMouseEnter={e=>{e.currentTarget.style.background="#FFF0F0";e.currentTarget.style.color=AD.red;}}
+            onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color=AD.sub;}}>
+            <LogOut size={16} strokeWidth={1.5} style={{flexShrink:0}}/>
+            <span>Sign out</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* ── Main column ──────────────────────────────────────────────────── */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
+
+        {/* Topbar — BrightPath style ─────────────────────────────────────── */}
+        <header style={{height:64,background:"#FCFCFC",borderBottom:`1px solid ${AD.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 28px",flexShrink:0,position:"sticky",top:0,zIndex:100,gap:20}}>
+          {/* Left: brand name */}
+          <div style={{display:"flex",alignItems:"center",gap:0,flexShrink:0}}>
+            <span style={{fontSize:18,fontWeight:800,color:AD.blue,letterSpacing:"-0.04em",fontFamily:"'Inter',sans-serif"}}>Lingvo</span>
+            <span style={{fontSize:18,fontWeight:800,color:AD.text,letterSpacing:"-0.04em",fontFamily:"'Inter',sans-serif"}}>Connect</span>
+          </div>
+
+          {/* Center: search */}
+          <div style={{flex:1,maxWidth:500,display:"flex",alignItems:"center",background:AD.bg,borderRadius:12,border:`1px solid ${AD.border}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"0 16px",flex:1,height:42}}>
+              <Search size={14} color={AD.muted}/>
+              <span style={{fontSize:13,color:AD.muted}}>Search courses, lessons or students…</span>
+            </div>
+            <div style={{background:AD.blue,height:42,width:44,borderRadius:"0 11px 11px 0",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
+              <Search size={15} color="#fff" strokeWidth={2.2}/>
+            </div>
+          </div>
+
+          {/* Right: dev + bell + user chip */}
+          <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+            {import.meta.env.DEV&&<span style={{fontSize:9,fontWeight:700,color:AD.muted,letterSpacing:"0.06em",background:AD.bg,padding:"2px 6px",borderRadius:4,border:`1px solid ${AD.border}`}}>DEV</span>}
+            {selected&&<span style={{fontSize:12,color:AD.sub,padding:"4px 10px",background:AD.bg,borderRadius:6,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{selected.candidate?.name||selected.email||"Profile"}</span>}
+            <NotificationBell payments={lmsPayments} groups={lmsGroups} onNav={(t)=>navTo(t)}/>
+            {session&&(
+              <button type="button" onClick={()=>setShowProfileModal(true)}
+                style={{display:"flex",alignItems:"center",gap:9,padding:"5px 14px 5px 6px",border:`1px solid ${AD.border}`,borderRadius:24,background:AD.bg,cursor:"pointer",fontFamily:"inherit",transition:"border-color .15s"}}
+                onMouseEnter={e=>e.currentTarget.style.borderColor=AD.blue}
+                onMouseLeave={e=>e.currentTarget.style.borderColor=AD.border}
+                title="Edit your profile">
+                <div style={{width:30,height:30,borderRadius:"50%",background:AD.blue,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#fff",flexShrink:0}}>
+                  {(session.username||"A").slice(0,2).toUpperCase()}
+                </div>
+                <div>
+                  <div style={{fontSize:12,fontWeight:700,color:AD.text,lineHeight:1.2,letterSpacing:"-0.01em"}}>{session.username}</div>
+                  <div style={{fontSize:10,color:AD.muted,display:"flex",alignItems:"center",gap:3}}>
+                    {isSuperAdmin?"Super Admin":isTeacher?"Teacher":"Admin"}
+                  </div>
+                </div>
+              </button>
+            )}
+            <button type="button" onClick={onExit} style={{width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",color:AD.muted,border:`1px solid ${AD.border}`,cursor:"pointer",fontFamily:"inherit",transition:"all .1s"}}
+              onMouseEnter={e=>{e.currentTarget.style.background=AD.bg;}}
+              onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
+              <ArrowLeft size={14}/>
+            </button>
+          </div>
+        </header>
+
         {/* Content */}
-        <main id="main-content" style={{flex:1,overflow:"auto",padding:32}}>
+        <main id="main-content" style={{flex:1,overflow:"auto",padding:"28px 32px"}}>
           <h1 className="sr-only">Admin Dashboard</h1>
 
           {tab==="overview"&&(
             <div>
-              <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:24}}>Dashboard Overview</h2>
-              <div className="admin-stats-grid" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:28}}>
-                {[["Total Candidates",pts.length,C.brand,"👥"],["Avg Band",avg(pts.map(p=>p.overall||0)),C.teal,"🏆"],["Speaking Booked",bks.length,C.violet,"🗓️"],["This Week",pts.filter(p=>Date.now()-p.timestamp<7*864e5).length,C.amber,"📅"]].map(([lbl,val,col,icon])=>(
-                  <div key={lbl} style={{...cardStyle({padding:20})}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                      <div>
-                        <div style={{fontSize:11,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>{lbl}</div>
-                        <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:32,fontWeight:800,color:col}}>{val}</div>
-                      </div>
-                      <span style={{fontSize:26}}>{icon}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24,padding:"14px 20px",background:C.brandL,borderRadius:12,border:`1px solid ${C.brand}30`}}>
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:700,fontSize:13,color:C.s900}}>Recalculate Band Scores</div>
-                  <div style={{fontSize:12,color:C.s600}}>Updates all stored band scores using the corrected official IELTS conversion tables.</div>
+              {/* ── Greeting ─────────────────────────────────────────────── */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24}}>
+                <div>
+                  <h2 style={{fontSize:28,fontWeight:800,color:AD.text,letterSpacing:"-0.04em",margin:0,lineHeight:1.1}}>
+                    Hello, {session?.username||"Admin"} 👋
+                  </h2>
+                  <p style={{fontSize:13,color:AD.muted,margin:"5px 0 0",fontWeight:400}}>Here's what's happening in your platform today.</p>
                 </div>
-                {recalcMsg&&<span style={{fontSize:12,color:C.teal,fontWeight:700}}>{recalcMsg}</span>}
-                <button onClick={recalculateAllBands} disabled={recalculating} style={{...btnStyle("primary"),padding:"9px 20px",fontSize:13,opacity:recalculating?.6:1}}>
-                  {recalculating?"Recalculating…":"↻ Recalculate All Bands"}
+                <button type="button" onClick={()=>navTo("addtest")}
+                  style={{display:"flex",alignItems:"center",gap:8,background:AD.green,color:AD.text,border:"none",borderRadius:12,padding:"11px 22px",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit",flexShrink:0,letterSpacing:"-0.01em"}}>
+                  <span style={{fontSize:18,lineHeight:1,marginTop:-1}}>+</span> Create Test
                 </button>
               </div>
-              <h3 style={{fontSize:11,color:C.s400,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:12}}>Recent Candidates</h3>
+
+              {/* ── Stat tiles — BrightPath style (icon left, label, big number) ── */}
               {(()=>{
-                const byEmail={};
-                pts.forEach(p=>{const cand=p.candidate||p;const key=(cand?.email||p.email||p.id||"").toLowerCase();if(!byEmail[key])byEmail[key]={email:key,candidate:cand,attempts:[]};else byEmail[key].candidate=cand;byEmail[key].attempts.push(p);});
-                const recentProfiles=Object.values(byEmail).map(g=>{const sorted=g.attempts.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));return{...g,candidate:sorted[0]?.candidate||g.candidate,attempts:sorted};}).sort((a,b)=>(b.attempts[0]?.timestamp||0)-(a.attempts[0]?.timestamp||0)).slice(0,8);
-                return <ParticipantTable profiles={recentProfiles} onSelect={openProfile}/>;
+                const publishedSuitesCount=(db.testSuites||[]).filter(s=>s.status==="published").length;
+                const activeStudentsCount=(db.students||[]).filter(s=>s.status==="active").length;
+                const testsThisWeek=pts.filter(p=>Date.now()-(p.timestamp||0)<7*864e5).length;
+                const pendingCount=(db.students||[]).filter(s=>s.status==="pending").length;
+                const lmsGroupCount=lmsGroups.filter(g=>g.status==="active"||!g.status).length;
+                const dashStats=[
+                  {lbl:"Total Students",val:activeStudentsCount,delta:null,Icon:GraduationCap,nav:"students"},
+                  {lbl:"Active Groups",val:lmsGroupCount,delta:null,Icon:School,nav:"lms"},
+                  {lbl:"Published Tests",val:publishedSuitesCount,delta:null,Icon:BookOpen,nav:"suites"},
+                  {lbl:"Tests This Week",val:testsThisWeek,delta:null,Icon:TrendingUp,nav:"participants"},
+                  {lbl:"Pending Approval",val:pendingCount,delta:null,Icon:Clock,nav:"pending",alert:pendingCount>0},
+                ];
+                return (
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12,marginBottom:24}}>
+                    {dashStats.map(({lbl,val,delta,Icon,nav,alert})=>(
+                      <div key={lbl} onClick={()=>navTo(nav)} style={{background:"#FCFCFC",borderRadius:16,border:`1px solid ${AD.border}`,padding:"18px 20px",cursor:"pointer",transition:"box-shadow .15s"}}
+                        onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 16px rgba(0,0,0,.07)"}
+                        onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
+                        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                          <div style={{width:36,height:36,borderRadius:10,background:alert?"#FEF2F2":AD.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                            <Icon size={16} color={alert?AD.red:AD.sub} strokeWidth={1.8}/>
+                          </div>
+                          <span style={{fontSize:12,color:AD.sub,fontWeight:500,letterSpacing:"-0.01em"}}>{lbl}</span>
+                        </div>
+                        <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
+                          <span style={{fontSize:34,fontWeight:800,color:alert&&val>0?AD.red:AD.text,letterSpacing:"-0.05em",lineHeight:1}}>{val}</span>
+                          {delta!==null&&<span style={{fontSize:13,fontWeight:700,color:AD.green,marginBottom:4}}>+{delta}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
               })()}
+
+              {/* ── Active Groups — color gradient cards matching teacher/calendar design ── */}
+              {(()=>{
+                const activeGroups=lmsGroups.filter(g=>g.status==="active"||!g.status);
+                if(!activeGroups.length) return null;
+                const DAY_S=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+                const MON_S=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                function getNextSession(g) {
+                  const now=new Date(); now.setHours(0,0,0,0);
+                  for(let d=0;d<=14;d++){
+                    const date=new Date(now); date.setDate(date.getDate()+d);
+                    const slot=(g.schedule||[]).find(s=>s.day===date.getDay()&&!s.is_mock_test_day);
+                    if(slot) return {date,slot};
+                  }
+                  return null;
+                }
+                return (
+                  <div style={{background:"#FCFCFC",borderRadius:16,border:`1px solid ${AD.border}`,padding:"20px 24px",marginBottom:20}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+                      <span style={{fontSize:16,fontWeight:700,color:AD.text,letterSpacing:"-0.02em"}}>Active Groups</span>
+                      <button onClick={()=>navTo("lms")} style={{fontSize:12,fontWeight:600,color:AD.blue,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>View all groups →</button>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:14}}>
+                      {activeGroups.slice(0,3).map((g,i)=>{
+                        const gColor=g.color||AD.blue;
+                        const studentCount=g.student_count||g.studentCount||0;
+                        const next=getNextSession(g);
+                        return (
+                          <div key={g.id} onClick={()=>navTo("lms")}
+                            style={{borderRadius:16,padding:"20px 20px 18px",cursor:"pointer",position:"relative",overflow:"hidden",
+                              background:`linear-gradient(135deg, ${gColor} 0%, ${gColor}cc 100%)`,
+                              boxShadow:`0 4px 20px ${gColor}44`,
+                              display:"flex",flexDirection:"column"}}>
+                            <div style={{position:"absolute",top:-20,right:-20,width:100,height:100,borderRadius:"50%",background:"rgba(255,255,255,.08)"}}/>
+                            <div style={{position:"absolute",bottom:-30,right:20,width:70,height:70,borderRadius:"50%",background:"rgba(255,255,255,.05)"}}/>
+                            {/* Icon + name row */}
+                            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,position:"relative"}}>
+                              <div style={{width:36,height:36,borderRadius:10,background:"rgba(255,255,255,.2)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                                <GraduationCap size={17} color="#fff"/>
+                              </div>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:14,fontWeight:800,color:"#fff",letterSpacing:"-0.02em",lineHeight:1.2}}>{g.name}</div>
+                                <div style={{fontSize:11,color:"rgba(255,255,255,.7)",marginTop:1}}>{g.level||"General"}</div>
+                              </div>
+                              <span style={{fontSize:10,fontWeight:800,letterSpacing:".06em",color:"rgba(255,255,255,.7)",background:"rgba(255,255,255,.15)",padding:"3px 8px",borderRadius:5,textTransform:"uppercase",flexShrink:0}}>{g.level||"Group"}</span>
+                            </div>
+                            {/* Next session — flex:1 aligns footer */}
+                            <div style={{flex:1,position:"relative"}}>
+                              {next ? (
+                                <div style={{background:"rgba(255,255,255,.15)",borderRadius:10,padding:"8px 12px",marginBottom:14}}>
+                                  <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.65)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:3}}>Next Session</div>
+                                  <div style={{fontSize:12,fontWeight:700,color:"#fff"}}>
+                                    {DAY_S[next.date.getDay()]} {next.date.getDate()} {MON_S[next.date.getMonth()]} · {next.slot.start}–{next.slot.end}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div style={{fontSize:11,color:"rgba(255,255,255,.5)",fontStyle:"italic",marginBottom:14}}>No upcoming sessions</div>
+                              )}
+                            </div>
+                            {/* Footer */}
+                            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",position:"relative"}}>
+                              <div style={{display:"flex",alignItems:"center",gap:5}}>
+                                <Users size={11} color="rgba(255,255,255,.6)"/>
+                                <span style={{fontSize:11,color:"rgba(255,255,255,.7)",fontWeight:500}}>{studentCount} student{studentCount!==1?"s":""}</span>
+                              </div>
+                              <button onClick={e=>{e.stopPropagation();navTo("lms");}} style={{background:"rgba(255,255,255,.9)",color:gColor,border:"none",borderRadius:8,padding:"6px 14px",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>
+                                View →
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── 2-column bottom: sessions + right panel ─────────────────────── */}
+              <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:16}}>
+
+                {/* Left: Upcoming Sessions table (BrightPath "My Next Lessons") */}
+                <div style={{background:"#FCFCFC",borderRadius:16,border:`1px solid ${AD.border}`,padding:"20px 24px"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+                    <span style={{fontSize:16,fontWeight:700,color:AD.text,letterSpacing:"-0.02em"}}>Upcoming Live Sessions</span>
+                    <button onClick={()=>navTo("lms")} style={{fontSize:12,fontWeight:600,color:AD.blue,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>View all lessons</button>
+                  </div>
+                  {/* Table header */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 120px 80px",gap:12,padding:"0 0 8px",borderBottom:`1px solid ${AD.border}`,marginBottom:4}}>
+                    {["Lesson / Group","Teacher","Duration"].map(h=>(
+                      <span key={h} style={{fontSize:11,fontWeight:600,color:AD.muted,letterSpacing:".03em",textTransform:"uppercase"}}>{h}</span>
+                    ))}
+                  </div>
+                  {/* Session rows from lmsGroups */}
+                  {(()=>{
+                    const DAY_S=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+                    const rows=[];
+                    const now=new Date(); now.setHours(0,0,0,0);
+                    lmsGroups.filter(g=>g.status==="active"||!g.status).forEach(g=>{
+                      for(let d=0;d<=6;d++){
+                        const date=new Date(now); date.setDate(date.getDate()+d);
+                        const slot=(g.schedule||[]).find(s=>s.day===date.getDay());
+                        if(slot) rows.push({g,date,slot,diff:d});
+                      }
+                    });
+                    rows.sort((a,b)=>a.date-b.date||((a.slot.start||"").localeCompare(b.slot.start||"")));
+                    if(!rows.length) return <div style={{padding:"24px 0",textAlign:"center",color:AD.muted,fontSize:13}}>No sessions scheduled this week.</div>;
+                    return rows.slice(0,5).map(({g,date,slot,diff},i)=>{
+                      const isToday=diff===0;
+                      const dayLbl=isToday?"Today":DAY_S[date.getDay()]+", "+date.getDate()+" "+(["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][date.getMonth()]);
+                      const startH=parseInt(slot.start);
+                      const endH=parseInt(slot.end);
+                      const dur=Math.round((endH-startH)*60)+" min";
+                      return (
+                        <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 120px 80px",gap:12,padding:"12px 0",borderBottom:i<4?`1px solid ${AD.border}`:"none",alignItems:"center"}}>
+                          <div>
+                            <div style={{fontSize:13,fontWeight:600,color:AD.text,letterSpacing:"-0.01em",marginBottom:2}}>{g.name}</div>
+                            <div style={{fontSize:11,color:AD.muted,display:"flex",alignItems:"center",gap:6}}>
+                              <Clock size={10} color={AD.muted}/>
+                              {slot.start.slice(0,5)} – {slot.end.slice(0,5)}
+                              {isToday&&<span style={{fontSize:10,fontWeight:700,color:AD.green,background:AD.greenLt,padding:"1px 6px",borderRadius:4}}>Today</span>}
+                            </div>
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:7}}>
+                            <div style={{width:24,height:24,borderRadius:"50%",background:AD.blue,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:"#fff",flexShrink:0}}>
+                              {(g.teacher_username||"T").slice(0,2).toUpperCase()}
+                            </div>
+                            <span style={{fontSize:12,color:AD.sub,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.teacher_username||"—"}</span>
+                          </div>
+                          <span style={{fontSize:12,color:AD.sub}}>{dur}</span>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+
+                {/* Right: Payment summary + top debtors */}
+                <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                  {/* Performance tiles */}
+                  {(()=>{
+                    const ov=lmsPayments.filter(p=>p.status==="overdue");
+                    const pend=lmsPayments.filter(p=>p.status==="pending");
+                    const ovTotal=ov.reduce((s,p)=>s+(+p.amount||0),0);
+                    const pendTotal=pend.reduce((s,p)=>s+(+p.amount||0),0);
+                    return (
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                        {[
+                          {lbl:"Overdue",val:ov.length,amt:ovTotal,col:AD.red,bg:"#FEF2F2"},
+                          {lbl:"Pending",val:pend.length,amt:pendTotal,col:AD.amber,bg:"#FFFBEB"},
+                        ].map(({lbl,val,amt,col,bg})=>(
+                          <div key={lbl} onClick={()=>navTo("payments")} style={{background:bg,borderRadius:14,border:`1px solid ${col}22`,padding:"16px 16px",cursor:"pointer"}}>
+                            <div style={{fontSize:10,fontWeight:800,color:col,textTransform:"uppercase",letterSpacing:".06em",marginBottom:8}}>{lbl}</div>
+                            <div style={{fontSize:28,fontWeight:800,color:col,letterSpacing:"-0.04em",lineHeight:1}}>{val}</div>
+                            <div style={{fontSize:11,color:`${col}99`,marginTop:4}}>{amt.toLocaleString()} AMD total</div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Top debtors (BrightPath "Friends Leaderboard") */}
+                  <div style={{background:"#FCFCFC",borderRadius:16,border:`1px solid ${AD.border}`,padding:"18px 20px",flex:1}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+                      <span style={{fontSize:14,fontWeight:700,color:AD.text,letterSpacing:"-0.02em"}}>Payment Alerts</span>
+                      <button onClick={()=>navTo("payments")} style={{fontSize:11,fontWeight:600,color:AD.blue,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>View all →</button>
+                    </div>
+                    {lmsPayments.filter(p=>p.status==="overdue"||p.status==="pending").slice(0,5).map((p,i,arr)=>{
+                      const cfg=p.status==="overdue"?{col:AD.red,lbl:"Overdue"}:{col:AD.amber,lbl:"Pending"};
+                      const initials=(p.student_name||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+                      return (
+                        <div key={p.id||i} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:i<arr.length-1?`1px solid ${AD.border}`:"none"}}>
+                          <div style={{width:32,height:32,borderRadius:"50%",background:AD.blueLt,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:AD.blue,flexShrink:0}}>{initials}</div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:12,fontWeight:600,color:AD.text,letterSpacing:"-0.01em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.student_name||p.student_id}</div>
+                            <div style={{fontSize:10,color:AD.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.group_name||p.type}</div>
+                          </div>
+                          <div style={{textAlign:"right",flexShrink:0}}>
+                            <div style={{fontSize:13,fontWeight:800,color:cfg.col}}>{(+p.amount).toLocaleString()}</div>
+                            <div style={{fontSize:9,fontWeight:700,color:cfg.col,background:`${cfg.col}15`,padding:"1px 6px",borderRadius:4,letterSpacing:".03em"}}>{cfg.lbl}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -5133,12 +6048,17 @@ function AdminDashboard({ onExit }) {
             <div>
               {(() => {
                 // Group all attempts by email → one profile per candidate
+                // Deduplicate by session ID (p.id) — keep only the newest row per session
                 const byEmail = {};
                 pts.forEach(p => {
                   const cand = p.candidate || p;
                   const key = (cand?.email || p.email || p.id || "").toLowerCase();
-                  if(!byEmail[key]) byEmail[key] = {email:key, candidate:cand, attempts:[]};
-                  else byEmail[key].candidate = cand; // update to latest candidate info
+                  if(!byEmail[key]) byEmail[key] = {email:key, candidate:cand, attempts:[], _seen:{}};
+                  else byEmail[key].candidate = cand;
+                  // Only keep the first (newest) row per session ID
+                  const sessionKey = p.id || p.timestamp;
+                  if(sessionKey && byEmail[key]._seen[sessionKey]) return;
+                  if(sessionKey) byEmail[key]._seen[sessionKey] = true;
                   byEmail[key].attempts.push(p);
                 });
                 const profiles = Object.values(byEmail)
@@ -5153,7 +6073,7 @@ function AdminDashboard({ onExit }) {
                       </h2>
                       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                         <input
-                          placeholder="🔍  Search by name or email…"
+                          placeholder="Search by name or email…"
                           value={candidateSearch}
                           onChange={e=>setCandidateSearch(e.target.value)}
                           style={{...inputStyle,width:240,fontSize:13}}
@@ -5161,7 +6081,7 @@ function AdminDashboard({ onExit }) {
                         <button onClick={exportCSV} style={{...btnStyle("secondary"),padding:"9px 16px",fontSize:12,whiteSpace:"nowrap"}}>⬇ Export CSV</button>
                       </div>
                     </div>
-                    {profiles.length===0?<EmptyState icon="👥" text="No candidates yet."/>:
+                    {profiles.length===0?<EmptyState icon={Users} text="No candidates yet."/>:
                       <ParticipantTable profiles={profiles.filter(p=>{
                         const q=candidateSearch.trim().toLowerCase();
                         if(!q) return true;
@@ -5177,7 +6097,7 @@ function AdminDashboard({ onExit }) {
           {tab==="bookings"&&(
             <div>
               <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:20}}>Speaking Bookings ({bks.length})</h2>
-              {bks.length===0?<EmptyState icon="🗓️" text="No bookings yet."/>:(
+              {bks.length===0?<EmptyState icon={CalendarDays} text="No bookings yet."/>:(
                 <div style={{...cardStyle({overflow:"hidden"})}}>
                   <table style={{width:"100%",borderCollapse:"collapse"}}>
                     <thead>
@@ -5196,9 +6116,9 @@ function AdminDashboard({ onExit }) {
                             <div style={{fontSize:12,color:C.s400}}>{b.candidate?.email}</div>
                           </td>
                           <td style={{padding:"11px 16px",fontSize:13}}>{b.dateFormatted||b.date}</td>
-                          <td style={{padding:"11px 16px",fontWeight:700,color:C.brand,fontSize:14}}>{b.slot}</td>
+                          <td style={{padding:"11px 16px",fontWeight:700,color:"#2D5DDC",fontSize:14}}>{b.slot}</td>
                           <td style={{padding:"11px 16px"}}>
-                            <span style={{...tagStyle(b.mode==="online"?C.brand:C.amber)}}>{b.mode==="online"?"🎥 Online":"🏛️ In-Person"}</span>
+                            <span style={{...tagStyle(b.mode==="online"?"#2D5DDC":C.amber)}}>{b.mode==="online"?"🎥 Online":"🏛️ In-Person"}</span>
                           </td>
                         </tr>
                       ))}
@@ -5214,7 +6134,7 @@ function AdminDashboard({ onExit }) {
           {tab==="analytics"&&(
             <div>
               <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:20}}>Analytics</h2>
-              {pts.length===0?<EmptyState icon="📈" text="No data yet."/>:(
+              {pts.length===0?<EmptyState icon={TrendingUp} text="No data yet."/>:(
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
                   <div style={{...cardStyle({padding:24})}}>
                     <div style={{fontWeight:700,color:C.s900,marginBottom:16}}>Overall Band Distribution</div>
@@ -5248,7 +6168,7 @@ function AdminDashboard({ onExit }) {
                     {Object.entries(pts.reduce((acc,p)=>{const n=p.candidate?.nationality||"Unknown";acc[n]=(acc[n]||0)+1;return acc;},{})).map(([nat,cnt])=>(
                       <div key={nat} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.s200}`}}>
                         <span style={{fontSize:14}}>{nat}</span>
-                        <span style={{fontWeight:700,color:C.brand}}>{cnt}</span>
+                        <span style={{fontWeight:700,color:"#2D5DDC"}}>{cnt}</span>
                       </div>
                     ))}
                   </div>
@@ -5257,7 +6177,7 @@ function AdminDashboard({ onExit }) {
                     {Object.entries(pts.reduce((acc,p)=>{const t=p.candidate?.testType||"Academic";acc[t]=(acc[t]||0)+1;return acc;},{})).map(([t,cnt])=>(
                       <div key={t} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.s200}`}}>
                         <span style={{fontSize:14}}>{t}</span>
-                        <span style={{fontWeight:700,color:C.brand}}>{cnt}</span>
+                        <span style={{fontWeight:700,color:"#2D5DDC"}}>{cnt}</span>
                       </div>
                     ))}
                   </div>
@@ -5266,21 +6186,148 @@ function AdminDashboard({ onExit }) {
             </div>
           )}
 
-          {tab==="suites"&&<TestSuiteManager/>}
+          {tab==="suites"&&<TestsTab onCreateTest={()=>navTo("addtest")}/>}
+          {tab==="addtest"&&<AddTestManager mode="create"/>}
           {tab==="assign"&&<AssignManager/>}
-          {tab==="speaking"&&<AISpeakingManager onRefresh={refresh}/>}
-          {tab==="addtest"&&<AddTestManager/>}
+          {tab==="export"&&<ExportTab/>}
           {tab==="settings"&&<AdminSettings/>}
           {tab==="users"&&isSuperAdmin&&<SuperAdminPanel currentUser={session}/>}
+          {tab==="students"&&<StudentsManager testSuites={db.testSuites||[]} adminName={session?.username||"admin"} isTeacher={isTeacher}/>}
+          {tab==="pending"&&<PendingStudentsManager adminName={session?.username||"admin"}/>}
+          {tab==="staff"&&<StaffManager db={db} onSave={async patch=>{const nd={...db,...patch};setInternalDb(nd);try{localStorage.setItem(DB_KEY,JSON.stringify(nd));}catch{}await _flushConfig(nd);notifyDbChange();refresh();}}/>}
+          {tab==="lms"&&<GroupManager db={db}/>}
+          {tab==="materials"&&<MaterialsTasksManager/>}
+          {tab==="payments"&&<PaymentsManager/>}
         </main>
+      </div>
+
+      {/* ── Admin Profile Modal ─────────────────────────────────────────── */}
+      {showProfileModal&&session&&<AdminProfileModal session={session} onClose={()=>setShowProfileModal(false)} AD={AD} db={db} onSave={async patch=>{const nd={...db,...patch};setInternalDb(nd);try{localStorage.setItem(DB_KEY,JSON.stringify(nd));}catch{}await _flushConfig(nd);notifyDbChange();refresh();}}/>}
+    </div>
+  );
+}
+
+function AdminProfileModal({ session, onClose, AD, db, onSave }) {
+  const [newPw, setNewPw]   = useState("");
+  const [confPw, setConfPw] = useState("");
+  const [curPw, setCurPw]   = useState("");
+  const [pwMsg, setPwMsg]   = useState("");
+  const [pwSaving, setPwSaving] = useState(false);
+  const [showPw, setShowPw] = useState(false);
+
+  const hashPw = async pw => {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pw + "lv_admin_2024"));
+    return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+  };
+
+  const verifyPw = async (username, pw) => {
+    const adminUsers = db?.adminUsers || [];
+    const user = adminUsers.find(u => u.username === username);
+    if (!user) return false;
+    const h = await hashPw(pw);
+    return user.passwordHash === h;
+  };
+
+  const savePw = async () => {
+    if (!curPw || !newPw || !confPw) { setPwMsg("⚠ Fill in all fields."); return; }
+    if (newPw.length < 6) { setPwMsg("⚠ New password must be at least 6 characters."); return; }
+    if (newPw !== confPw) { setPwMsg("⚠ Passwords don't match."); return; }
+    setPwSaving(true); setPwMsg("");
+    if (!session.legacy) {
+      const valid = await verifyPw(session.username, curPw);
+      if (!valid) { setPwMsg("⚠ Current password is incorrect."); setPwSaving(false); return; }
+    }
+    const hash = await hashPw(newPw);
+    const adminUsers = (db?.adminUsers || []).map(u => u.username === session.username ? {...u, passwordHash: hash} : u);
+    await onSave({ adminUsers });
+    setPwMsg("✓ Password changed successfully.");
+    setCurPw(""); setNewPw(""); setConfPw("");
+    setPwSaving(false);
+  };
+
+  const initials = (session.username||"A").slice(0,2).toUpperCase();
+  const role = session.role || "admin";
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.45)"}}>
+      <div style={{background:"#fff",borderRadius:20,width:"100%",maxWidth:460,maxHeight:"90vh",overflowY:"auto",padding:32,boxShadow:"0 24px 80px rgba(0,0,0,.18)",position:"relative"}}>
+        <button onClick={onClose} style={{position:"absolute",top:16,right:16,background:"none",border:"none",cursor:"pointer",fontSize:20,color:AD.muted,padding:4}}>✕</button>
+
+        {/* Header */}
+        <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:28}}>
+          <div style={{width:56,height:56,borderRadius:"50%",background:AD.blue,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:800,color:"#fff",flexShrink:0}}>
+            {initials}
+          </div>
+          <div>
+            <div style={{fontSize:20,fontWeight:800,color:AD.text,letterSpacing:"-0.03em"}}>{session.displayName||session.username}</div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3}}>
+              <span style={{fontSize:11,fontWeight:700,padding:"2px 10px",borderRadius:20,
+                background:role==="superadmin"?"#EEF2FF":role==="admin"?"#DBEAFE":role==="teacher"?"#EDE9FE":"#F0FDF4",
+                color:role==="superadmin"?"#4338CA":role==="admin"?"#1D4ED8":role==="teacher"?"#6D28D9":"#059669"}}>
+                {role}
+              </span>
+              <span style={{fontSize:12,color:AD.muted}}>@{session.username}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Change Password */}
+        <div style={{background:AD.bg,borderRadius:14,padding:20,marginBottom:16}}>
+          <div style={{fontSize:14,fontWeight:700,color:AD.text,marginBottom:4,letterSpacing:"-0.02em"}}>Change Password</div>
+          <div style={{fontSize:12,color:AD.muted,marginBottom:16,lineHeight:1.6}}>Choose a strong password of at least 6 characters.</div>
+          <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
+            {!session.legacy&&(
+              <div>
+                <label style={{fontSize:11,fontWeight:700,color:AD.sub,textTransform:"uppercase",letterSpacing:"0.06em",display:"block",marginBottom:4}}>Current password</label>
+                <div style={{position:"relative"}}>
+                  <input type={showPw?"text":"password"} value={curPw} onChange={e=>setCurPw(e.target.value)}
+                    placeholder="••••••••"
+                    style={{width:"100%",padding:"9px 38px 9px 12px",borderRadius:8,border:`1.5px solid ${AD.border}`,fontSize:13,boxSizing:"border-box",fontFamily:"inherit",outline:"none"}}/>
+                </div>
+              </div>
+            )}
+            {[["New password",newPw,setNewPw],["Confirm new password",confPw,setConfPw]].map(([lbl,val,setter])=>(
+              <div key={lbl}>
+                <label style={{fontSize:11,fontWeight:700,color:AD.sub,textTransform:"uppercase",letterSpacing:"0.06em",display:"block",marginBottom:4}}>{lbl}</label>
+                <div style={{position:"relative"}}>
+                  <input type={showPw?"text":"password"} value={val} onChange={e=>setter(e.target.value)}
+                    placeholder="••••••••"
+                    style={{width:"100%",padding:"9px 38px 9px 12px",borderRadius:8,border:`1.5px solid ${AD.border}`,fontSize:13,boxSizing:"border-box",fontFamily:"inherit",outline:"none"}}/>
+                  <button type="button" onClick={()=>setShowPw(p=>!p)}
+                    style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:AD.muted,padding:2,fontSize:13}}>
+                    {showPw?"🙈":"👁"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {pwMsg&&<div style={{fontSize:13,color:pwMsg.startsWith("✓")?"#059669":"#DC2626",marginBottom:10,fontWeight:600}}>{pwMsg}</div>}
+          <button onClick={savePw} disabled={pwSaving}
+            style={{background:pwSaving?"#CBD5E1":AD.blue,color:"#fff",border:"none",borderRadius:10,padding:"9px 20px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",opacity:pwSaving?.7:1}}>
+            {pwSaving?"Saving…":"Change Password"}
+          </button>
+        </div>
+
+        {/* Account info */}
+        <div style={{background:AD.bg,borderRadius:14,padding:"14px 20px"}}>
+          <div style={{fontSize:12,fontWeight:700,color:AD.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Account Details</div>
+          {[["Username",session.username],["Role",role],["Access",session.access?session.access.join(", "):"All sections"]].map(([l,v])=>(
+            <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${AD.border}`,fontSize:13}}>
+              <span style={{color:AD.muted,fontWeight:500}}>{l}</span>
+              <span style={{color:AD.text,fontWeight:600}}>{v}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-function EmptyState({icon,text}){
+function EmptyState({icon:Icon,text}){
   return <div style={{...cardStyle({padding:60,textAlign:"center"})}}>
-    <div style={{fontSize:40,marginBottom:12}}>{icon}</div>
+    <div style={{width:56,height:56,borderRadius:16,background:C.s100,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px"}}>
+      {Icon&&<Icon size={28} color={C.s400} strokeWidth={1.5}/>}
+    </div>
     <div style={{color:C.s400,fontSize:14}}>{text}</div>
   </div>;
 }
@@ -5307,14 +6354,14 @@ function ParticipantTable({ profiles, onSelect }) {
             const latest = profile.attempts[0]||{};
             return (
               <tr key={i} onClick={()=>onSelect(profile)} style={{borderTop:`1px solid ${C.s200}`,transition:"background .1s",cursor:"pointer"}}
-                onMouseEnter={e=>e.currentTarget.style.background=C.brandL}
+                onMouseEnter={e=>e.currentTarget.style.background="#EBF0FF"}
                 onMouseLeave={e=>e.currentTarget.style.background=""}>
                 <td style={{padding:"11px 14px"}}>
                   <div style={{fontWeight:700,fontSize:14}}>{profile.candidate?.name||"—"}</div>
                   <div style={{fontSize:11,color:C.s400}}>{profile.email}</div>
                 </td>
                 <td style={{padding:"11px 14px"}}>
-                  <span style={{...tagStyle(C.brand),fontSize:12}}>{profile.attempts.length}</span>
+                  <span style={{...tagStyle("#2D5DDC"),fontSize:12}}>{profile.attempts.length}</span>
                 </td>
                 <td style={{padding:"11px 14px",fontSize:12,color:C.s400}}>{latest.date||"—"}</td>
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.listeningBand}/></td>
@@ -5323,7 +6370,7 @@ function ParticipantTable({ profiles, onSelect }) {
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.speakingBand}/></td>
                 <td style={{padding:"11px 14px"}}><BandBadge val={latest.overall} large/></td>
                 <td style={{padding:"11px 14px"}}>
-                  <button type="button" onClick={e=>{e.stopPropagation();onSelect(profile);}} aria-label={`View ${profile.candidate?.name||profile.email}`} style={{background:"none",border:"none",color:C.brand,fontWeight:700,fontSize:13,cursor:"pointer",padding:"4px 8px",minHeight:44,minWidth:44}}>→</button>
+                  <button type="button" onClick={e=>{e.stopPropagation();onSelect(profile);}} aria-label={`View ${profile.candidate?.name||profile.email}`} style={{background:"none",border:"none",color:"#2D5DDC",fontWeight:700,fontSize:13,cursor:"pointer",padding:"4px 8px",minHeight:44,minWidth:44}}>→</button>
                 </td>
               </tr>
             );
@@ -5335,9 +6382,9 @@ function ParticipantTable({ profiles, onSelect }) {
 }
 
 // ── SEND RESULTS EMAIL MODAL ──────────────────────────────────────────────────
-const EMAILJS_SERVICE  = import.meta.env.VITE_EMAILJS_SERVICE  || "service_pkjnqeg";
-const EMAILJS_TEMPLATE = import.meta.env.VITE_EMAILJS_TEMPLATE || "template_s4l22xj";
-const EMAILJS_KEY      = import.meta.env.VITE_EMAILJS_KEY      || "w3EVomJS4Qe3Chfan";
+const EMAILJS_SERVICE  = import.meta.env.VITE_EMAILJS_SERVICE  || "";
+const EMAILJS_TEMPLATE = import.meta.env.VITE_EMAILJS_TEMPLATE || "";
+const EMAILJS_KEY      = import.meta.env.VITE_EMAILJS_KEY      || "";
 
 function SendResultsModal({ profile, attempt, onClose }) {
   const [feedback, setFeedback] = useState("");
@@ -5409,12 +6456,12 @@ function SendResultsModal({ profile, attempt, onClose }) {
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.75)",zIndex:9999,
       display:"flex",alignItems:"center",justifyContent:"center",padding:24,backdropFilter:"blur(4px)"}}>
-      <div style={{background:"#fff",borderRadius:20,padding:36,maxWidth:520,width:"100%",
+      <div style={{background:C.surface,borderRadius:20,padding:36,maxWidth:520,width:"100%",
         boxShadow:"0 24px 80px rgba(0,0,0,.4)",animation:"fadeUp .2s ease both"}}>
 
         {sent ? (
           <div style={{textAlign:"center",padding:"20px 0"}}>
-            <div style={{fontSize:52,marginBottom:16}}>✅</div>
+            <div style={{width:64,height:64,borderRadius:20,background:"#D1FAE5",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}><CheckCircle size={32} color="#10B981" strokeWidth={2}/></div>
             <h2 style={{fontSize:20,fontWeight:800,color:C.s900,marginBottom:8}}>Email Sent!</h2>
             <p style={{color:C.s600,fontSize:14,marginBottom:24}}>
               Results + PDF sent to <strong>{info.email||profile.email}</strong>
@@ -5425,7 +6472,7 @@ function SendResultsModal({ profile, attempt, onClose }) {
           <>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
               <div>
-                <h2 style={{fontSize:18,fontWeight:800,color:C.s900,marginBottom:4}}>📧 Send Results</h2>
+                <h2 style={{fontSize:18,fontWeight:800,color:C.s900,marginBottom:4,display:"flex",alignItems:"center",gap:8}}><MessageSquare size={16}/>Send Results</h2>
                 <p style={{fontSize:13,color:C.s400}}>to <strong>{info.email||profile.email}</strong></p>
               </div>
               <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",fontSize:20,color:C.s400,padding:4}}>✕</button>
@@ -5433,7 +6480,7 @@ function SendResultsModal({ profile, attempt, onClose }) {
 
             {/* Score summary */}
             <div style={{background:C.s100,borderRadius:12,padding:"14px 16px",marginBottom:18,fontSize:13}}>
-              <div style={{fontWeight:700,color:C.s900,marginBottom:8}}>📊 Results to be sent:</div>
+              <div style={{fontWeight:700,color:C.s900,marginBottom:8,display:"flex",alignItems:"center",gap:6}}><BarChart2 size={14}/>Results to be sent:</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 16px",color:C.s600}}>
                 {[["Overall",a.overall],["Listening",a.listeningBand],["Reading",a.readingBand],["Writing",a.writingBand],["Speaking",a.speakingBand]].map(([lbl,val])=>(
                   <div key={lbl}><span style={{fontWeight:600,color:C.s800}}>{lbl}:</span> {val!=null?`Band ${Number(val).toFixed(1)}`:"—"}</div>
@@ -5458,7 +6505,7 @@ function SendResultsModal({ profile, attempt, onClose }) {
             <div style={{display:"flex",gap:12}}>
               <button onClick={onClose} style={{...btnStyle("ghost"),flex:1,padding:"11px",borderRadius:10,border:`1.5px solid ${C.s200}`}}>Cancel</button>
               <button onClick={handleSend} disabled={sending} style={{...btnStyle("primary",sending),flex:2,padding:"11px",borderRadius:10,
-                background:sending?"#ccc":`linear-gradient(135deg,${C.lc},${C.brand})`,fontSize:14,fontWeight:800}}>
+                background:sending?"#ccc":"linear-gradient(135deg,#2255CC,#2D5DDC)",fontSize:14,fontWeight:800}}>
                 {sending ? "Sending…" : "📨 Send Results Email"}
               </button>
             </div>
@@ -5621,11 +6668,11 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
         <SendResultsModal profile={profile} attempt={latest} onClose={()=>setShowSendModal(false)}/>
       )}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,gap:12,flexWrap:"wrap"}}>
-        <button onClick={onBack} style={{display:"flex",alignItems:"center",gap:8,background:C.brandL,color:C.brand,border:`1.5px solid ${C.brand}30`,borderRadius:9,padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:700}}>← Back to All Candidates</button>
+        <button onClick={onBack} style={{display:"flex",alignItems:"center",gap:8,background:"#EBF0FF",color:"#2D5DDC",border:"1.5px solid #2D5DDC30",borderRadius:9,padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:700}}>← Back to All Candidates</button>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           {/* Send Results Email */}
           {allAttempts.length>0&&(
-            <button onClick={()=>setShowSendModal(true)} style={{display:"flex",alignItems:"center",gap:7,background:`linear-gradient(135deg,${C.lc},${C.brand})`,color:"#fff",border:"none",borderRadius:9,padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:700,boxShadow:`0 2px 10px rgba(0,191,178,.3)`}}>
+            <button onClick={()=>setShowSendModal(true)} style={{display:"flex",alignItems:"center",gap:7,background:"linear-gradient(135deg,#2255CC,#2D5DDC)",color:"#fff",border:"none",borderRadius:9,padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:700,boxShadow:"0 2px 10px rgba(45,93,220,.3)"}}>
               📧 Send Results
             </button>
           )}
@@ -5649,12 +6696,13 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
               📄 Export PDF
             </button>
           )}
-          <div style={{display:"flex",gap:0,borderBottom:`2px solid ${C.s200}`}}>
-            {[["overview","📊 Overview"],["history","🕑 History"],["assign","📋 Assign Test"]].map(([t,lbl])=>(
+          <div style={{display:"flex",gap:4,background:C.s100,borderRadius:12,padding:4}}>
+            {[["overview","Overview"],["history","History"],["assign","Assign Test"]].map(([t,lbl])=>(
               <button key={t} onClick={()=>setMainTab(t)} style={{
-                padding:"8px 18px",border:"none",cursor:"pointer",fontSize:12,fontWeight:mainTab===t?700:500,
-                color:mainTab===t?C.brand:C.s400,borderBottom:`2px solid ${mainTab===t?C.brand:"transparent"}`,
-                background:"transparent",marginBottom:-2,
+                padding:"7px 16px",border:"none",cursor:"pointer",fontSize:12,fontWeight:mainTab===t?700:500,
+                color:mainTab===t?"#2D5DDC":C.s400,borderRadius:9,
+                background:mainTab===t?C.surface:"transparent",
+                boxShadow:mainTab===t?"0 1px 4px rgba(0,0,0,.08)":"none",transition:"all .15s",
               }}>{lbl}</button>
             ))}
           </div>
@@ -5666,14 +6714,14 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:24,alignItems:"start"}}>
           {/* Left: assign new */}
           <div style={{...cardStyle({padding:24})}}>
-            <div style={{fontWeight:800,fontSize:15,color:C.s900,marginBottom:12}}>Assign to <span style={{color:C.brand}}>{candidateEmail}</span></div>
+            <div style={{fontWeight:800,fontSize:15,color:C.s900,marginBottom:12}}>Assign to <span style={{color:"#2D5DDC"}}>{candidateEmail}</span></div>
 
             {/* Mode toggle */}
             <div style={{display:"flex",gap:0,background:C.s100,borderRadius:9,padding:3,marginBottom:18}}>
-              {[["suite","📋 Full Test Suite"],["module","🔖 Single Module"]].map(([m,lbl])=>(
+              {[["suite","Full Test Suite"],["module","Single Module"]].map(([m,lbl])=>(
                 <button key={m} onClick={()=>setAssignMode(m)} style={{
                   flex:1,padding:"7px 0",border:"none",borderRadius:7,cursor:"pointer",fontSize:12,fontWeight:assignMode===m?700:500,
-                  background:assignMode===m?"#fff":C.s100,color:assignMode===m?C.brand:C.s400,
+                  background:assignMode===m?"#fff":C.s100,color:assignMode===m?"#2D5DDC":C.s400,
                   boxShadow:assignMode===m?"0 1px 4px rgba(0,0,0,.08)":"none",transition:"all .15s",
                 }}>{lbl}</button>
               ))}
@@ -5731,7 +6779,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
             </div>
             {allMyAssignments.length===0?(
               <div style={{...cardStyle({padding:20,textAlign:"center"})}}>
-                <div style={{fontSize:24,marginBottom:8}}>📋</div>
+                <div style={{width:40,height:40,borderRadius:12,background:C.s100,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 8px"}}><ClipboardList size={20} color={C.s400}/></div>
                 <div style={{color:C.s400,fontSize:13}}>No assignments yet for this candidate.</div>
               </div>
             ):(
@@ -5792,11 +6840,11 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
               return diff>0?"↑":diff<0?"↓":"→";
             };
             const skills=[
-              {lbl:"Listening",key:"listeningBand",icon:"🎧"},
-              {lbl:"Reading",  key:"readingBand",  icon:"📖"},
-              {lbl:"Writing",  key:"writingBand",  icon:"✍️"},
-              {lbl:"Speaking", key:"speakingBand", icon:"🗣️"},
-              {lbl:"Overall",  key:"overall",      icon:"⭐"},
+              {lbl:"Listening",key:"listeningBand",Icon:Headphones},
+              {lbl:"Reading",  key:"readingBand",  Icon:BookOpen},
+              {lbl:"Writing",  key:"writingBand",  Icon:Pencil},
+              {lbl:"Speaking", key:"speakingBand", Icon:Mic},
+              {lbl:"Overall",  key:"overall",      Icon:Award},
             ];
             return (
               <div style={{...cardStyle({padding:16,marginBottom:16}),background:"linear-gradient(135deg,#F0FDF4,#fff)",border:`1.5px solid ${C.teal}30`}}>
@@ -5804,11 +6852,11 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                   Performance Summary · {completed.length}/{allAttempts.length} complete
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
-                  {skills.map(({lbl,key,icon})=>{
+                  {skills.map(({lbl,key,Icon})=>{
                     const b=best(key), a2=avg(key), t=trend(key);
                     return (
-                      <div key={key} style={{textAlign:"center",padding:"10px 6px",background:"#fff",borderRadius:10,border:`1px solid ${C.s200}`}}>
-                        <div style={{fontSize:14,marginBottom:4}}>{icon}</div>
+                      <div key={key} style={{textAlign:"center",padding:"10px 6px",background:C.surface,borderRadius:10,border:`1px solid ${C.s200}`}}>
+                        <div style={{marginBottom:4,display:"flex",justifyContent:"center",color:C.s400}}><Icon size={14}/></div>
                         <div style={{fontSize:9,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>{lbl}</div>
                         <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:20,fontWeight:900,color:b!=null?bandColor(b):C.s300,lineHeight:1}}>
                           {b!=null?b:"—"}
@@ -5839,7 +6887,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
             );
           })()}
 
-          {allAttempts.length===0?<EmptyState icon="📄" text="No attempts yet."/>:(
+          {allAttempts.length===0?<EmptyState icon={FileText} text="No attempts yet."/>:(
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
               {allAttempts.map((a,i)=>{
                 const isOpen   = expandedAttempt===i;
@@ -5853,7 +6901,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                 const suiteLabel = a.suiteId ? ((loadDB().testSuites||[]).find(s=>s.id===a.suiteId)?.name||null) : null;
                 const isDeleteConfirm = deleteConfirm===i;
                 return (
-                  <div key={a.id||i} style={{...cardStyle({overflow:"hidden",border:`1px solid ${isOpen?C.brand:C.s200}`})}}>
+                  <div key={a.id||i} style={{...cardStyle({overflow:"hidden",border:`1px solid ${isOpen?"#2D5DDC":C.s200}`})}}>
                     {/* Row header — always visible */}
                     {(()=>{
                       const det = a.writingAiDetection;
@@ -5862,7 +6910,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                       const riskBg    = maxRisk===null?null:maxRisk<=25?"#F0FDF4":maxRisk<=55?"#FFFBEB":maxRisk<=80?"#FFF7ED":"#FEF2F2";
                       return (
                         <div onClick={()=>{ if(isDeleteConfirm) return; setExpandedAttempt(isOpen?null:i); }}
-                          style={{display:"grid",gridTemplateColumns:"170px 1fr 1fr 1fr 1fr auto",gap:12,padding:"13px 16px",alignItems:"center",cursor:"pointer",background:isOpen?C.brandL:"",transition:"background .15s"}}>
+                          style={{display:"grid",gridTemplateColumns:"170px 1fr 1fr 1fr 1fr auto",gap:12,padding:"13px 16px",alignItems:"center",cursor:"pointer",background:isOpen?"#EBF0FF":"",transition:"background .15s"}}>
                           <div>
                             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
                               <span style={{fontSize:13,fontWeight:700,color:C.s900}}>{a.date||"—"}</span>
@@ -5872,7 +6920,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                             <div style={{fontSize:10,color:C.s400}}>
                               {a.listeningScore&&`L:${a.listeningScore} `}{a.readingScore&&`R:${a.readingScore}`}
                             </div>
-                            {suiteLabel&&<div style={{fontSize:9,color:C.brand,fontWeight:600,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160}}>📋 {suiteLabel}</div>}
+                            {suiteLabel&&<div style={{fontSize:9,color:"#2D5DDC",fontWeight:600,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160,display:"flex",alignItems:"center",gap:3}}><BookOpen size={9}/>{suiteLabel}</div>}
                             {maxRisk!==null&&(
                               <div style={{marginTop:3,display:"inline-flex",alignItems:"center",gap:4,background:riskBg,border:`1px solid ${riskColor}`,borderRadius:5,padding:"2px 6px"}}>
                                 <span style={{fontSize:9,fontWeight:800,color:riskColor}}>🤖 AI Risk: {maxRisk}%</span>
@@ -5891,9 +6939,9 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                 <button onClick={()=>setDeleteConfirm(null)} style={{background:C.s200,color:C.s700,border:"none",borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>Cancel</button>
                               </div>
                             ):(
-                              <button onClick={()=>setDeleteConfirm(i)} style={{background:"none",border:`1px solid ${C.s200}`,borderRadius:6,padding:"3px 8px",fontSize:10,color:C.s400,cursor:"pointer",whiteSpace:"nowrap"}}>🗑 Delete</button>
+                              <button onClick={()=>setDeleteConfirm(i)} style={{display:"flex",alignItems:"center",gap:4,background:"none",border:`1px solid ${C.s200}`,borderRadius:6,padding:"3px 8px",fontSize:10,color:C.s400,cursor:"pointer",whiteSpace:"nowrap"}}><Trash2 size={10}/>Delete</button>
                             )}
-                            <div style={{fontSize:18,color:C.brand,transition:"transform .2s",transform:isOpen?"rotate(90deg)":"",cursor:"pointer"}} onClick={()=>setExpandedAttempt(isOpen?null:i)}>›</div>
+                            <div style={{fontSize:18,color:"#2D5DDC",transition:"transform .2s",transform:isOpen?"rotate(90deg)":"",cursor:"pointer"}} onClick={()=>setExpandedAttempt(isOpen?null:i)}>›</div>
                           </div>
                         </div>
                       );
@@ -5946,21 +6994,24 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                       const lQs = (a.allListeningQuestions||[]).map(q=>({...q,correct:liveKeyL(q)}));
                       const rQs = (a.allReadingQuestions||[]).map(q=>({...q,correct:liveKeyR(q)}));
                       const aKey = a.id||a.timestamp||"";
-                      const tabs = [["listening","🎧","Listening"],["reading","📖","Reading"],["writing","✍️","Writing"],["speaking","🗣️","Speaking"]];
+                      const tabs = [["listening",Headphones,"Listening"],["reading",BookOpen,"Reading"],["writing",Pencil,"Writing"],["speaking",Mic,"Speaking"]];
                       return (
                         <div style={{borderTop:`1px solid ${C.s200}`}}>
                           {/* Section tab bar */}
-                          <div style={{display:"flex",gap:2,padding:"12px 16px 0",background:C.s100}}>
-                            {tabs.map(([k,icon,lbl])=>(
+                          <div style={{display:"flex",gap:4,padding:"12px 16px 8px",background:C.s100}}>
+                            <div style={{display:"flex",gap:4,background:C.s200,borderRadius:10,padding:3}}>
+                            {tabs.map(([k,Icon,lbl])=>(
                               <button key={k} onClick={()=>setHistTab(k)} style={{
-                                padding:"7px 16px",borderRadius:"8px 8px 0 0",border:"none",cursor:"pointer",fontSize:12,fontWeight:histTab===k?700:500,
-                                background:histTab===k?"#fff":C.s100,color:histTab===k?C.brand:C.s400,
-                                borderBottom:histTab===k?`2px solid ${C.brand}`:"2px solid transparent",
-                              }}>{icon} {lbl}</button>
+                                padding:"6px 14px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:histTab===k?700:500,
+                                background:histTab===k?C.surface:"transparent",color:histTab===k?"#2D5DDC":C.s400,
+                                boxShadow:histTab===k?"0 1px 4px rgba(0,0,0,.08)":"none",
+                                display:"flex",alignItems:"center",gap:5,transition:"all .15s",
+                              }}><Icon size={12}/> {lbl}</button>
                             ))}
+                            </div>
                           </div>
 
-                          <div style={{padding:20,background:"#fff"}}>
+                          <div style={{padding:20,background:C.surface}}>
 
                             {/* LISTENING */}
                             {histTab==="listening"&&(()=>{
@@ -6003,7 +7054,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                     <div style={{fontWeight:700,fontSize:13,color:C.s900}}>Listening Score</div>
                                     <div style={{fontSize:12,color:C.s400}}>{a.listeningScore||"—"} correct</div>
                                   </div>
-                                  {lQs.length>0&&hasLOvrs&&(
+                                  {lQs.length>0&&(
                                     <button onClick={saveL} disabled={lSaving} style={{...btnStyle("teal",lSaving),padding:"6px 14px",fontSize:11}}>
                                       {lSaving?"Saving…":lSaved?"✓ Saved!":"💾 Save Corrections"}
                                     </button>
@@ -6049,7 +7100,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                       const noKey = !cv&&!isOverridden;
                                       return (
                                         <div key={qi} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"8px 0",borderBottom:`1px solid ${C.s200}`}}>
-                                          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:4,padding:"2px 6px",flexShrink:0,marginTop:2}}>{q.id}</span>
+                                          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:"#2D5DDC",background:"#EBF0FF",borderRadius:4,padding:"2px 6px",flexShrink:0,marginTop:2}}>{q.id}</span>
                                           <div style={{flex:1}}>
                                             <div style={{fontSize:12,color:C.s800,marginBottom:3}}>{q.text}</div>
                                             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
@@ -6068,10 +7119,10 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                               const prevL=prev.listening||{};
                                               return {...s,[`ansOvr_${aKey}`]:{...prev,listening:{...prevL,[q.id]:!correct}}};
                                             });
-                                          }} style={{flexShrink:0,padding:"3px 9px",borderRadius:6,border:"none",cursor:"pointer",
+                                          }} style={{flexShrink:0,padding:"4px 12px",borderRadius:6,border:`2px solid ${correct?"#16a34a":"#dc2626"}`,cursor:"pointer",
                                             fontSize:12,fontWeight:700,marginTop:2,
                                             background:correct?"#dcfce7":"#fee2e2",color:correct?"#16a34a":"#dc2626",
-                                          }}>{correct?"✓":"✗"}</button>
+                                          }}>{correct?"✓ Correct":"✗ Wrong"}</button>
                                         </div>
                                       );
                                     })}
@@ -6122,7 +7173,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                     <div style={{fontWeight:700,fontSize:13,color:C.s900}}>Reading Score</div>
                                     <div style={{fontSize:12,color:C.s400}}>{a.readingScore||"—"} correct</div>
                                   </div>
-                                  {rQs.length>0&&hasROvrs&&(
+                                  {rQs.length>0&&(
                                     <button onClick={saveR} disabled={rSaving} style={{...btnStyle("teal",rSaving),padding:"6px 14px",fontSize:11}}>
                                       {rSaving?"Saving…":rSaved?"✓ Saved!":"💾 Save Corrections"}
                                     </button>
@@ -6168,7 +7219,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                       const noKey = !cv&&!isOverridden;
                                       return (
                                         <div key={qi} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"8px 0",borderBottom:`1px solid ${C.s200}`}}>
-                                          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:4,padding:"2px 6px",flexShrink:0,marginTop:2}}>Q{q.id}</span>
+                                          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:"#2D5DDC",background:"#EBF0FF",borderRadius:4,padding:"2px 6px",flexShrink:0,marginTop:2}}>Q{q.id}</span>
                                           <div style={{flex:1}}>
                                             <div style={{fontSize:12,color:C.s800,marginBottom:3}}>{q.text}</div>
                                             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
@@ -6187,10 +7238,10 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                               const prevR=prev.reading||{};
                                               return {...s,[`ansOvr_${aKey}`]:{...prev,reading:{...prevR,[q.id]:!correct}}};
                                             });
-                                          }} style={{flexShrink:0,padding:"3px 9px",borderRadius:6,border:"none",cursor:"pointer",
+                                          }} style={{flexShrink:0,padding:"4px 12px",borderRadius:6,border:`2px solid ${correct?"#16a34a":"#dc2626"}`,cursor:"pointer",
                                             fontSize:12,fontWeight:700,marginTop:2,
                                             background:correct?"#dcfce7":"#fee2e2",color:correct?"#16a34a":"#dc2626",
-                                          }}>{correct?"✓":"✗"}</button>
+                                          }}>{correct?"✓ Correct":"✗ Wrong"}</button>
                                         </div>
                                       );
                                     })}
@@ -6217,8 +7268,8 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                       onClick={()=>handleRecheckWriting(a)}
                                       disabled={rs.loading}
                                       style={{display:"flex",alignItems:"center",gap:7,padding:"9px 18px",borderRadius:9,border:"none",
-                                        background:rs.loading?"#94A3B8":C.brand,color:"#fff",fontSize:12,fontWeight:700,cursor:rs.loading?"not-allowed":"pointer",
-                                        boxShadow:rs.loading?"none":`0 2px 8px ${C.brand}40`,transition:"all .15s"}}>
+                                        background:rs.loading?"#94A3B8":"#2D5DDC",color:"#fff",fontSize:12,fontWeight:700,cursor:rs.loading?"not-allowed":"pointer",
+                                        boxShadow:rs.loading?"none":"0 2px 8px #2D5DDC40",transition:"all .15s"}}>
                                       {rs.loading?(
                                         <><span style={{width:12,height:12,border:"2px solid rgba(255,255,255,.3)",borderTopColor:"#fff",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/>Evaluating…</>
                                       ):"🔄 Re-check with AI"}
@@ -6290,15 +7341,15 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                   };
 
                                   return (
-                                    <div style={{marginBottom:16,border:`1.5px dashed ${C.brand}60`,borderRadius:12,overflow:"hidden"}}>
+                                    <div style={{marginBottom:16,border:"1.5px dashed #2D5DDC60",borderRadius:12,overflow:"hidden"}}>
                                       <button onClick={()=>setOpen(!open)}
-                                        style={{width:"100%",padding:"12px 16px",background:open?C.brandL:"#F8FAFC",border:"none",cursor:"pointer",
-                                          display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:13,fontWeight:700,color:C.brand}}>
+                                        style={{width:"100%",padding:"12px 16px",background:open?"#EBF0FF":"#F8FAFC",border:"none",cursor:"pointer",
+                                          display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:13,fontWeight:700,color:"#2D5DDC"}}>
                                         <span>📤 Upload / Paste Writing for AI Evaluation</span>
                                         <span style={{fontSize:16,transform:open?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
                                       </button>
                                       {open&&(
-                                        <div style={{padding:16,background:"#fff"}}>
+                                        <div style={{padding:16,background:C.surface}}>
                                           <p style={{fontSize:12,color:C.s500,marginBottom:14}}>
                                             Paste the student's handwritten or typed response below. AI will evaluate and save the score to their profile.
                                           </p>
@@ -6358,23 +7409,35 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                   const taskLoading = rs.taskLoading?.[ti];
                                   return (
                                     <div key={ti} style={{marginBottom:24,position:"relative",borderRadius:10,
-                                      border:`1.5px solid ${taskLoading?C.brand:C.s200}`,padding:14,
-                                      background:taskLoading?"rgba(17,205,135,.03)":"#fff",transition:"all .2s"}}>
+                                      border:`1.5px solid ${taskLoading?"#2D5DDC":C.s200}`,padding:14,
+                                      background:taskLoading?"rgba(45,93,220,.03)":"#fff",transition:"all .2s"}}>
                                       {/* Task loading overlay */}
                                       {taskLoading&&(
                                         <div style={{position:"absolute",inset:0,background:"rgba(255,255,255,.75)",borderRadius:10,
                                           display:"flex",alignItems:"center",justifyContent:"center",gap:10,zIndex:2,backdropFilter:"blur(2px)"}}>
-                                          <span style={{width:18,height:18,border:"3px solid rgba(17,205,135,.2)",borderTopColor:C.brand,borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/>
-                                          <span style={{fontSize:12,fontWeight:700,color:C.brand}}>AI evaluating Task {ti+1}…</span>
+                                          <span style={{width:18,height:18,border:"3px solid rgba(45,93,220,.2)",borderTopColor:"#2D5DDC",borderRadius:"50%",display:"inline-block",animation:"spin .7s linear infinite"}}/>
+                                          <span style={{fontSize:12,fontWeight:700,color:"#2D5DDC"}}>AI evaluating Task {ti+1}…</span>
                                         </div>
                                       )}
-                                      <div style={{display:"flex",alignItems:"center",gap:8,fontWeight:700,fontSize:13,color:C.s900,marginBottom:8}}>
-                                        <span style={{background:C.brand,color:"#fff",borderRadius:6,padding:"2px 9px",fontSize:11,fontWeight:800}}>Task {ti+1}</span>
-                                        {afb[ti]?.band!=null&&<BandBadge val={afb[ti].band}/>}
+                                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,fontWeight:700,fontSize:13,color:C.s900,marginBottom:8}}>
+                                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                                          <span style={{background:"#2D5DDC",color:"#fff",borderRadius:6,padding:"2px 9px",fontSize:11,fontWeight:800}}>Task {ti+1}</span>
+                                          {afb[ti]?.band!=null&&<BandBadge val={afb[ti].band}/>}
+                                        </div>
+                                        {atx[ti]&&(
+                                          <button
+                                            onClick={()=>handleRecheckWriting(a)}
+                                            disabled={rs.loading}
+                                            style={{display:"flex",alignItems:"center",gap:5,padding:"5px 12px",borderRadius:7,border:"none",
+                                              background:rs.loading?"#94A3B8":"#2D5DDC",color:"#fff",fontSize:11,fontWeight:700,
+                                              cursor:rs.loading?"not-allowed":"pointer",flexShrink:0}}>
+                                            {rs.loading?"Evaluating…":"🔄 Recheck Writing"}
+                                          </button>
+                                        )}
                                       </div>
                                       {taskPrompt&&(
                                         <div style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:8,padding:"10px 12px",marginBottom:10}}>
-                                          <div style={{fontSize:9,fontWeight:800,color:"#92400E",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>📋 Task Prompt</div>
+                                          <div style={{display:"flex",alignItems:"center",gap:4,fontSize:9,fontWeight:800,color:"#92400E",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}><ClipboardList size={9}/>Task Prompt</div>
                                           <p style={{fontSize:11,lineHeight:1.7,color:"#78350F",margin:0,whiteSpace:"pre-wrap"}}>{taskPrompt}</p>
                                         </div>
                                       )}
@@ -6400,9 +7463,9 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                           {/* Strengths */}
                                           {fb.strengths?.length>0&&(
                                             <div style={{marginBottom:8}}>
-                                              <div style={{fontSize:10,fontWeight:800,color:"#16A34A",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:5}}>✅ Strengths</div>
+                                              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:10,fontWeight:800,color:"#16A34A",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:5}}><CheckCircle size={10}/>Strengths</div>
                                               <ul style={{margin:0,paddingLeft:16}}>
-                                                {fb.strengths.map((s,si)=><li key={si} style={{fontSize:11,color:C.s800,lineHeight:1.6,marginBottom:2}}>{s}</li>)}
+                                                {fb.strengths.map((s,si)=><li key={si} style={{fontSize:11,color:C.s800,lineHeight:1.6,marginBottom:2}}>{typeof s==="string"?s:s?.text??String(s)}</li>)}
                                               </ul>
                                             </div>
                                           )}
@@ -6411,12 +7474,12 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                             <div style={{marginBottom:8}}>
                                               <div style={{fontSize:10,fontWeight:800,color:"#D97706",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:5}}>⚠ Areas to Improve</div>
                                               <ul style={{margin:0,paddingLeft:16}}>
-                                                {fb.improvements.map((s,si)=><li key={si} style={{fontSize:11,color:C.s800,lineHeight:1.6,marginBottom:2}}>{s}</li>)}
+                                                {fb.improvements.map((s,si)=><li key={si} style={{fontSize:11,color:C.s800,lineHeight:1.6,marginBottom:2}}>{typeof s==="string"?s:s?.text??String(s)}</li>)}
                                               </ul>
                                             </div>
                                           )}
                                           {/* Key tip */}
-                                          {fb.keyTip&&<div style={{background:C.brandL,borderRadius:7,padding:"8px 12px",fontSize:11,color:C.brand,fontWeight:500,marginBottom:6}}>💡 {fb.keyTip}</div>}
+                                          {fb.keyTip&&<div style={{background:"#EBF0FF",borderRadius:7,padding:"8px 12px",fontSize:11,color:"#2D5DDC",fontWeight:500,marginBottom:6}}>💡 {fb.keyTip}</div>}
                                         </div>
                                       );})()}
                                       {/* AI Detection for this task */}
@@ -6424,7 +7487,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                         <div style={{borderRadius:10,border:`2px solid ${riskColor}`,background:riskBg,padding:14}}>
                                           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                                             <div style={{fontSize:11,fontWeight:800,color:riskColor,textTransform:"uppercase",letterSpacing:"0.07em"}}>🤖 AI Content Detection — Task {ti+1}</div>
-                                            <div style={{textAlign:"center",background:"#fff",borderRadius:8,padding:"6px 14px",border:`1.5px solid ${riskColor}`}}>
+                                            <div style={{textAlign:"center",background:C.surface,borderRadius:8,padding:"6px 14px",border:`1.5px solid ${riskColor}`}}>
                                               <div style={{fontSize:20,fontWeight:900,color:riskColor,fontFamily:"'JetBrains Mono',monospace",lineHeight:1}}>{det.risk}%</div>
                                               <div style={{fontSize:9,fontWeight:700,color:riskColor,marginTop:1}}>{det.verdict}</div>
                                             </div>
@@ -6482,7 +7545,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                               return (
                                 <div>
                                   {/* Score entry */}
-                                  <div style={{...cardStyle({padding:20,marginBottom:16,borderLeft:`4px solid ${C.brand}`})}}>
+                                  <div style={{...cardStyle({padding:20,marginBottom:16,borderLeft:"4px solid #2D5DDC"})}}>
                                     <div style={{fontSize:12,fontWeight:700,color:C.s900,marginBottom:12}}>🗣️ Speaking Band Score</div>
                                     <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
                                       <select value={inputVal} onChange={e=>setSpeakingInputs(s=>({...s,[a.id]:e.target.value}))}
@@ -6502,7 +7565,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
                                       )}
                                     </div>
                                     {curBand!=null&&(
-                                      <div style={{marginTop:12,padding:"10px 14px",background:C.brandL,borderRadius:8,fontSize:12,color:C.brand,fontWeight:600}}>
+                                      <div style={{marginTop:12,padding:"10px 14px",background:"#EBF0FF",borderRadius:8,fontSize:12,color:"#2D5DDC",fontWeight:600}}>
                                         New overall with Speaking {curBand}: <strong>{a.overall}</strong>
                                         &nbsp;(L:{a.listeningBand} + R:{a.readingBand}{a.writingBand!=null?` + W:${a.writingBand}`:""} + S:{curBand})
                                       </div>
@@ -6541,7 +7604,7 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
       <div style={{display:"grid",gridTemplateColumns:"280px 1fr",gap:24}}>
         <div>
           <div style={{...cardStyle({padding:24,marginBottom:16})}}>
-            <div style={{width:52,height:52,borderRadius:14,background:C.brandL,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,marginBottom:14}}>👤</div>
+            <div style={{width:52,height:52,borderRadius:14,background:"#EBF0FF",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,marginBottom:14}}>👤</div>
             <h3 style={{fontSize:17,fontWeight:800,color:C.s900,marginBottom:4,letterSpacing:"-0.02em"}}>{profile.candidate?.name||"—"}</h3>
             <div style={{fontSize:11,color:C.s400,marginBottom:14}}>{allAttempts.length} test{allAttempts.length!==1?"s":""} on record</div>
             {[["Email",profile.candidate?.email||candidateEmail],["Phone",profile.candidate?.phone],["Nationality",profile.candidate?.nationality],["Test Type",profile.candidate?.testType],["DOB",profile.candidate?.dob],["Latest Test",latest.date],["ID",profile.candidate?.id]].map(([k,v])=>(
@@ -6578,91 +7641,6 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
             ))}
           </div>
 
-          {/* ── MANUAL SCORE ENTRY ── */}
-          {(()=>{
-            const msKey = p.id||p.timestamp||"";
-            const ms = manualScores[msKey]||{};
-            const setMs = patch => setManualScores(s=>({...s,[msKey]:{...(s[msKey]||{}),...patch}}));
-            const lN = ms.listeningN!==undefined ? ms.listeningN : "";
-            const rN = ms.readingN!==undefined  ? ms.readingN  : "";
-            const wB = ms.writingB!==undefined  ? ms.writingB  : "";
-            const sB = ms.speakingB!==undefined ? ms.speakingB : "";
-            const lBprev = lN!==""&&!isNaN(parseInt(lN)) ? listeningBand(parseInt(lN),40) : null;
-            const rBprev = rN!==""&&!isNaN(parseInt(rN)) ? readingBand(parseInt(rN),40)   : null;
-            const wBprev = wB!==""&&!isNaN(parseFloat(wB)) ? parseFloat(wB) : null;
-            const sBprev = sB!==""&&!isNaN(parseFloat(sB)) ? parseFloat(sB) : null;
-            const validBands=[lBprev,rBprev,wBprev,sBprev].filter(b=>b!=null);
-            const overallPrev=validBands.length ? overallBand(validBands) : null;
-            const bOpts=Array.from({length:17},(_,i)=>((i+2)*0.5).toFixed(1));
-            return (
-              <div style={{...cardStyle({padding:20,marginTop:16})}}>
-                <div style={{fontSize:11,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:14}}>Manual Score Entry</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-                  <div>
-                    <label style={labelStyle}>Listening correct (/ 40)</label>
-                    <input type="number" min={0} max={40} value={lN} placeholder="e.g. 28"
-                      onChange={e=>setMs({listeningN:e.target.value})}
-                      style={{...inputStyle,width:"100%",boxSizing:"border-box"}}/>
-                    {lBprev!=null&&<div style={{fontSize:11,color:C.teal,fontWeight:600,marginTop:4}}>→ Band {lBprev}</div>}
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Reading correct (/ 40)</label>
-                    <input type="number" min={0} max={40} value={rN} placeholder="e.g. 32"
-                      onChange={e=>setMs({readingN:e.target.value})}
-                      style={{...inputStyle,width:"100%",boxSizing:"border-box"}}/>
-                    {rBprev!=null&&<div style={{fontSize:11,color:C.teal,fontWeight:600,marginTop:4}}>→ Band {rBprev}</div>}
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Writing Band</label>
-                    <select value={wB} onChange={e=>setMs({writingB:e.target.value})}
-                      style={{...inputStyle,width:"100%",boxSizing:"border-box"}}>
-                      <option value="">— select —</option>
-                      {bOpts.map(o=><option key={o} value={o}>{o}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Speaking Band</label>
-                    <select value={sB} onChange={e=>setMs({speakingB:e.target.value})}
-                      style={{...inputStyle,width:"100%",boxSizing:"border-box"}}>
-                      <option value="">— select —</option>
-                      {bOpts.map(o=><option key={o} value={o}>{o}</option>)}
-                    </select>
-                  </div>
-                </div>
-                {overallPrev!=null&&(
-                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.brandL,borderRadius:10,marginBottom:12}}>
-                    <span style={{fontSize:12,fontWeight:700,color:C.brand}}>Computed Overall:</span>
-                    <BandBadge val={overallPrev} large/>
-                  </div>
-                )}
-                <button disabled={validBands.length===0||ms.saving} onClick={async()=>{
-                  if(validBands.length===0) return;
-                  setMs({saving:true,saved:false});
-                  const patch={};
-                  if(lBprev!=null){patch.listeningBand=lBprev;patch.listeningScore=`${lN}/40`;}
-                  if(rBprev!=null){patch.readingBand=rBprev;patch.readingScore=`${rN}/40`;}
-                  if(wBprev!=null) patch.writingBand=wBprev;
-                  if(sBprev!=null) patch.speakingBand=sBprev;
-                  const fBands=[lBprev??p.listeningBand,rBprev??p.readingBand,wBprev??p.writingBand,sBprev??p.speakingBand].filter(b=>b!=null);
-                  patch.overall=fBands.length?overallBand(fBands):p.overall;
-                  const curDb=loadDB();
-                  const upPts=(curDb.participants||[]).map(pt=>(pt.id&&pt.id===p.id)||(pt.timestamp&&pt.timestamp===p.timestamp)?{...pt,...patch}:pt);
-                  const sOvrs={...(curDb.scoreOverrides||{})};
-                  sOvrs[msKey]={...(sOvrs[msKey]||{}),...patch};
-                  const updDb={...curDb,participants:upPts,scoreOverrides:sOvrs};
-                  setInternalDb(updDb);try{localStorage.setItem(DB_KEY,JSON.stringify(updDb));}catch{}
-                  await _flushConfig(updDb);
-                  notifyDbChange();
-                  const upAtts=(profile.attempts||[]).map(att=>(att===p||att.timestamp===p.timestamp)?{...att,...patch}:att);
-                  onUpdateProfile?.({...profile,attempts:upAtts});
-                  setMs({saving:false,saved:true,listeningN:"",readingN:"",writingB:"",speakingB:""});
-                  setTimeout(()=>setMs({saved:false}),4000);
-                }} style={{...btnStyle("primary",validBands.length===0||ms.saving)}}>
-                  {ms.saving?"Saving…":ms.saved?"✓ Scores Saved!":"Save Scores"}
-                </button>
-              </div>
-            );
-          })()}
         </div>
       </div>
       )}
@@ -6671,6 +7649,163 @@ function ParticipantDetail({ profile, onBack, onUpdateProfile }) {
 }
 
 // ── TEST SUITE MANAGER ────────────────────────────────────────────────────────
+// Test Library — organized saved sections view + Assemble Suites + Check Writing
+function TestsTab({ onCreateTest }) {
+  const [subTab, setSubTab] = useState("library");
+  const [editTarget, setEditTarget] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState("");
+
+  const handleEdit = test => {
+    setEditTarget(test);
+    setSubTab("edit");
+  };
+
+  const handleSyncToCloud = async () => {
+    const tests = loadDB().tests || [];
+    if(!tests.length){ setSyncMsg("No tests found in local storage."); return; }
+    setSyncing(true);
+    setSyncMsg("");
+    const { ok, fail, total } = await syncAllTestsToCloud();
+    setSyncing(false);
+    setSyncMsg(fail===0 ? `✓ Synced ${ok}/${total} tests to cloud.` : `⚠ ${ok}/${total} synced, ${fail} failed — check internet connection.`);
+    setTimeout(()=>setSyncMsg(""),6000);
+  };
+
+  const pill = active => ({
+    border:"none",cursor:"pointer",fontSize:13,fontWeight:600,padding:"8px 20px",
+    borderRadius:8,transition:"all .15s",
+    background:active?"#fff":C.s100, color:active?"#2D5DDC":C.s500,
+    boxShadow:active?"0 1px 4px rgba(0,0,0,.10)":"none",
+  });
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:28,flexWrap:"wrap"}}>
+        <div style={{display:"flex",gap:4,padding:4,background:C.s100,borderRadius:10}}>
+          <button onClick={()=>{setSubTab("library");setEditTarget(null);}} style={pill(subTab==="library"||subTab==="edit")}><BookOpen size={13} style={{marginRight:5,verticalAlign:"middle"}}/>Test Library</button>
+          <button onClick={()=>setSubTab("suites")}  style={pill(subTab==="suites")}><FlaskConical size={13} style={{marginRight:5,verticalAlign:"middle"}}/>Assemble Suites</button>
+          <button onClick={()=>setSubTab("writing")} style={pill(subTab==="writing")}><Pencil size={13} style={{marginRight:5,verticalAlign:"middle"}}/>Check Writing</button>
+        </div>
+        <button
+          onClick={handleSyncToCloud}
+          disabled={syncing}
+          style={{
+            border:"1px solid #2D5DDC",borderRadius:8,cursor:syncing?"not-allowed":"pointer",
+            fontSize:12,fontWeight:600,padding:"8px 16px",
+            background:syncing?"#EBF0FF":"#EBF0FF",color:"#2D5DDC",
+            opacity:syncing?0.6:1,transition:"all .15s",whiteSpace:"nowrap",
+          }}
+        >{syncing?"Syncing…":"☁ Sync Tests to Cloud"}</button>
+        {syncMsg&&<span style={{fontSize:12,color:syncMsg.startsWith("✓")?"#16a34a":"#dc2626",fontWeight:500}}>{syncMsg}</span>}
+      </div>
+      {(subTab==="library"||subTab==="edit")&&(
+        <AddTestManager
+          mode={subTab==="edit"?"create":"library"}
+          initialEdit={subTab==="edit"?editTarget:null}
+          onEditNavigate={handleEdit}
+          onSaved={()=>{setSubTab("library");setEditTarget(null);}}
+        />
+      )}
+      {subTab==="suites"&&<TestSuiteManager/>}
+      {subTab==="writing"&&<WritingChecker/>}
+    </div>
+  );
+}
+
+function WritingChecker() {
+  const [task1Prompt, setTask1Prompt] = useState("");
+  const [task2Prompt, setTask2Prompt] = useState("");
+  const [task1Text,   setTask1Text]   = useState("");
+  const [task2Text,   setTask2Text]   = useState("");
+  const [email,       setEmail]       = useState("");
+  const [submitted,   setSubmitted]   = useState(false); // true = show ResultsLoading
+  const [result,      setResult]      = useState(null);
+  const [err,         setErr]         = useState("");
+
+  const doSubmit = () => {
+    if(!task1Text.trim()&&!task2Text.trim()){ setErr("Enter at least one writing response."); return; }
+    setErr(""); setResult(null); setSubmitted(true);
+  };
+
+  const handleAiDone = (aiResult) => {
+    setSubmitted(false);
+    setResult({...aiResult, email, checkedAt: new Date().toLocaleString()});
+    setTask1Text(""); setTask2Text(""); setTask1Prompt(""); setTask2Prompt(""); setEmail("");
+  };
+
+  const writingTexts = { task1: task1Text.trim()||null, task2: task2Text.trim()||null };
+  const writingTaskData = { task1Prompt: task1Prompt||null, task2Prompt: task2Prompt||null };
+
+  if(submitted) return (
+    <div style={{maxWidth:860}}>
+      <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:20}}>Writing Task Checker</h2>
+      <ResultsLoading writingTexts={writingTexts} writingTaskData={writingTaskData} onComplete={handleAiDone}/>
+      <button onClick={()=>setSubmitted(false)} style={{...btnStyle("ghost"),marginTop:12,fontSize:12}}>← Cancel</button>
+    </div>
+  );
+
+  return (
+    <div style={{maxWidth:860}}>
+      <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:6}}>Writing Task Checker</h2>
+      <p style={{color:C.s400,fontSize:14,marginBottom:24}}>Paste a student's writing responses to get AI band score and feedback.</p>
+
+      {result&&(
+        <div style={{...cardStyle({padding:24,marginBottom:20,borderLeft:`4px solid ${C.teal}`})}}>
+          <div style={{display:"flex",alignItems:"center",gap:20,marginBottom:16}}>
+            {result.band!=null&&<div style={{textAlign:"center",minWidth:72}}>
+              <div style={{fontSize:10,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Writing Band</div>
+              <div style={{fontSize:48,fontWeight:900,color:bandColor(result.band),lineHeight:1}}>{result.band}</div>
+            </div>}
+            <div>
+              <div style={{fontSize:14,fontWeight:700,color:C.s900}}>✓ AI Evaluation Complete</div>
+              {result.email&&<div style={{fontSize:12,color:C.s500,marginTop:2}}>Student: {result.email}</div>}
+              <div style={{fontSize:12,color:C.s400,marginTop:2}}>Checked: {result.checkedAt}</div>
+            </div>
+          </div>
+          {result.aiFeedback&&Object.entries(result.aiFeedback).map(([k,v])=>v&&(
+            <div key={k} style={{marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.s500,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4}}>
+                {k==="task1"?"Task 1 Feedback":k==="task2"?"Task 2 Feedback":k}
+              </div>
+              <div style={{fontSize:13,color:C.s700,lineHeight:1.7,background:C.s50,borderRadius:8,padding:"12px 14px"}}>{v}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{...cardStyle({padding:24})}}>
+        <div style={{marginBottom:14}}>
+          <label style={labelStyle}>Student Email (optional — for reference)</label>
+          <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="student@example.com" style={inputStyle}/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+          <div>
+            <label style={labelStyle}>Task 1 Prompt (optional)</label>
+            <textarea value={task1Prompt} onChange={e=>setTask1Prompt(e.target.value)} rows={3}
+              placeholder="Summarise the diagram…" style={{...inputStyle,resize:"vertical"}}/>
+            <label style={{...labelStyle,marginTop:10}}>Task 1 Student Response</label>
+            <textarea value={task1Text} onChange={e=>setTask1Text(e.target.value)} rows={8}
+              placeholder="Paste Task 1 writing here…" style={{...inputStyle,resize:"vertical"}}/>
+          </div>
+          <div>
+            <label style={labelStyle}>Task 2 Prompt (optional)</label>
+            <textarea value={task2Prompt} onChange={e=>setTask2Prompt(e.target.value)} rows={3}
+              placeholder="Discuss both views and give your opinion…" style={{...inputStyle,resize:"vertical"}}/>
+            <label style={{...labelStyle,marginTop:10}}>Task 2 Student Response</label>
+            <textarea value={task2Text} onChange={e=>setTask2Text(e.target.value)} rows={8}
+              placeholder="Paste Task 2 writing here…" style={{...inputStyle,resize:"vertical"}}/>
+          </div>
+        </div>
+        {err&&<div style={{color:C.rose,fontSize:13,fontWeight:600,marginBottom:10}}>{err}</div>}
+        <button onClick={doSubmit} style={{...btnStyle("primary"),minWidth:180}}>
+          🤖 Check with AI →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TestSuiteManager() {
   const [suites, setSuites]   = useState(loadDB().testSuites||[]);
   const [allSections, setAllSections] = useState(loadDB().tests||[]);
@@ -6743,7 +7878,7 @@ function TestSuiteManager() {
       </div>
 
       {creating&&(
-        <div style={{...cardStyle({padding:24,marginBottom:24,borderLeft:`4px solid ${C.brand}`})}}>
+        <div style={{...cardStyle({padding:24,marginBottom:24,borderLeft:"4px solid #2D5DDC"})}}>
           <div style={{fontWeight:800,color:C.s900,fontSize:15,marginBottom:16}}>{editId?"Edit Suite":"New Test Suite"}</div>
           <div style={{marginBottom:14}}>
             <label style={labelStyle}>Suite Name *</label>
@@ -6765,7 +7900,7 @@ function TestSuiteManager() {
               </div>
             ))}
           </div>
-          <div style={{background:C.brandL,borderRadius:8,padding:"9px 14px",fontSize:12,color:C.s600,marginBottom:16}}>
+          <div style={{background:"#EBF0FF",borderRadius:8,padding:"9px 14px",fontSize:12,color:C.s600,marginBottom:16}}>
             💡 Sections set to "built-in" use the default practice questions included with the platform.
           </div>
           <div style={{display:"flex",gap:10}}>
@@ -6775,7 +7910,7 @@ function TestSuiteManager() {
         </div>
       )}
 
-      {suites.length===0 ? <EmptyState icon="🧪" text="No test suites yet. Create one above."/> : (
+      {suites.length===0 ? <EmptyState icon={BookOpen} text="No test suites yet. Create one above."/> : (
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {suites.map(s=>(
             <div key={s.id} style={{...cardStyle({padding:20})}}>
@@ -6886,7 +8021,7 @@ function SlotsManager({ onRefresh }) {
             <div style={{fontSize:10,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>Available</div>
           </div>
           <div style={{...cardStyle({padding:"10px 16px"}),textAlign:"center"}}>
-            <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:22,fontWeight:900,color:C.brand}}>{bookedCount}</div>
+            <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:22,fontWeight:900,color:"#2D5DDC"}}>{bookedCount}</div>
             <div style={{fontSize:10,color:C.s400,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>Booked</div>
           </div>
         </div>
@@ -6914,8 +8049,8 @@ function SlotsManager({ onRefresh }) {
               {[["online","🎥 Online"],["inperson","🏛️ In-Person"],["both","Both"]].map(([v,l])=>(
                 <button key={v} onClick={()=>setNewMode(v)} style={{
                   flex:1,padding:"8px 4px",borderRadius:8,fontSize:12,cursor:"pointer",fontWeight:newMode===v?700:400,
-                  background:newMode===v?C.brand:"#fff",color:newMode===v?"#fff":C.s600,
-                  border:`1.5px solid ${newMode===v?C.brand:C.s200}`,
+                  background:newMode===v?"#2D5DDC":"#fff",color:newMode===v?"#fff":C.s600,
+                  border:`1.5px solid ${newMode===v?"#2D5DDC":C.s200}`,
                 }}>{l}</button>
               ))}
             </div>
@@ -6942,8 +8077,8 @@ function SlotsManager({ onRefresh }) {
               {ALL_TIMES.map(t=>(
                 <button key={t} onClick={()=>toggleTime(t)} style={{
                   padding:"5px 10px",borderRadius:7,fontSize:12,cursor:"pointer",fontWeight:bulkTimes.includes(t)?700:400,
-                  background:bulkTimes.includes(t)?C.brand:"#fff",color:bulkTimes.includes(t)?"#fff":C.s600,
-                  border:`1.5px solid ${bulkTimes.includes(t)?C.brand:C.s200}`,
+                  background:bulkTimes.includes(t)?"#2D5DDC":"#fff",color:bulkTimes.includes(t)?"#fff":C.s600,
+                  border:`1.5px solid ${bulkTimes.includes(t)?"#2D5DDC":C.s200}`,
                 }}>{t}</button>
               ))}
             </div>
@@ -6965,7 +8100,7 @@ function SlotsManager({ onRefresh }) {
       {saved&&<div style={{marginBottom:14,padding:"8px 16px",background:C.tealL,borderRadius:8,fontSize:13,color:C.teal,fontWeight:700}}>{saved}</div>}
 
       {/* Slots table */}
-      {future.length===0&&past.length===0 ? <EmptyState icon="🕐" text="No slots yet. Add some above."/> : (
+      {future.length===0&&past.length===0 ? <EmptyState icon={Clock} text="No slots yet. Add some above."/> : (
         <div>
           {/* Future slots */}
           {future.length>0&&(
@@ -6984,7 +8119,7 @@ function SlotsManager({ onRefresh }) {
                     borderTop:`1px solid ${C.s200}`,alignItems:"center",
                     background:s.booked?"#fff":C.tealL+"44"}}>
                     <div style={{fontSize:12,fontWeight:600,color:C.s900}}>{fmtSlotDate(s.date)}</div>
-                    <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:C.brand,fontSize:13}}>{s.time}</div>
+                    <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:"#2D5DDC",fontSize:13}}>{s.time}</div>
                     <div style={{fontSize:12,color:C.s600}}>{modeLabel(s.mode)}</div>
                     <div>
                       <span style={{...tagStyle(s.booked?C.rose:C.teal),fontSize:11}}>
@@ -7035,6 +8170,10 @@ function AssignManager() {
   const [saved, setSaved]         = useState(false);
   const [saveErr, setSaveErr]     = useState("");
   const [searchEmail, setSearchEmail] = useState("");
+  // Single-module assignment state
+  const [assignMode, setAssignMode]       = useState("suite"); // "suite" | "module"
+  const [moduleType, setModuleType]       = useState("");  // "listening"|"reading"|"writing1"|"writing2"
+  const [moduleTestId, setModuleTestId]   = useState("");
 
   const refresh = async () => { await reloadDB(); };
   useEffect(()=>{
@@ -7049,15 +8188,30 @@ function AssignManager() {
   },[]);
 
   const assign = async () => {
-    if(!email.trim()||!suiteId) return;
     setSaveErr("");
-    const a = {id:genId("ASGN"),email:email.trim().toLowerCase(),suiteId,assignedAt:Date.now(),used:false};
+    const normEmail = email.trim().toLowerCase();
+    if(!normEmail){ setSaveErr("⚠ Enter a student email."); return; }
+    let a;
+    if(assignMode==="suite") {
+      if(!suiteId){ setSaveErr("⚠ Select a test suite."); return; }
+      a = {id:genId("ASGN"),email:normEmail,suiteId,assignedAt:Date.now(),used:false};
+    } else {
+      if(!moduleType){ setSaveErr("⚠ Select a module type."); return; }
+      const modLabel = {listening:"Listening",reading:"Reading",writing1:"Writing Task 1",writing2:"Writing Task 2"};
+      const modTestKey = {listening:"listeningId",reading:"readingId",writing1:"writing1Id",writing2:"writing2Id"};
+      a = {
+        id:genId("ASGN"),email:normEmail,singleModule:moduleType,
+        ...(moduleTestId?{[modTestKey[moduleType]]:moduleTestId}:{}),
+        label:`${modLabel[moduleType]} only`,
+        assignedAt:Date.now(),used:false,
+      };
+    }
     const fresh = loadDB().assignments||[];
     const updated = [a,...fresh];
     setAssignments(updated);
     const ok = await dbSaveNow("assignments",updated);
     if(!ok){ setSaveErr("⚠ Could not save to cloud — check connection and try again."); return; }
-    setEmail(""); setSuiteId("");
+    setEmail(""); setSuiteId(""); setModuleType(""); setModuleTestId("");
     setSaved(true); setTimeout(()=>setSaved(false),2500);
   };
 
@@ -7088,30 +8242,69 @@ function AssignManager() {
 
       {/* Assign form */}
       <div style={{...cardStyle({padding:24,marginBottom:28})}}>
-        <div style={{fontWeight:700,color:C.s900,fontSize:15,marginBottom:16}}>Assign Test to Student</div>
-        {publishedSuites.length===0&&(
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontWeight:700,color:C.s900,fontSize:15}}>Assign Test to Student</div>
+          {/* Mode toggle */}
+          <div style={{display:"flex",gap:0,borderRadius:8,overflow:"hidden",border:`1px solid ${C.s200}`}}>
+            {[["suite","📋 Full Suite"],["module","🔬 Single Module"]].map(([m,lbl])=>(
+              <button key={m} onClick={()=>{setAssignMode(m);setModuleType("");setModuleTestId("");setSuiteId("");}}
+                style={{padding:"6px 14px",fontSize:12,fontWeight:700,border:"none",cursor:"pointer",
+                  background:assignMode===m?"#2D5DDC":"#fff",color:assignMode===m?"#fff":C.s600,transition:"all .15s"}}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {assignMode==="suite"&&publishedSuites.length===0&&(
           <div style={{background:C.amberL,borderRadius:8,padding:"10px 14px",fontSize:12,color:C.amber,fontWeight:600,marginBottom:14}}>
-            ⚠ No published suites. Go to Test Suites and publish at least one first.
+            ⚠ No published suites. Go to Tests → Assemble Suites and publish at least one.
           </div>
         )}
+
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:14,alignItems:"flex-end"}}>
           <div>
             <label style={labelStyle}>Student Email *</label>
             <input value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&assign()}
-              placeholder="student@example.com" style={inputStyle} list="known-emails"/>
-            <datalist id="known-emails">{knownEmails.map(e=><option key={e} value={e}/>)}</datalist>
+              placeholder="student@example.com" style={inputStyle} list="known-emails-assign"/>
+            <datalist id="known-emails-assign">{knownEmails.map(e=><option key={e} value={e}/>)}</datalist>
           </div>
-          <div>
-            <label style={labelStyle}>Test Suite *</label>
-            <select value={suiteId} onChange={e=>setSuiteId(e.target.value)} style={{...inputStyle,cursor:"pointer"}}>
-              <option value="">— select suite —</option>
-              {publishedSuites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </div>
-          <button onClick={assign} disabled={!email.trim()||!suiteId||!publishedSuites.length}
-            style={btnStyle("primary",!email.trim()||!suiteId||!publishedSuites.length)}>
-            Assign →
-          </button>
+
+          {assignMode==="suite"?(
+            <div>
+              <label style={labelStyle}>Test Suite *</label>
+              <select value={suiteId} onChange={e=>setSuiteId(e.target.value)} style={{...inputStyle,cursor:"pointer"}}>
+                <option value="">— select suite —</option>
+                {publishedSuites.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+          ):(
+            <div>
+              <label style={labelStyle}>Module *</label>
+              <select value={moduleType} onChange={e=>{setModuleType(e.target.value);setModuleTestId("");}} style={{...inputStyle,cursor:"pointer"}}>
+                <option value="">— select module —</option>
+                <option value="listening">🎧 Listening</option>
+                <option value="reading">📖 Reading</option>
+                <option value="writing1">✍️ Writing Task 1</option>
+                <option value="writing2">✍️ Writing Task 2</option>
+              </select>
+              {moduleType&&(()=>{
+                const typeMap = {listening:"Listening",reading:"Reading",writing1:"Writing",writing2:"Writing"};
+                const tests = (loadDB().tests||[]).filter(t=>t.type===typeMap[moduleType]);
+                return tests.length>0?(
+                  <div style={{marginTop:8}}>
+                    <label style={labelStyle}>Specific Test (optional)</label>
+                    <select value={moduleTestId} onChange={e=>setModuleTestId(e.target.value)} style={{...inputStyle,cursor:"pointer"}}>
+                      <option value="">— any available —</option>
+                      {tests.map(t=><option key={t.id} value={t.id}>{t.title||t.id}</option>)}
+                    </select>
+                  </div>
+                ):null;
+              })()}
+            </div>
+          )}
+
+          <button onClick={assign} style={btnStyle("primary")}>Assign →</button>
         </div>
         {saved&&<div style={{marginTop:10,color:C.teal,fontWeight:700,fontSize:13}}>✓ Assignment saved!</div>}
         {saveErr&&<div style={{marginTop:10,color:C.rose,fontWeight:600,fontSize:13}}>{saveErr}</div>}
@@ -7121,7 +8314,7 @@ function AssignManager() {
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
         <div style={{flex:1,position:"relative"}}>
           <input value={searchEmail} onChange={e=>setSearchEmail(e.target.value)}
-            placeholder="🔍  Filter by student email…" style={{...inputStyle,paddingLeft:14}}/>
+            placeholder="Filter by student email…" style={{...inputStyle,paddingLeft:14}}/>
         </div>
         {searchEmail&&(
           <button onClick={()=>setSearchEmail("")} style={{...btnStyle("ghost"),color:C.rose,fontWeight:700,fontSize:12}}>✕ Clear</button>
@@ -7131,13 +8324,13 @@ function AssignManager() {
 
       {/* Results header */}
       {searchEmail.trim()&&(
-        <div style={{marginBottom:10,padding:"8px 14px",background:C.brandL,borderRadius:8,fontSize:12,color:C.brand,fontWeight:700}}>
+        <div style={{marginBottom:10,padding:"8px 14px",background:"#EBF0FF",borderRadius:8,fontSize:12,color:"#2D5DDC",fontWeight:700}}>
           Showing {filtered.length} assignment{filtered.length!==1?"s":""} for "{searchEmail.trim()}"
         </div>
       )}
 
       {filtered.length===0 ? (
-        <EmptyState icon="📋" text={searchEmail?"No assignments found for this email.":"No assignments yet."}/>
+        <EmptyState icon={ClipboardList} text={searchEmail?"No assignments found for this email.":"No assignments yet."}/>
       ) : (
         <div style={{...cardStyle({overflow:"hidden"})}}>
           <div style={{padding:"12px 16px",background:C.s900,display:"grid",gridTemplateColumns:"2fr 2fr 90px 110px 40px",gap:12}}>
@@ -7149,11 +8342,11 @@ function AssignManager() {
             <div key={a.id} style={{padding:"11px 16px",borderTop:`1px solid ${C.s200}`,display:"grid",gridTemplateColumns:"2fr 2fr 90px 110px 40px",gap:12,alignItems:"center",
               background:a.used?"#fff":C.tealL+"55"}}>
               <div style={{fontSize:13,fontWeight:600,wordBreak:"break-all",color:C.s900}}>
-                <button onClick={()=>setSearchEmail(a.email)} style={{background:"none",border:"none",cursor:"pointer",color:C.brand,fontWeight:700,fontSize:13,padding:0,textDecoration:"underline"}}>
+                <button onClick={()=>setSearchEmail(a.email)} style={{background:"none",border:"none",cursor:"pointer",color:"#2D5DDC",fontWeight:700,fontSize:13,padding:0,textDecoration:"underline"}}>
                   {a.email}
                 </button>
               </div>
-              <div style={{fontSize:13,color:C.s800,fontWeight:500}}>{suiteName(a.suiteId)}</div>
+              <div style={{fontSize:13,color:C.s800,fontWeight:500}}>{a.singleModule?(a.label||`${a.singleModule} only`):suiteName(a.suiteId)}</div>
               <div>
                 <span style={{...tagStyle(a.used?C.s400:C.teal),fontSize:11}}>
                   {a.used?"✓ Used":"⏳ Pending"}
@@ -7177,6 +8370,7 @@ const READING_Q_TYPES = [
   ["sentence_completion","Sentence Completion"],["summary_completion","Summary Completion"],
   ["note_completion","Note Completion"],["table_completion","Table Completion"],
   ["table_grid","Table Grid Completion (Multi-column)"],
+  ["table_inline","Table with Inline Gaps (New)"],
   ["flowchart_completion","Flow-chart Completion"],["diagram_label","Diagram Label Completion"],
   ["short_answer","Short Answer Questions"],
 ];
@@ -7187,6 +8381,7 @@ const LISTENING_Q_TYPES = [
   ["form_table","Form / Table Completion (Visual Table)"],
   ["note_completion","Note Completion"],["table_completion","Table Completion"],
   ["table_grid","Table Grid Completion (Multi-column)"],
+  ["table_inline","Table with Inline Gaps (New)"],
   ["flowchart_completion","Flow-chart Completion"],["summary_completion","Summary Completion"],
   ["sentence_completion","Sentence Completion"],["short_answer","Short Answer Questions"],
 ];
@@ -7196,7 +8391,18 @@ const TEXT_INPUT_TYPES = new Set(["sentence_completion","summary_completion","no
 const GROUP_MATCH_TYPES = new Set(["matching_headings","matching_info","matching_features","matching_endings","matching","mcq_multi"]);
 const defaultOptions = t => t==="matching_headings"?["","","","","","","","",""]:(t==="mcq_multi"?["","","","",""]:OPTION_TYPES.has(t)?["","","",""]: []);
 const qbEmptyQ = (mode="reading") => ({id:Date.now()+Math.random(), type:"mcq", text:"", options:["","","",""], correct:"", hint:"", mode});
-const qbAddQ    = (setter,mode) => setter(qs=>[...qs, qbEmptyQ(mode)]);
+// If the last question is a group-continuation type (table_grid, form_table, note_completion follower),
+// new questions inherit that type so users don't have to change it manually.
+const INHERIT_TYPES = new Set(["table_grid","form_table"]);
+// Count effective question numbers (table_inline counts as answers.length questions)
+const countQs = qs => (qs||[]).reduce((s,q)=>s+(q.type==="table_inline"?Math.max(1,(q.answers||[]).length):1),0);
+const qbAddQ = (setter, mode) => setter(qs => {
+  const last = qs[qs.length - 1];
+  if(last && INHERIT_TYPES.has(last.type)) {
+    return [...qs, {id:Date.now()+Math.random(), type:last.type, text:"", options:[], correct:"", hint:"", mode}];
+  }
+  return [...qs, qbEmptyQ(mode)];
+});
 const qbRemoveQ = (setter,id) => setter(qs=>qs.filter(q=>q.id!==id));
 const qbUpdateQ = (setter,id,key,val) => setter(qs=>qs.map(q=>q.id===id?{...q,[key]:val}:q));
 const qbUpdateOpt = (setter,id,oi,val) => setter(qs=>qs.map(q=>q.id===id?{...q,options:q.options.map((o,i)=>i===oi?val:o)}:q));
@@ -7219,6 +8425,8 @@ const qbSyncFollowers = (setter,leaderIdx) => setter(qs=>{
 function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, allSections=[], currentSectionId=null, onMoveQuestion=null}) {
   const qTypes = mode==="listening" ? LISTENING_Q_TYPES : READING_Q_TYPES;
   const otherSections = allSections.filter(s=>s.id!==currentSectionId);
+  // Compute effective Q-number for question at index qi (accounts for table_inline multi-gap)
+  const qNumOf = qi => { let n=qStart; for(let k=0;k<qi;k++) n+=(questions[k].type==="table_inline"?Math.max(1,(questions[k].answers||[]).length):1); return n; };
   return (
     <div>
       {questions.map((q,qi)=>{
@@ -7256,9 +8464,13 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
         })();
         const noteGapCount = (noteLeaderTemplate.match(/\[Q\]/g)||[]).length;
 
+        // Table Inline (single-question table with multiple embedded gaps)
+        const isTableInline = q.type==="table_inline";
+        const tableInlineGapCount = isTableInline ? Math.max(1,(q.answers||[]).length) : 0;
+
         // Table Grid group detection
         const isTableGrid       = q.type==="table_grid";
-        const isTableGridLeader = isTableGrid && (qi===0 || questions[qi-1]?.type!=="table_grid");
+        const isTableGridLeader = isTableGrid && (qi===0 || questions[qi-1]?.type!=="table_grid" || q.tableGridLeader===true);
         const isTableGridFollow = isTableGrid && !isTableGridLeader;
         const tableGridGapNum   = isTableGridFollow ? (()=>{ let n=1; for(let k=qi-1;k>=0&&questions[k]?.type==="table_grid";k--)n++; return n; })() : 0;
         // Count all [Q] markers in leader's rows
@@ -7267,14 +8479,14 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
 
         return (
           <div key={q.id} style={{...cardStyle({padding:16,marginBottom:10,
-            borderLeft:`3px solid ${(isGroupFollow||isFormTableFollow||isNoteFollow||isTableGridFollow)?C.s300:C.brand}`,
-            background:(isGroupFollow||isFormTableFollow||isNoteFollow||isTableGridFollow)?"#FAFAFA":"#fff"})}}>
+            borderLeft:`3px solid ${(isGroupFollow||isFormTableFollow||isNoteFollow||isTableGridFollow)?C.s300:"#2D5DDC"}`,
+            background:(isGroupFollow||isFormTableFollow||isNoteFollow||isTableGridFollow)?C.s100:C.surface})}}>
             {/* Header row */}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
               <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:C.brand,background:C.brandL,borderRadius:6,padding:"2px 8px"}}>Q{qStart+qi}</span>
+                <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:"#2D5DDC",background:"#EBF0FF",borderRadius:6,padding:"2px 8px"}}>{isTableInline&&tableInlineGapCount>1?`Q${qNumOf(qi)}–Q${qNumOf(qi)+tableInlineGapCount-1}`:`Q${qNumOf(qi)}`}</span>
                 {isGroupLeader&&(
-                  <span style={{fontSize:10,color:C.brand,fontWeight:700,background:C.brandL,borderRadius:4,padding:"2px 8px"}}>
+                  <span style={{fontSize:10,color:"#2D5DDC",fontWeight:700,background:"#EBF0FF",borderRadius:4,padding:"2px 8px"}}>
                     ★ Group Leader — defines shared options list
                   </span>
                 )}
@@ -7312,7 +8524,7 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
                     const target = otherSections.find(s=>String(s.id)===e.target.value);
                     if(target) onMoveQuestion(q.id, target.id);
                     e.target.value="";
-                  }} style={{...inputStyle,fontSize:11,padding:"3px 8px",cursor:"pointer",color:C.brand,borderColor:C.brand,background:C.brandL,fontWeight:700}}>
+                  }} style={{...inputStyle,fontSize:11,padding:"3px 8px",cursor:"pointer",color:"#2D5DDC",borderColor:"#2D5DDC",background:"#EBF0FF",fontWeight:700}}>
                     <option value="">↗ Move to…</option>
                     {otherSections.map((s,si)=>{
                       const sLabel = s.title ? `Section ${allSections.findIndex(x=>x.id===s.id)+1}: ${s.title}` : `Section ${allSections.findIndex(x=>x.id===s.id)+1}`;
@@ -7374,7 +8586,7 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
                   </div>
                 )}
                 {isFormTable&&!isFormTableLeader&&(
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#F8FAFC",borderRadius:6,padding:"8px 12px",marginBottom:10,border:`1px solid ${C.s200}`}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.s100,borderRadius:6,padding:"8px 12px",marginBottom:10,border:`1px solid ${C.s200}`}}>
                     <span style={{fontSize:11,color:C.s500}}>↳ Continues the same table as the row above</span>
                     <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:11,fontWeight:700,color:"#15803D"}}>
                       <input type="checkbox" checked={!!q.newTable}
@@ -7424,10 +8636,10 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
               <div style={{marginBottom:10,background:"#EDE9FE",borderRadius:10,padding:"14px 16px",border:"1px dashed #7C3AED60"}}>
                 <label style={{...labelStyle,color:"#7C3AED",fontWeight:700}}>Notes Template</label>
                 <p style={{fontSize:11,color:C.s500,marginTop:2,marginBottom:8,lineHeight:1.5}}>
-                  Write the notes content below. Use <code style={{background:"#fff",borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>**Heading**</code> for bold section titles,{" "}
-                  <code style={{background:"#fff",borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>• bullet text</code> for bullet points,{" "}
-                  and <code style={{background:"#fff",borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>[Q]</code> where a gap (student input) should appear.
-                  Add one follower question per <code style={{background:"#fff",borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>[Q]</code> below this card with its correct answer.
+                  Write the notes content below. Use <code style={{background:C.surface,borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>**Heading**</code> for bold section titles,{" "}
+                  <code style={{background:C.surface,borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>• bullet text</code> for bullet points,{" "}
+                  and <code style={{background:C.surface,borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>[Q]</code> where a gap (student input) should appear.
+                  Add one follower question per <code style={{background:C.surface,borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>[Q]</code> below this card with its correct answer.
                   {noteGapCount>0&&<span style={{color:"#7C3AED",fontWeight:700}}> Currently {noteGapCount} gap{noteGapCount!==1?"s":""} detected — add {noteGapCount} follower question{noteGapCount!==1?"s":""}.</span>}
                 </p>
                 <textarea
@@ -7435,7 +8647,7 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
                   onChange={e=>qbUpdateQ(setQuestions,q.id,"notesTemplate",e.target.value)}
                   rows={8}
                   placeholder={`**Colony Collapse Disorder**\n• name arrived at due to reported issues in [Q]\n• bee numbers have fallen to their lowest in decades.\n• in addition to bees, [Q]\n\n**Reasons for Vanishing Bees**\n• climatic changes bring forward flowering of plants to when bees are still in [Q]\n• research shows mass [Q]`}
-                  style={{...inputStyle,resize:"vertical",fontFamily:"'JetBrains Mono',monospace",lineHeight:1.7,fontSize:12,background:"#fff",width:"100%",boxSizing:"border-box"}}/>
+                  style={{...inputStyle,resize:"vertical",fontFamily:"'JetBrains Mono',monospace",lineHeight:1.7,fontSize:12,background:C.surface,width:"100%",boxSizing:"border-box"}}/>
                 <p style={{fontSize:10,color:"#7C3AED",marginTop:6,fontWeight:600}}>
                   💡 Tip: lines without • prefix render as plain text. Leave a blank line between sections for spacing.
                 </p>
@@ -7476,7 +8688,7 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
                 <div style={{marginBottom:10,background:"#E0F2FE",borderRadius:10,padding:"14px 16px",border:"1px dashed #0369A160"}}>
                   <label style={{...labelStyle,color:"#0369A1",fontWeight:700}}>Table Structure</label>
                   <p style={{fontSize:11,color:C.s500,marginTop:2,marginBottom:10,lineHeight:1.5}}>
-                    Define column headers and fill in each row. Type <code style={{background:"#fff",borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>[Q]</code> in any cell to create a student gap.
+                    Define column headers and fill in each row. Type <code style={{background:C.surface,borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>[Q]</code> in any cell to create a student gap.
                     {tableGridGapCount>0&&<span style={{color:"#0369A1",fontWeight:700}}> {tableGridGapCount} gap(s) detected — add {tableGridGapCount} question card(s) total (this card = gap 1).</span>}
                   </p>
 
@@ -7497,12 +8709,12 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
                   {/* Column controls */}
                   <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
                     <span style={{fontSize:12,fontWeight:700,color:C.s700}}>{colCount} column{colCount!==1?"s":""}</span>
-                    <button onClick={addCol} style={{background:"#fff",color:"#0369A1",border:"1px solid #0369A1",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Add Column</button>
-                    {colCount>1&&<button onClick={remCol} style={{background:"#fff",color:C.rose,border:`1px solid ${C.rose}`,borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>− Remove Last Column</button>}
+                    <button onClick={addCol} style={{background:C.surface,color:"#0369A1",border:"1px solid #0369A1",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Add Column</button>
+                    {colCount>1&&<button onClick={remCol} style={{background:C.surface,color:C.rose,border:`1px solid ${C.rose}`,borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>− Remove Last Column</button>}
                   </div>
 
                   {/* Column headers */}
-                  <div style={{display:"grid",gridTemplateColumns:`repeat(${colCount},1fr)`,gap:6,marginBottom:10,background:"#fff",borderRadius:8,padding:10,border:`1px solid #BAE6FD`}}>
+                  <div style={{display:"grid",gridTemplateColumns:`repeat(${colCount},1fr)`,gap:6,marginBottom:10,background:C.surface,borderRadius:8,padding:10,border:`1px solid #BAE6FD`}}>
                     {tHeaders.map((h,hi)=>(
                       <div key={hi}>
                         <label style={{fontSize:10,color:"#0369A1",fontWeight:700,display:"block",marginBottom:3}}>Column {hi+1} Header</label>
@@ -7533,10 +8745,18 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
                         style={{background:C.roseL,color:C.rose,border:"none",borderRadius:5,padding:"5px 8px",fontSize:11,cursor:"pointer",flexShrink:0,marginTop:2}}>✕</button>}
                     </div>
                   ))}
-                  <button onClick={addRow} style={{background:"#fff",color:"#0369A1",border:"1px solid #0369A1",borderRadius:5,padding:"5px 14px",fontSize:11,fontWeight:700,cursor:"pointer",marginTop:4}}>+ Add Row</button>
+                  <button onClick={addRow} style={{background:C.surface,color:"#0369A1",border:"1px solid #0369A1",borderRadius:5,padding:"5px 14px",fontSize:11,fontWeight:700,cursor:"pointer",marginTop:4}}>+ Add Row</button>
                   <p style={{fontSize:10,color:"#0369A1",marginTop:8,fontWeight:600}}>
                     💡 Cells with [Q] are highlighted yellow. Gap order = left to right, top to bottom.
                   </p>
+                  <button onClick={()=>{
+                    let endIdx = qi;
+                    while(endIdx+1<questions.length && questions[endIdx+1].type==="table_grid" && !questions[endIdx+1].tableGridLeader) endIdx++;
+                    const newQ={id:genId("Q"),type:"table_grid",tableGridLeader:true,stem:"",answer:"",hint:"",instructions:"",tableHeaders:["","",""],tableRows:[["","",""],["","",""]]};
+                    setQuestions(qs=>{const copy=[...qs];copy.splice(endIdx+1,0,newQ);return copy;});
+                  }} style={{marginTop:10,background:"#0369A1",color:"#fff",border:"none",borderRadius:7,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                    + Create New Table
+                  </button>
                 </div>
               );
             })()}
@@ -7548,12 +8768,108 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
               </div>
             )}
 
+            {/* Table Inline — standalone table with embedded [Q] gaps + answers array */}
+            {isTableInline&&(()=>{
+              const tHeaders = q.tableHeaders || ["",""];
+              const tRows    = q.tableRows    || [["",""]];
+              const tAnswers = q.answers      || [];
+              const colCount = tHeaders.length;
+              const detectedGaps = (tRows.flat().join("").match(/\[Q\]/g)||[]).length;
+              const updateHeader = (hi,val)=>{ const nh=[...tHeaders]; nh[hi]=val; qbUpdateQ(setQuestions,q.id,"tableHeaders",nh); };
+              const updateCell   = (ri,ci,val)=>{ const nr=tRows.map((r,i)=>i===ri?(Array.isArray(r)?r:[...Array(colCount).fill("")]).map((c,j)=>j===ci?val:c):r); qbUpdateQ(setQuestions,q.id,"tableRows",nr); };
+              const addCol = ()=>setQuestions(qs=>qs.map(qx=>qx.id!==q.id?qx:{...qx,tableHeaders:[...(qx.tableHeaders||[]),""],tableRows:(qx.tableRows||[]).map(r=>[...(Array.isArray(r)?r:[]),""])}));
+              const remCol = ()=>{ if(colCount<=1)return; setQuestions(qs=>qs.map(qx=>qx.id!==q.id?qx:{...qx,tableHeaders:(qx.tableHeaders||[]).slice(0,-1),tableRows:(qx.tableRows||[]).map(r=>(Array.isArray(r)?r:[]).slice(0,-1))})); };
+              const addRow = ()=>qbUpdateQ(setQuestions,q.id,"tableRows",[...tRows,Array(colCount).fill("")]);
+              const remRow = (ri)=>qbUpdateQ(setQuestions,q.id,"tableRows",tRows.filter((_,i)=>i!==ri));
+              const updateAnswer = (gi,val)=>{ const na=[...tAnswers]; na[gi]=val; qbUpdateQ(setQuestions,q.id,"answers",na); };
+              // Sync answers array length to detected gaps
+              const syncedAnswers = Array.from({length:detectedGaps},(_,i)=>tAnswers[i]||"");
+              return (
+                <div style={{marginBottom:10}}>
+                  {/* Table structure */}
+                  <div style={{background:"#F0FDF4",borderRadius:10,padding:"14px 16px",border:"1px dashed #16A34A60",marginBottom:10}}>
+                    <label style={{...labelStyle,color:"#15803D",fontWeight:700}}>Table Structure (Inline Gaps)</label>
+                    <p style={{fontSize:11,color:C.s500,marginTop:2,marginBottom:10,lineHeight:1.5}}>
+                      Type <code style={{background:C.surface,borderRadius:3,padding:"1px 4px",fontFamily:"monospace"}}>[Q]</code> anywhere in a cell to place a student input gap. This is a single question card — all gap answers are entered below.
+                      {detectedGaps>0&&<span style={{color:"#15803D",fontWeight:700}}> {detectedGaps} gap(s) detected → {detectedGaps} answer field(s) below.</span>}
+                    </p>
+                    {/* Title + subtitle */}
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                      <div>
+                        <label style={labelStyle}>Table Title <span style={{color:C.s400,fontWeight:400}}>(optional)</span></label>
+                        <input value={q.tableTitle||""} onChange={e=>qbUpdateQ(setQuestions,q.id,"tableTitle",e.target.value)} placeholder="e.g. TOTAL INSURANCE INCIDENT REPORT" style={inputStyle}/>
+                      </div>
+                      <div>
+                        <label style={labelStyle}>Table Subtitle <span style={{color:C.s400,fontWeight:400}}>(optional)</span></label>
+                        <input value={q.tableSubtitle||""} onChange={e=>qbUpdateQ(setQuestions,q.id,"tableSubtitle",e.target.value)} placeholder="e.g. (optional subtitle)" style={inputStyle}/>
+                      </div>
+                    </div>
+                    {/* Column controls */}
+                    <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+                      <span style={{fontSize:12,fontWeight:700,color:C.s700}}>{colCount} column{colCount!==1?"s":""}</span>
+                      <button onClick={addCol} style={{background:C.surface,color:"#15803D",border:"1px solid #15803D",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Add Column</button>
+                      {colCount>1&&<button onClick={remCol} style={{background:C.surface,color:C.rose,border:`1px solid ${C.rose}`,borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>− Remove Last Column</button>}
+                    </div>
+                    {/* Headers */}
+                    <div style={{display:"grid",gridTemplateColumns:`repeat(${colCount},1fr)`,gap:6,marginBottom:10,background:C.surface,borderRadius:8,padding:10,border:"1px solid #BBF7D0"}}>
+                      {tHeaders.map((h,hi)=>(
+                        <div key={hi}>
+                          <label style={{fontSize:10,color:"#15803D",fontWeight:700,display:"block",marginBottom:3}}>Column {hi+1} Header <span style={{color:C.s400,fontWeight:400}}>(leave blank to hide)</span></label>
+                          <textarea value={h} onChange={e=>updateHeader(hi,e.target.value)} rows={2} placeholder={`e.g. Item`} style={{...inputStyle,fontSize:12,resize:"vertical",width:"100%",boxSizing:"border-box"}}/>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Rows */}
+                    <label style={{...labelStyle,color:"#15803D"}}>Table Rows <span style={{color:C.s400,fontWeight:400}}>(use [Q] in any cell for a gap)</span></label>
+                    {tRows.map((row,ri)=>(
+                      <div key={ri} style={{display:"flex",gap:6,alignItems:"flex-start",marginBottom:6}}>
+                        <span style={{fontSize:11,color:C.s400,fontWeight:700,width:24,flexShrink:0,paddingTop:8}}>R{ri+1}</span>
+                        <div style={{display:"grid",gridTemplateColumns:`repeat(${colCount},1fr)`,gap:6,flex:1}}>
+                          {Array(colCount).fill(0).map((_,ci)=>(
+                            <input key={ci}
+                              value={Array.isArray(row)?(row[ci]||""):""}
+                              onChange={e=>updateCell(ri,ci,e.target.value)}
+                              placeholder={ci===0?`Row ${ri+1} label`:`Text or [Q] or The [Q] is broken`}
+                              style={{...inputStyle,fontSize:12,
+                                background:(Array.isArray(row)&&(row[ci]||"").includes("[Q]"))?"#DCFCE7":"#fff",
+                                borderColor:(Array.isArray(row)&&(row[ci]||"").includes("[Q]"))?"#22C55E":C.s200}}/>
+                          ))}
+                        </div>
+                        {tRows.length>1&&<button onClick={()=>remRow(ri)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:5,padding:"5px 8px",fontSize:11,cursor:"pointer",flexShrink:0,marginTop:2}}>✕</button>}
+                      </div>
+                    ))}
+                    <button onClick={addRow} style={{background:C.surface,color:"#15803D",border:"1px solid #15803D",borderRadius:5,padding:"5px 14px",fontSize:11,fontWeight:700,cursor:"pointer",marginTop:4}}>+ Add Row</button>
+                    <p style={{fontSize:10,color:"#15803D",marginTop:8,fontWeight:600}}>💡 Green cells have [Q] gaps. Order = left → right, top → bottom.</p>
+                  </div>
+                  {/* Gap answers */}
+                  {detectedGaps>0&&(
+                    <div style={{background:"#FEF9C3",borderRadius:10,padding:"12px 14px",border:"1px dashed #EAB30860"}}>
+                      <label style={{...labelStyle,color:"#92400E",fontWeight:700}}>Gap Answers ({detectedGaps} gap{detectedGaps!==1?"s":""})</label>
+                      <p style={{fontSize:11,color:C.s500,marginTop:2,marginBottom:10}}>Enter the correct answer for each [Q] gap in the order they appear (left → right, top → bottom).</p>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:8}}>
+                        {syncedAnswers.map((ans,gi)=>(
+                          <div key={gi}>
+                            <label style={{fontSize:11,color:"#92400E",fontWeight:700,display:"block",marginBottom:3}}>Gap {gi+1} (Q{qNumOf(qi)+gi})</label>
+                            <input value={ans} onChange={e=>updateAnswer(gi,e.target.value)}
+                              placeholder="e.g. screen" style={{...inputStyle,fontSize:12,borderColor:"#EAB308"}}/>
+                          </div>
+                        ))}
+                      </div>
+                      <button onClick={()=>qbUpdateQ(setQuestions,q.id,"answers",syncedAnswers)} style={{marginTop:8,background:C.surface,color:"#92400E",border:"1px solid #EAB308",borderRadius:5,padding:"4px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                        Sync Answer Fields to Detected Gaps
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Shared Options List — only on Group Leader */}
             {isGroupLeader&&(
-              <div style={{marginBottom:10,background:C.brandL,borderRadius:10,padding:"12px 14px",border:`1px dashed ${C.brand}60`}}>
+              <div style={{marginBottom:10,background:"#EBF0FF",borderRadius:10,padding:"12px 14px",border:"1px dashed #2D5DDC60"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                   <div>
-                    <label style={{...labelStyle,color:C.brand}}>
+                    <label style={{...labelStyle,color:"#2D5DDC"}}>
                       {isHeadings?"List of Headings":"List of Options"}
                     </label>
                     <p style={{fontSize:10,color:C.s500,marginTop:2}}>
@@ -7566,14 +8882,14 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
                     qbAddOpt(setQuestions,q.id);
                     // sync after adding
                     setTimeout(()=>qbSyncFollowers(setQuestions,qi),0);
-                  }} style={{background:"#fff",color:C.brand,border:`1px solid ${C.brand}`,borderRadius:5,padding:"3px 12px",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}>
+                  }} style={{background:C.surface,color:"#2D5DDC",border:"1px solid #2D5DDC",borderRadius:5,padding:"3px 12px",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}}>
                     + Add Option
                   </button>
                 </div>
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>
                   {q.options.map((opt,oi)=>(
                     <div key={oi} style={{display:"flex",gap:6,alignItems:"center"}}>
-                      <span style={{fontSize:12,fontWeight:800,color:C.brand,width:28,flexShrink:0,fontFamily:"'JetBrains Mono',monospace"}}>
+                      <span style={{fontSize:12,fontWeight:800,color:"#2D5DDC",width:28,flexShrink:0,fontFamily:"'JetBrains Mono',monospace"}}>
                         {isHeadings?`${toRoman(oi+1)}.`:`${String.fromCharCode(65+oi)}.`}
                       </span>
                       <input value={opt} onChange={e=>{
@@ -7581,7 +8897,7 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
                         setTimeout(()=>qbSyncFollowers(setQuestions,qi),0);
                       }}
                         placeholder={isHeadings?`Heading ${toRoman(oi+1)}`:`Option ${String.fromCharCode(65+oi)}`}
-                        style={{...inputStyle,fontSize:12,flex:1,padding:"7px 10px",background:"#fff"}}/>
+                        style={{...inputStyle,fontSize:12,flex:1,padding:"7px 10px",background:C.surface}}/>
                       {q.options.length>2&&<button onClick={()=>{
                         qbRemOpt(setQuestions,q.id,oi);
                         setTimeout(()=>qbSyncFollowers(setQuestions,qi),0);
@@ -7597,7 +8913,7 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
               <div style={{marginBottom:10}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                   <label style={labelStyle}>Options</label>
-                  <button onClick={()=>qbAddOpt(setQuestions,q.id)} style={{background:C.brandL,color:C.brand,border:"none",borderRadius:5,padding:"2px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Add Option</button>
+                  <button onClick={()=>qbAddOpt(setQuestions,q.id)} style={{background:"#EBF0FF",color:"#2D5DDC",border:"none",borderRadius:5,padding:"2px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Add Option</button>
                 </div>
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>
                   {q.options.map((opt,oi)=>(
@@ -7612,8 +8928,8 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
               </div>
             )}
 
-            {/* Correct answer */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            {/* Correct answer — hidden for table_inline (answers managed in its own block above) */}
+            <div style={{display: isTableInline ? "none" : "grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <div>
                 <label style={labelStyle}>
                   {isNoteLeader?"Gap 1 Correct Answer (first [Q])":isNoteFollow?`Gap ${noteGapNum} Correct Answer`:isTableGridLeader?"Table Gap 1 Correct Answer (first [Q] cell)":isTableGridFollow?`Table Gap ${tableGridGapNum} Correct Answer`:"Correct Answer"}
@@ -7681,15 +8997,15 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
               <div style={{marginTop:10}}>
                 <label style={labelStyle}>Map / Plan / Diagram Image <span style={{color:C.s400,fontWeight:400}}>(shown above this question in the test)</span></label>
                 {q.diagramImage?(
-                  <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:`2px solid ${C.brand}`,background:C.s100,marginTop:4}}>
-                    <img src={q.diagramImage} alt="Diagram" style={{width:"100%",maxHeight:300,objectFit:"contain",display:"block",background:"#fff"}}/>
+                  <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:"2px solid #2D5DDC",background:C.s100,marginTop:4}}>
+                    <img src={q.diagramImage} alt="Diagram" style={{width:"100%",maxHeight:300,objectFit:"contain",display:"block",background:C.surface}}/>
                     <button onClick={()=>qbUpdateQ(setQuestions,q.id,"diagramImage",null)}
                       style={{position:"absolute",top:8,right:8,background:"rgba(225,29,72,.85)",color:"#fff",border:"none",borderRadius:7,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
                       ✕ Remove
                     </button>
                   </div>
                 ):(
-                  <label style={{display:"block",marginTop:4,border:`2px dashed ${C.brand}40`,borderRadius:10,padding:"20px",textAlign:"center",cursor:"pointer",background:C.brandL}}>
+                  <label style={{display:"block",marginTop:4,border:"2px dashed #2D5DDC40",borderRadius:10,padding:"20px",textAlign:"center",cursor:"pointer",background:"#EBF0FF"}}>
                     <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
                       const file=e.target.files?.[0]; if(!file) return;
                       const reader=new FileReader();
@@ -7697,7 +9013,7 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
                       reader.readAsDataURL(file);
                     }}/>
                     <div style={{fontSize:24,marginBottom:8}}>🗺️</div>
-                    <div style={{fontSize:13,fontWeight:600,color:C.brand}}>Click to upload map / plan / diagram</div>
+                    <div style={{fontSize:13,fontWeight:600,color:"#2D5DDC"}}>Click to upload map / plan / diagram</div>
                     <div style={{fontSize:11,color:C.s400,marginTop:4}}>PNG, JPG, GIF — shown to students during the test</div>
                   </label>
                 )}
@@ -7713,20 +9029,20 @@ function QuestionBuilder({questions, setQuestions, mode="reading", qStart=1, all
 
 // ── PASSAGE CARD (top-level to avoid remount / focus loss) ───────────────────
 function PassageCard({ passage, idx, total, onUpdate, onDelete, setQuestions, qStart=1 }) {
-  const borderCol = idx===0?C.teal:idx===1?C.brand:C.violet;
-  const bgCol     = idx===0?C.tealL:idx===1?C.brandL:"#E6FAF4";
+  const borderCol = idx===0?C.teal:idx===1?"#2D5DDC":C.violet;
+  const bgCol     = idx===0?C.tealL:idx===1?"#EBF0FF":"#E6FAF4";
   return (
     <div style={{border:`1.5px solid ${borderCol}30`,borderRadius:14,marginBottom:14,overflow:"hidden"}}>
       <div style={{padding:"10px 16px",background:bgCol,display:"flex",gap:10,alignItems:"center"}}>
-        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:800,color:borderCol,background:"#fff",borderRadius:6,padding:"3px 10px",flexShrink:0}}>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:800,color:borderCol,background:C.surface,borderRadius:6,padding:"3px 10px",flexShrink:0}}>
           Passage {idx+1}
         </span>
         <input value={passage.title} onChange={e=>onUpdate("title",e.target.value)}
           placeholder={`Passage ${idx+1} title — e.g. Cambridge 18 Test 1 · Passage ${idx+1}`}
-          style={{...inputStyle,flex:1,background:"#fff",padding:"7px 12px",fontSize:13}}/>
+          style={{...inputStyle,flex:1,background:C.surface,padding:"7px 12px",fontSize:13}}/>
         <button onClick={()=>onUpdate("collapsed",!passage.collapsed)}
-          style={{background:"#fff",border:`1px solid ${borderCol}40`,borderRadius:7,padding:"5px 10px",cursor:"pointer",fontSize:12,color:borderCol,fontWeight:700,flexShrink:0}}>
-          {passage.collapsed?"▼ Show":"▲ Hide"}
+          style={{background:C.surface,border:`1px solid ${borderCol}40`,borderRadius:7,padding:"5px 10px",cursor:"pointer",fontSize:12,color:borderCol,fontWeight:700,flexShrink:0}}>
+          {passage.collapsed?<><ChevronDown size={13}/> Show</>:<><ChevronUp size={13}/> Hide</>}
         </button>
         {total>1&&<button onClick={onDelete}
           style={{background:C.roseL,color:C.rose,border:"none",borderRadius:7,padding:"5px 10px",cursor:"pointer",fontSize:12,fontWeight:700,flexShrink:0}}>✕</button>}
@@ -7791,8 +9107,8 @@ function AudioUploader({ onUrl }) {
       <div style={{display:"flex",gap:8,marginBottom:10}}>
         {["upload","url"].map(m=>(
           <button key={m} onClick={()=>setMode(m)} style={{
-            padding:"5px 14px",borderRadius:7,border:`1.5px solid ${mode===m?C.brand:C.s200}`,
-            background:mode===m?C.brandL:"#fff",color:mode===m?C.brand:C.s600,
+            padding:"5px 14px",borderRadius:7,border:`1.5px solid ${mode===m?"#2D5DDC":C.s200}`,
+            background:mode===m?"#EBF0FF":"#fff",color:mode===m?"#2D5DDC":C.s600,
             fontSize:12,fontWeight:700,cursor:"pointer"
           }}>{m==="upload"?"📤 Upload File":"🔗 Paste URL"}</button>
         ))}
@@ -7815,7 +9131,7 @@ function AudioUploader({ onUrl }) {
         <div>
           <div style={{display:"flex",gap:8}}>
             <input value={urlInput} onChange={e=>setUrlInput(e.target.value)}
-              placeholder="YouTube link or direct MP3/WAV/OGG URL"
+              placeholder="YouTube or Google Drive link, or direct MP3/WAV URL"
               style={{...inputStyle,flex:1}}/>
             <button onClick={()=>{ if(urlInput.trim()) onUrl(urlInput.trim()); }}
               disabled={!urlInput.trim()}
@@ -7826,6 +9142,9 @@ function AudioUploader({ onUrl }) {
           {isYouTubeUrl(urlInput)&&(
             <div style={{marginTop:6,fontSize:11,color:C.teal,fontWeight:600}}>✓ YouTube link detected — will embed as video player</div>
           )}
+          {isGoogleDriveUrl(urlInput)&&(
+            <div style={{marginTop:6,fontSize:11,color:C.teal,fontWeight:600}}>✓ Google Drive link detected — will embed as audio player</div>
+          )}
         </div>
       )}
 
@@ -7834,7 +9153,7 @@ function AudioUploader({ onUrl }) {
       {mode==="upload"&&!error&&(
         <div style={{marginTop:6,fontSize:11,color:C.s400,lineHeight:1.5}}>
           ℹ️ Requires a <strong>public Supabase Storage bucket</strong> named <code style={{background:C.s100,padding:"1px 5px",borderRadius:4}}>ielts-audio</code>.
-          {" "}<button onClick={()=>setMode("url")} style={{background:"none",border:"none",color:C.brand,cursor:"pointer",fontSize:11,fontWeight:700,padding:0}}>Or paste a URL instead →</button>
+          {" "}<button onClick={()=>setMode("url")} style={{background:"none",border:"none",color:"#2D5DDC",cursor:"pointer",fontSize:11,fontWeight:700,padding:0}}>Or paste a URL instead →</button>
         </div>
       )}
     </div>
@@ -7843,21 +9162,21 @@ function AudioUploader({ onUrl }) {
 
 // ── SECTION CARD (top-level to avoid remount / focus loss) ───────────────────
 function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qStart=1, allSections=[], onMoveQuestion, hideAudio=false }) {
-  const colors = [C.brand, C.teal, C.violet, C.amber];
-  const bgs    = [C.brandL, C.tealL, "#E6FAF4", C.amberL];
-  const col = colors[idx]||C.brand, bg = bgs[idx]||C.brandL;
+  const colors = ["#2D5DDC", C.teal, C.violet, C.amber];
+  const bgs    = ["#EBF0FF", C.tealL, "#E6FAF4", C.amberL];
+  const col = colors[idx]||"#2D5DDC", bg = bgs[idx]||"#EBF0FF";
   return (
     <div style={{border:`1.5px solid ${col}30`,borderRadius:14,marginBottom:14,overflow:"hidden"}}>
       <div style={{padding:"10px 16px",background:bg,display:"flex",gap:10,alignItems:"center"}}>
-        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:800,color:col,background:"#fff",borderRadius:6,padding:"3px 10px",flexShrink:0}}>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:800,color:col,background:C.surface,borderRadius:6,padding:"3px 10px",flexShrink:0}}>
           Section {idx+1}
         </span>
         <input value={section.title} onChange={e=>onUpdate("title",e.target.value)}
           placeholder={`Section ${idx+1} title — e.g. Hotel Reservation`}
-          style={{...inputStyle,flex:1,background:"#fff",padding:"7px 12px",fontSize:13}}/>
+          style={{...inputStyle,flex:1,background:C.surface,padding:"7px 12px",fontSize:13}}/>
         <button onClick={()=>onUpdate("collapsed",!section.collapsed)}
-          style={{background:"#fff",border:`1px solid ${col}40`,borderRadius:7,padding:"5px 10px",cursor:"pointer",fontSize:12,color:col,fontWeight:700,flexShrink:0}}>
-          {section.collapsed?"▼ Show":"▲ Hide"}
+          style={{background:C.surface,border:`1px solid ${col}40`,borderRadius:7,padding:"5px 10px",cursor:"pointer",fontSize:12,color:col,fontWeight:700,flexShrink:0}}>
+          {section.collapsed?<><ChevronDown size={13}/> Show</>:<><ChevronUp size={13}/> Hide</>}
         </button>
         {total>1&&<button onClick={onDelete}
           style={{background:C.roseL,color:C.rose,border:"none",borderRadius:7,padding:"5px 10px",cursor:"pointer",fontSize:12,fontWeight:700,flexShrink:0}}>✕</button>}
@@ -7923,7 +9242,8 @@ function SectionCard({ section, idx, total, onUpdate, onDelete, setQuestions, qS
 const newPassage = (idx) => ({id:Date.now()+Math.random(), title:"", text:"", questions:[], collapsed:idx>0});
 const newSection = (idx) => ({id:Date.now()+Math.random(), title:"", instructions:"", script:"", audioUrl:null, questions:[], collapsed:idx>0});
 
-function AddTestManager() {
+function AddTestManager({ mode="full", onEditNavigate, initialEdit=null, onSaved }) {
+  // mode: "full" = list + form | "library" = list only | "create" = form only
   const [tests, setTests]         = useState((loadDB().tests)||[]);
   const [activeType, setActiveType] = useState("Reading");
   const [saved, setSaved]         = useState(false);
@@ -7935,6 +9255,8 @@ function AddTestManager() {
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [movingTestId, setMovingTestId] = useState(null);
+  const [listSearch, setListSearch]   = useState("");
+  const [listTypeFilter, setListTypeFilter] = useState("All");
 
   // Sync from Supabase on mount + polling + Realtime push
   useEffect(()=>{
@@ -7979,7 +9301,7 @@ function AddTestManager() {
   const handleImageUpload = e => {
     const file = e.target.files[0]; if(!file) return;
     const reader = new FileReader();
-    reader.onload = ev => setWTask1Image(ev.target.result);
+    reader.onload = ev => setWT1Image(ev.target.result);
     reader.readAsDataURL(file);
   };
 
@@ -8041,12 +9363,13 @@ function AddTestManager() {
       _upsertTestRow(testWithId).catch(()=>{});
 
       if(!blobOk){
-        alert("⚠️ Could not save to cloud. Check your internet connection.");
+        console.warn("[doSave] Cloud sync slow/failed — test saved to localStorage, will retry on next reload.");
       }
     } finally {
       isSavingRef.current = false;
       setSaving(false);
       setSaved(true); setTimeout(()=>setSaved(false),2500);
+      if(onSaved) onSaved();
     }
   };
 
@@ -8057,10 +9380,14 @@ function AddTestManager() {
       setRTitle(t.title||"");
       setRPassages(t.passages?.length ? t.passages : [newPassage(0)]);
     } else if(t.type==="Writing") {
-      setWTitle(t.title||"");
-      setWTask1Prompt(t.task1Prompt||"");
-      setWTask1Image(t.task1Image||null);
-      setWTask2Prompt(t.task2Prompt||"");
+      if(t.taskType==="task2") {
+        setWT2Title(t.title||"");
+        setWT2Prompt(t.task2Prompt||"");
+      } else {
+        setWT1Title(t.title||"");
+        setWT1Prompt(t.task1Prompt||"");
+        setWT1Image(t.task1Image||null);
+      }
     } else if(t.type==="Listening") {
       setLTitle(t.title||"");
       setLSections(t.sections?.length ? t.sections : [newSection(0)]);
@@ -8070,6 +9397,9 @@ function AddTestManager() {
     // Scroll to top of builder
     window.scrollTo({top:0,behavior:"smooth"});
   };
+
+  // When mounted in edit mode (from library), pre-load the target test
+  useEffect(()=>{ if(initialEdit) loadForEdit(initialEdit); }, [initialEdit?.id]);
 
   const saveReading = async () => {
     if(!rTitle.trim()) return;
@@ -8095,26 +9425,33 @@ function AddTestManager() {
     setLAudioUploading(true);
     try {
       if(supabase) {
-        const ext = file.name.split(".").pop();
+        const ext = file.name.split(".").pop().toLowerCase();
+        const mimeMap = {mp3:"audio/mpeg",mp4:"audio/mp4",m4a:"audio/mp4",wav:"audio/wav",ogg:"audio/ogg",webm:"audio/webm",aac:"audio/aac",flac:"audio/flac"};
+        const contentType = file.type || mimeMap[ext] || "audio/mpeg";
         const path = `listening/${Date.now()}.${ext}`;
         // Auto-create bucket if it doesn't exist
-        const {error:upErr} = await supabase.storage.from("ielts-audio").upload(path,file,{upsert:true});
+        const {error:upErr} = await supabase.storage.from("ielts-audio").upload(path,file,{upsert:true,contentType});
         if(upErr) {
           if(upErr.message?.toLowerCase().includes("bucket")) {
             // Try to create the bucket then retry
             await supabase.storage.createBucket("ielts-audio",{public:true});
-            const {error:upErr2} = await supabase.storage.from("ielts-audio").upload(path,file,{upsert:true});
+            const {error:upErr2} = await supabase.storage.from("ielts-audio").upload(path,file,{upsert:true,contentType});
             if(upErr2) throw upErr2;
           } else { throw upErr; }
         }
         const {data} = supabase.storage.from("ielts-audio").getPublicUrl(path);
-        const db = loadDB(); db.listeningAudioUrl = data.publicUrl; await saveDBNow(db);
+        // Set URL in state + localStorage immediately — cloud sync fires in background
         setLAudioUrl(data.publicUrl);
+        const db = loadDB(); db.listeningAudioUrl = data.publicUrl;
+        try{ localStorage.setItem(DB_KEY, JSON.stringify(db)); }catch{}
+        saveDBNow(db).catch(e=>console.warn("[Audio] cloud sync error (audio URL saved locally):",e.message));
       } else {
         const reader = new FileReader();
         reader.onload = async ev => {
-          const db = loadDB(); db.listeningAudioUrl = ev.target.result; await saveDBNow(db);
           setLAudioUrl(ev.target.result);
+          const db = loadDB(); db.listeningAudioUrl = ev.target.result;
+          try{ localStorage.setItem(DB_KEY, JSON.stringify(db)); }catch{}
+          saveDBNow(db).catch(()=>{});
         };
         reader.readAsDataURL(file);
       }
@@ -8162,7 +9499,7 @@ function AddTestManager() {
     try{ localStorage.setItem(DB_KEY, JSON.stringify(db)); }catch{}
     await _flushConfig(db);
     const moved = (db.tests||[]).find(t=>t.id===testId);
-    if(moved) _upsertTestRow(moved).catch(()=>{});
+    if(moved) _upsertTestRow(moved).then(()=>_invalidateTestItemCache()).catch(()=>{});
     setMovingTestId(null);
   };
 
@@ -8172,11 +9509,10 @@ function AddTestManager() {
     const liveDb2 = loadDB();
     liveDb2.tests = (liveDb2.tests||[]).filter(t => t.id !== id);
     try{ localStorage.setItem(DB_KEY, JSON.stringify(liveDb2)); }catch{}
-    // Delete from both blob and individual rows
-    await Promise.all([
-      _flushConfig(liveDb2),  // removes test from blob
-      _markTestDeleted(id),   // tombstone row for concurrent-safe delete
-    ]);
+    // Invalidate test cache so next poll fetches fresh rows (with tombstone applied)
+    _invalidateTestItemCache();
+    // Create tombstone row — the next reloadDB() will exclude this test
+    await _markTestDeleted(id);
   };
   const typeColor  = t  => t==="Reading"?C.teal:t==="Writing"?C.violet:C.amber;
 
@@ -8187,104 +9523,115 @@ function AddTestManager() {
       {editingId&&(
         <div style={{background:"#FEF3C7",border:"1px solid #FDE68A",borderRadius:10,padding:"10px 16px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <span style={{fontSize:13,fontWeight:700,color:"#92400E"}}>✏ Editing existing section — save to update</span>
-          <button onClick={()=>{setEditingId(null);setRTitle("");setRPassages([newPassage(0)]);setWTitle("");setWTask1Prompt("");setWTask1Image(null);setWTask2Prompt("");setLTitle("");setLSections([newSection(0)]);}} style={{background:"#FDE68A",color:"#92400E",border:"none",borderRadius:6,padding:"4px 12px",fontSize:11,cursor:"pointer",fontWeight:700}}>✕ Cancel Edit</button>
+          <button onClick={()=>{setEditingId(null);setRTitle("");setRPassages([newPassage(0)]);setWT1Title("");setWT1Prompt("");setWT1Image(null);setWT2Title("");setWT2Prompt("");setLTitle("");setLSections([newSection(0)]);}} style={{background:"#FDE68A",color:"#92400E",border:"none",borderRadius:6,padding:"4px 12px",fontSize:11,cursor:"pointer",fontWeight:700}}>✕ Cancel Edit</button>
         </div>
       )}
 
-      {/* Saved sections list with folders */}
-      {tests.length>0&&(
-        <div style={{marginBottom:28}}>
-          {/* Folder toolbar */}
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-            <div style={{fontSize:11,color:C.s400,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase"}}>Saved Sections ({tests.length})</div>
-            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+      {/* Saved sections list */}
+      {mode!=="create"&&tests.length===0&&(
+        <div style={{textAlign:"center",padding:"40px 20px",color:C.s400,fontSize:14}}>
+          Loading sections…
+        </div>
+      )}
+      {mode!=="create"&&tests.length>0&&(
+        <div style={{...cardStyle({padding:20,marginBottom:28})}}>
+          {/* Toolbar row */}
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}>
+            <div style={{fontWeight:800,fontSize:14,color:C.s900,flexShrink:0}}>Saved Sections <span style={{color:C.s400,fontWeight:500,fontSize:13}}>({tests.length})</span></div>
+            <input
+              value={listSearch} onChange={e=>setListSearch(e.target.value)}
+              placeholder="Search…"
+              style={{...inputStyle,padding:"6px 12px",fontSize:12,width:180,margin:0,flex:"0 1 180px"}}/>
+            <div style={{display:"flex",gap:3,background:C.s100,borderRadius:8,padding:3,flexShrink:0}}>
+              {["All","Reading","Listening","Writing"].map(f=>(
+                <button key={f} onClick={()=>setListTypeFilter(f)} style={{
+                  padding:"4px 12px",border:"none",cursor:"pointer",fontSize:11,fontWeight:listTypeFilter===f?700:500,
+                  borderRadius:6,background:listTypeFilter===f?C.surface:"transparent",
+                  color:listTypeFilter===f?(f==="All"?"#2D5DDC":typeColor(f)):C.s400,
+                  boxShadow:listTypeFilter===f?"0 1px 3px rgba(0,0,0,.07)":"none",transition:"all .12s",
+                }}>{f}</button>
+              ))}
+            </div>
+            <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
               {showNewFolder?(
                 <>
                   <input value={newFolderName} onChange={e=>setNewFolderName(e.target.value)}
                     onKeyDown={e=>{if(e.key==="Enter")createFolder();if(e.key==="Escape"){setShowNewFolder(false);setNewFolderName("");}}}
                     placeholder="Folder name…" autoFocus
-                    style={{...inputStyle,padding:"5px 10px",fontSize:12,width:160,margin:0}}/>
+                    style={{...inputStyle,padding:"5px 10px",fontSize:12,width:140,margin:0}}/>
                   <button onClick={createFolder} style={{...btnStyle("primary"),padding:"5px 12px",fontSize:12}}>Add</button>
                   <button onClick={()=>{setShowNewFolder(false);setNewFolderName("");}} style={{...btnStyle("ghost"),padding:"5px 10px",fontSize:12}}>✕</button>
                 </>
               ):(
-                <button onClick={()=>setShowNewFolder(true)} style={{...btnStyle("secondary"),padding:"5px 14px",fontSize:12}}>📁 New Folder</button>
+                <button onClick={()=>setShowNewFolder(true)} style={{padding:"5px 14px",fontSize:12,display:"inline-flex",alignItems:"center",gap:5,border:"1.5px solid #2D5DDC",background:"#fff",color:"#2D5DDC",borderRadius:6,fontWeight:700,cursor:"pointer"}}><FolderOpen size={13}/>New Folder</button>
               )}
             </div>
           </div>
 
-          {/* Render folders then unfiled */}
-          {[...folders, null].map(folder => {
-            const folderTests = folder===null
-              ? tests.filter(t => !t.folderName || !folders.includes(t.folderName))
-              : tests.filter(t => t.folderName === folder);
-            if(folderTests.length===0 && folder!==null) return null;
-            const isCollapsed = collapsedFolders[folder||"__unfiled__"];
-            return (
-              <div key={folder||"__unfiled__"} style={{marginBottom:12}}>
-                {/* Folder header */}
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-                  <button onClick={()=>setCollapsedFolders(p=>({...p,[folder||"__unfiled__"]:!isCollapsed}))}
-                    style={{background:"none",border:"none",cursor:"pointer",padding:0,fontSize:13,color:C.s500,display:"flex",alignItems:"center",gap:6,fontWeight:700}}>
-                    <span style={{fontSize:11,transition:"transform .2s",display:"inline-block",transform:isCollapsed?"rotate(-90deg)":"rotate(0deg)"}}>▼</span>
-                    {folder ? <span style={{color:C.brand}}>📁 {folder}</span> : <span style={{color:C.s400}}>Unfiled ({folderTests.length})</span>}
-                  </button>
-                  {folder&&(
-                    <button onClick={()=>deleteFolder(folder)}
-                      style={{background:"none",border:"none",cursor:"pointer",color:C.rose,fontSize:11,padding:"0 4px"}}>✕</button>
-                  )}
-                </div>
+          {/* Grouped list */}
+          {(()=>{
+            const q = listSearch.trim().toLowerCase();
+            const filtered = tests.filter(t =>
+              (listTypeFilter==="All" || t.type===listTypeFilter) &&
+              (!q || t.title?.toLowerCase().includes(q))
+            );
+            if(filtered.length===0) return <div style={{color:C.s400,fontSize:13,padding:"12px 0"}}>No sections match.</div>;
 
-                {/* Tests in this folder */}
-                {!isCollapsed&&(
-                  <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:folder?16:0}}>
-                    {folderTests.map(t=>(
-                      <div key={t.id} style={{...cardStyle({padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"})}}>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
-                            <span style={{...tagStyle(typeColor(t.type)),fontSize:10}}>{t.type}</span>
-                            <span style={{fontWeight:700,fontSize:13,color:C.s900,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
-                          </div>
-                          <div style={{fontSize:11,color:C.s400}}>
-                            Added {t.createdAt}
-                            {t.passages?.length>0&&` · ${t.passages.length} passage${t.passages.length>1?"s":""} · ${t.passages.reduce((n,p)=>n+(p.questions?.length||0),0)} Qs`}
-                            {t.sections?.length>0&&` · ${t.sections.length} section${t.sections.length>1?"s":""} · ${t.sections.reduce((n,s)=>n+(s.questions?.length||0),0)} Qs`}
-                            {t.questions?.length>0&&` · ${t.questions.length} Qs`}
-                          </div>
-                        </div>
-                        <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
-                          {movingTestId===t.id?(
-                            <select onChange={e=>moveTestToFolder(t.id, e.target.value||null)}
-                              defaultValue={t.folderName||""}
-                              style={{fontSize:11,borderRadius:6,border:`1px solid ${C.s200}`,padding:"4px 6px",color:C.s700,background:"white",cursor:"pointer"}}>
-                              <option value="">Unfiled</option>
-                              {folders.map(f=><option key={f} value={f}>{f}</option>)}
-                            </select>
-                          ):(
-                            folders.length>0&&<button onClick={()=>setMovingTestId(t.id)}
-                              style={{background:C.s100,color:C.s500,border:"none",borderRadius:6,padding:"3px 8px",fontSize:11,cursor:"pointer"}}>📁</button>
-                          )}
-                          <button onClick={()=>loadForEdit(t)} style={{background:C.brandL,color:C.brand,border:"none",borderRadius:8,padding:"4px 12px",fontSize:12,cursor:"pointer",fontWeight:700}}>✏ Edit</button>
-                          <button onClick={()=>deleteTest(t.id)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:8,padding:"4px 12px",fontSize:12,cursor:"pointer",fontWeight:700}}>Delete</button>
+            // Group by type when filter is "All", else flat list
+            const groups = listTypeFilter==="All"
+              ? ["Reading","Listening","Writing"].map(type=>({type, items:filtered.filter(t=>t.type===type)})).filter(g=>g.items.length>0)
+              : [{type:listTypeFilter, items:filtered}];
+
+            return groups.map(({type,items})=>(
+              <div key={type} style={{marginBottom:16}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                  <span style={{...tagStyle(typeColor(type)),fontSize:11}}>{type}</span>
+                  <span style={{fontSize:12,color:C.s400}}>{items.length} section{items.length!==1?"s":""}</span>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {items.map(t=>(
+                    <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,background:C.bg,border:`1px solid ${C.s100}`}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600,fontSize:13,color:C.s900,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                        <div style={{fontSize:11,color:C.s400,marginTop:1}}>
+                          {t.passages?.length>0&&`${t.passages.length} passage${t.passages.length>1?"s":""} · ${t.passages.reduce((n,p)=>n+countQs(p.questions),0)} Qs`}
+                          {t.sections?.length>0&&`${t.sections.length} section${t.sections.length>1?"s":""} · ${t.sections.reduce((n,s)=>n+countQs(s.questions),0)} Qs`}
+                          {t.questions?.length>0&&`${countQs(t.questions)} Qs`}
+                          {t.folderName&&<span style={{marginLeft:6,color:"#2D5DDC"}}>📁 {t.folderName}</span>}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
+                      <div style={{display:"flex",gap:5,alignItems:"center",flexShrink:0}}>
+                        {movingTestId===t.id?(
+                          <select onChange={e=>moveTestToFolder(t.id, e.target.value||null)}
+                            defaultValue={t.folderName||""}
+                            style={{fontSize:11,borderRadius:6,border:`1px solid ${C.s200}`,padding:"4px 6px",color:C.s700,background:C.surface,cursor:"pointer"}}>
+                            <option value="">Unfiled</option>
+                            {folders.map(f=><option key={f} value={f}>{f}</option>)}
+                          </select>
+                        ):(
+                          folders.length>0&&<button onClick={()=>setMovingTestId(t.id)}
+                            style={{background:C.s100,color:C.s500,border:"none",borderRadius:6,padding:"3px 8px",fontSize:11,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3}}><FolderOpen size={11}/></button>
+                        )}
+                        <button onClick={()=>{loadForEdit(t);onEditNavigate&&onEditNavigate(t);}} style={{background:"#EBF0FF",color:"#2D5DDC",border:"none",borderRadius:7,padding:"4px 12px",fontSize:12,cursor:"pointer",fontWeight:700}}>Edit</button>
+                        <button onClick={()=>deleteTest(t.id)} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:7,padding:"4px 12px",fontSize:12,cursor:"pointer",fontWeight:700}}>Delete</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            );
-          })}
+            ));
+          })()}
         </div>
       )}
 
-      {/* Type tabs */}
-      <div style={{display:"flex",gap:0,borderBottom:`2px solid ${C.s200}`,marginBottom:24}}>
+      {/* Type tabs + form */}
+      {mode!=="library"&&(<><div style={{display:"flex",gap:4,background:C.s100,borderRadius:12,padding:4,marginBottom:24}}>
         {["Reading","Writing","Listening"].map(t=>(
           <button key={t} onClick={()=>setActiveType(t)} style={{
-            padding:"10px 24px",border:"none",cursor:"pointer",fontSize:13,fontWeight:activeType===t?700:500,
-            color:activeType===t?typeColor(t):C.s400,
-            borderBottom:`2px solid ${activeType===t?typeColor(t):"transparent"}`,
-            background:"transparent",marginBottom:-2,transition:"all .15s",
+            padding:"9px 22px",border:"none",cursor:"pointer",fontSize:13,fontWeight:activeType===t?700:500,
+            color:activeType===t?typeColor(t):C.s400,borderRadius:9,
+            background:activeType===t?C.surface:"transparent",
+            boxShadow:activeType===t?"0 1px 4px rgba(0,0,0,.08)":"none",transition:"all .15s",
           }}>{t==="Reading"?"📖 Reading":t==="Writing"?"✍️ Writing":"🎧 Listening"}</button>
         ))}
       </div>
@@ -8304,7 +9651,7 @@ function AddTestManager() {
           </div>
 
           {rPassages.map((p,i)=>{
-            const qStart=rPassages.slice(0,i).reduce((s,pp)=>s+(pp.questions||[]).length,0)+1;
+            const qStart=rPassages.slice(0,i).reduce((s,pp)=>s+countQs(pp.questions),0)+1;
             return <PassageCard key={p.id} passage={p} idx={i} total={rPassages.length}
               onUpdate={(k,v)=>updatePassage(p.id,k,v)}
               onDelete={()=>deletePassage(p.id)}
@@ -8335,7 +9682,7 @@ function AddTestManager() {
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
 
           {/* ── Task 1 Panel ── */}
-          <div style={{...cardStyle({padding:24,borderTop:`4px solid ${C.brand}`})}}>
+          <div style={{...cardStyle({padding:24,borderTop:"4px solid #2D5DDC"})}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
               <span style={{...tagStyle(),fontSize:12}}>Task 1</span>
               <span style={{fontSize:14,fontWeight:800,color:C.s900}}>Academic Writing Task 1</span>
@@ -8366,7 +9713,7 @@ function AddTestManager() {
                   <button onClick={()=>setWT1Image(null)} style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,.65)",color:"#fff",border:"none",borderRadius:6,padding:"4px 10px",fontSize:12,cursor:"pointer",fontWeight:700}}>✕</button>
                 </div>
               ):(
-                <label style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,border:`2px dashed ${C.brand}40`,borderRadius:12,padding:"22px 16px",cursor:"pointer",background:C.brandL}}>
+                <label style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,border:"2px dashed #2D5DDC40",borderRadius:12,padding:"22px 16px",cursor:"pointer",background:"#EBF0FF"}}>
                   <span style={{fontSize:28}}>🖼️</span>
                   <span style={{fontSize:12,color:C.s600,fontWeight:600}}>Upload chart / graph / diagram</span>
                   <span style={{fontSize:11,color:C.s400}}>PNG · JPG · GIF</span>
@@ -8437,19 +9784,19 @@ function AddTestManager() {
 
           {/* Audio Mode Toggle */}
           <div style={{...cardStyle({padding:16,marginBottom:16,borderLeft:`4px solid ${C.teal}`})}}>
-            <div style={{fontWeight:700,fontSize:13,color:C.s900,marginBottom:10}}>🎵 Audio Mode</div>
+            <div style={{fontWeight:700,fontSize:13,color:C.s900,marginBottom:10,display:"flex",alignItems:"center",gap:6}}><Music size={14}/>Audio Mode</div>
             <div style={{display:"flex",gap:10}}>
               {[
-                {mode:"per_section",label:"🔊 Separate audio per section",desc:"Each section plays its own audio file"},
-                {mode:"single",     label:"🎧 One continuous audio",       desc:"One file plays straight through all sections"},
-              ].map(({mode,label,desc})=>(
+                {mode:"per_section", icon:<Layers size={14}/>,    label:"Separate audio per section", desc:"Each section plays its own audio file"},
+                {mode:"single",      icon:<Headphones size={14}/>, label:"One continuous audio",       desc:"One file plays straight through all sections"},
+              ].map(({mode,icon,label,desc})=>(
                 <button key={mode} onClick={()=>setLAudioMode(mode)} style={{
                   flex:1,padding:"10px 14px",border:`2px solid ${lAudioMode===mode?C.teal:C.s200}`,
                   borderRadius:10,cursor:"pointer",textAlign:"left",
                   background:lAudioMode===mode?C.tealL:C.surface,
                   transition:"all .15s",
                 }}>
-                  <div style={{fontWeight:700,fontSize:12,color:lAudioMode===mode?C.teal:C.s600,marginBottom:2}}>{label}</div>
+                  <div style={{fontWeight:700,fontSize:12,color:lAudioMode===mode?C.teal:C.s600,marginBottom:2,display:"flex",alignItems:"center",gap:5}}>{icon}{label}</div>
                   <div style={{fontSize:11,color:C.s400}}>{desc}</div>
                 </button>
               ))}
@@ -8464,7 +9811,13 @@ function AddTestManager() {
               {lAudioUrl?(
                 <div>
                   <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-                    <audio controls src={lAudioUrl} style={{flex:1,minWidth:200,height:34}}/>
+                    {isYouTubeUrl(lAudioUrl)?(
+                      <iframe src={youTubeEmbedUrl(lAudioUrl,false)} style={{flex:1,height:80,border:"none",borderRadius:8,minWidth:200}} title="Audio preview"/>
+                    ):isGoogleDriveUrl(lAudioUrl)?(
+                      <iframe src={googleDriveEmbedUrl(lAudioUrl)} style={{flex:1,height:60,border:"none",borderRadius:8,minWidth:200}} title="Audio preview"/>
+                    ):(
+                      <audio controls src={lAudioUrl} style={{flex:1,minWidth:200,height:34}}/>
+                    )}
                     <button onClick={removeListeningAudio} style={{background:C.roseL,color:C.rose,border:"none",borderRadius:8,padding:"5px 12px",fontSize:11,cursor:"pointer",fontWeight:700}}>✕ Remove</button>
                   </div>
                   {(lAudioUrl.startsWith("blob:")||lAudioUrl.startsWith("data:"))?(
@@ -8472,20 +9825,33 @@ function AddTestManager() {
                       ⚠️ <strong>Local file only</strong> — remove and re-upload so it saves to cloud storage.
                     </div>
                   ):(
-                    <div style={{fontSize:11,color:C.teal,fontWeight:600,marginTop:4}}>✓ Saved to cloud — accessible to all students</div>
+                    <div style={{fontSize:11,color:C.teal,fontWeight:600,marginTop:4}}>
+                      {isYouTubeUrl(lAudioUrl)?"✓ YouTube link — will play as embedded video":isGoogleDriveUrl(lAudioUrl)?"✓ Google Drive link — will play as embedded audio":"✓ Saved to cloud — accessible to all students"}
+                    </div>
                   )}
                 </div>
               ):(
-                <label style={{display:"inline-flex",alignItems:"center",gap:8,background:C.s100,border:`1.5px dashed ${C.s200}`,borderRadius:10,padding:"9px 18px",cursor:"pointer",fontSize:12,color:C.s600,fontWeight:600}}>
-                  {lAudioUploading?"Uploading…":"⬆ Upload Audio (MP3/WAV/M4A)"}
-                  <input type="file" accept="audio/*" onChange={uploadListeningAudio} style={{display:"none"}} disabled={lAudioUploading}/>
-                </label>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  <label style={{display:"inline-flex",alignItems:"center",gap:8,background:C.s100,border:`1.5px dashed ${C.s200}`,borderRadius:10,padding:"9px 18px",cursor:"pointer",fontSize:12,color:C.s600,fontWeight:600,alignSelf:"flex-start"}}>
+                    {lAudioUploading?"Uploading…":"⬆ Upload Audio (MP3/WAV/M4A)"}
+                    <input type="file" accept="audio/*" onChange={uploadListeningAudio} style={{display:"none"}} disabled={lAudioUploading}/>
+                  </label>
+                  <div style={{fontSize:11,color:C.s400,fontWeight:600,textAlign:"center",alignSelf:"flex-start",paddingLeft:4}}>— or paste a link —</div>
+                  <div style={{display:"flex",gap:8}}>
+                    <input id="lAudioUrlInput" placeholder="YouTube, Google Drive, or direct audio URL"
+                      style={{flex:1,border:`1.5px solid ${C.s200}`,borderRadius:10,padding:"9px 14px",fontSize:12,outline:"none",background:C.surface,color:C.s900}}/>
+                    <button onClick={()=>{const v=document.getElementById("lAudioUrlInput")?.value?.trim();if(v){setLAudioUrl(v);const db=loadDB();db.listeningAudioUrl=v;try{localStorage.setItem(DB_KEY,JSON.stringify(db));}catch{}saveDBNow(db).catch(()=>{});}}}
+                      style={{background:C.teal,color:"#fff",border:"none",borderRadius:10,padding:"9px 16px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                      Use Link
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           )}
 
           {lSections.map((s,i)=>{
-            const qStart=lSections.slice(0,i).reduce((sum,ss)=>sum+(ss.questions||[]).length,0)+1;
+            const qStart=lSections.slice(0,i).reduce((sum,ss)=>sum+countQs(ss.questions),0)+1;
             return <SectionCard key={s.id} section={s} idx={i} total={lSections.length}
               onUpdate={(k,v)=>updateSection(s.id,k,v)}
               onDelete={()=>deleteSection(s.id)}
@@ -8512,55 +9878,14 @@ function AddTestManager() {
           </div>
         </div>
       )}
+      </>)}
     </div>
   );
 }
 
-// ── HOME PAGE ─────────────────────────────────────────────────────────────────
-function Home({ onStart, onAdmin }) {
-  return (
-    <div className="home-hero" style={{minHeight:"calc(100vh - 64px)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px"}}>
-      <div style={{maxWidth:680,width:"100%",textAlign:"center"}}>
-        <h1 className="home-h1" aria-label="IELTS Academic Practice Test" style={{fontSize:52,fontWeight:900,color:C.s900,letterSpacing:"-0.04em",lineHeight:1.1,marginBottom:16}}>
-          IELTS Academic<br/>
-          <span style={{background:`linear-gradient(135deg,${C.lc},#11CD87,${C.lc})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>
-            Practice Test
-          </span>
-        </h1>
-        <p className="home-sub" style={{color:C.s600,fontSize:16,lineHeight:1.8,maxWidth:480,margin:"0 auto 44px",fontWeight:500}}>
-          Real IELTS questions. AI-powered writing feedback. Instant band scores. Speaking test booking.
-        </p>
-
-        <div className="home-grid" style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,maxWidth:560,margin:"0 auto 40px",textAlign:"left"}}>
-          {[
-            ["🎧","Listening","40 Questions"],
-            ["📖","Reading","40 Questions"],
-            ["✍️","Writing","2 Tasks · AI Evaluated"],
-            ["🗓️","Speaking","Book with Examiner"],
-          ].map(([icon,title,sub])=>(
-            <div key={title} className="home-grid-card" style={{...cardStyle({padding:20,transition:"all .2s",cursor:"default"})}}>
-              <div style={{fontSize:26,marginBottom:10}} aria-hidden="true">{icon}</div>
-              <div style={{fontWeight:800,color:C.s900,marginBottom:4,fontSize:14}}>{title}</div>
-              <div style={{color:C.lc,fontSize:12,fontWeight:700}}>{sub}</div>
-            </div>
-          ))}
-        </div>
-
-        <button type="button" onClick={onStart} className="home-cta" style={{
-          ...btnStyle("primary"),
-          padding:"15px 56px",fontSize:16,borderRadius:14,
-          background:`linear-gradient(135deg,${C.lc},#11CD87)`,
-          boxShadow:`0 8px 24px rgba(0,191,178,.4)`,
-        }}>
-          Begin Test →
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // ── APP ROOT ──────────────────────────────────────────────────────────────────
-const STEPS = ["Registration","Lobby","Listening","Reading","Writing","Speaking","Preparing","Results"];
+export const STEPS = ["Registration","Lobby","Listening","Reading","Writing","Speaking","Preparing","Results"];
 
 // Peek at assignment status — only explicit admin assignments unlock the test
 // (no side effects, no mark-used)
@@ -8648,7 +9973,7 @@ function buildSuiteData(suite, db) {
 }
 
 // ── TEST LOBBY ────────────────────────────────────────────────────────────────
-function TestLobby({ candidate, onStart }) {
+export function TestLobby({ candidate, onStart }) {
   const [info, setInfo] = useState(()=>peekAssignment(candidate.email));
   const [lastChecked, setLastChecked] = useState(new Date());
   const [pulse, setPulse] = useState(false);
@@ -8761,50 +10086,41 @@ export default function App() {
   const [dbReady, setDbReady]       = useState(false);
   const [loadError, setLoadError]   = useState(false);
   const [offline, setOffline]       = useState(!navigator.onLine);
-  const [view, setView]             = useState("home");
-  const [step, setStep]             = useState(0);
-  const [candidate, setCand]        = useState(null);
-  const [activeSuite, setActiveSuite] = useState(null);
-  const [scores, setScores]         = useState({});
-  const [booking, setBooking]       = useState(null);
-  const [exitConfirm, setExitConfirm] = useState(false);
-  const [exitReason, setExitReason]   = useState("manual"); // "manual" | "fullscreen"
-  const [breakNext, setBreakNext]     = useState(null); // {label, step} — shown between sections
-  const [speakingExamDone, setSpeakingExamDone] = useState(false);
-  const [speakingBand, setSpeakingBand] = useState(null);
-  const sessionIdRef   = useRef(null); // stable ID for upsert across partial saves
-  const scoresRef      = useRef({});   // mirror of scores state for use inside callbacks
-  const activeSuiteRef = useRef(null); // mirrors activeSuite for use inside async callbacks
 
-  // Track whether we are programmatically exiting fullscreen (normal flow) vs user pressing Escape
-  const programmaticExitRef = useRef(false);
+  // ── ROUTER ────────────────────────────────────────────────────────────────────
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Derive current view from URL — replaces the old `view` useState
+  const view = (() => {
+    const p = location.pathname;
+    if (p.startsWith("/admin"))   return "admin";
+    if (p.startsWith("/student")) return "student";
+    if (p === "/login")           return "login";
+    if (p === "/signup")          return "signup";
+    if (p === "/test")            return "test";
+    return "home";
+  })();
+
+  // Student session — lazy-init from localStorage so there's no redirect flash on refresh
+  const [studentUser, setStudentUser] = useState(() =>
+    isStudentLoggedIn() ? getStudentSession() : null
+  );
 
   useEffect(()=>{
-    const setupRouting = () => {
-      window.history.replaceState({view:"home",step:0},"");
-      if(window.location.hash==="#admin"||window.location.pathname.endsWith("/admin")){
-        setView("admin");
-      }
-    };
+    // Legacy #admin hash support — redirect to the proper /admin URL
+    if(window.location.hash==="#admin") navigate("/admin", {replace:true});
 
     const hasCachedData = quickInit(); // true if localStorage had data
-
     if(hasCachedData) {
       // Returning visitor: show instantly with cached data, refresh Supabase in background
       setDbReady(true);
-      setupRouting();
       initDB().catch(e=>console.warn("[App] background initDB error:",e));
     } else {
       // First visit / incognito: wait for Supabase so screen isn't blank
-      setupRouting();
       const timeout = setTimeout(()=>setDbReady(true), 12000); // failsafe
-      initDB().then(()=>{
-        clearTimeout(timeout);
-        setDbReady(true);
-      }).catch(()=>{
-        clearTimeout(timeout);
-        setDbReady(true);
-      });
+      initDB().then(()=>{ clearTimeout(timeout); setDbReady(true); })
+        .catch(()=>{ clearTimeout(timeout); setDbReady(true); });
     }
   },[]);
 
@@ -8816,82 +10132,6 @@ export default function App() {
     return ()=>{ window.removeEventListener("online",on); window.removeEventListener("offline",off); };
   },[]);
 
-  // Push a history entry whenever view or step changes so the back button works
-  const isFirstRender = useRef(true);
-  useEffect(()=>{
-    if(isFirstRender.current){ isFirstRender.current=false; return; }
-    window.history.pushState({view,step},"");
-  },[view,step]);
-
-  // Handle browser back button
-  useEffect(()=>{
-    const handler = e => {
-      const state = e.state||{view:"home",step:0};
-      // During active exam → intercept back, show exit modal
-      setStep(cur=>{
-        setView(v=>{
-          const examOn = v==="test" && cur>=2 && cur<=5;
-          if(examOn){
-            window.history.pushState({view:v,step:cur},""); // re-push so back still works
-            setExitReason("manual");
-            setExitConfirm(true);
-            return v;
-          }
-          return state.view||"home";
-        });
-        return state.step??0;
-      });
-    };
-    window.addEventListener("popstate", handler);
-    return ()=>window.removeEventListener("popstate", handler);
-  },[]);
-
-  // Block right-click and DevTools shortcuts during exam
-  useEffect(()=>{
-    const examOn = ()=>{ let active=false; setStep(s=>{ active=s>=2&&s<=5; return s; }); return active; };
-    const noCtx = e=>{ if(examOn()) e.preventDefault(); };
-    const noKey = e=>{
-      if(!examOn()) return;
-      // Block F12, Ctrl+Shift+I/J/C/U, Ctrl+U (view source)
-      if(e.key==="F12"||
-         (e.ctrlKey&&e.shiftKey&&["I","J","C","i","j","c"].includes(e.key))||
-         (e.ctrlKey&&["u","U"].includes(e.key))){
-        e.preventDefault();
-      }
-    };
-    document.addEventListener("contextmenu", noCtx);
-    document.addEventListener("keydown", noKey);
-    return ()=>{
-      document.removeEventListener("contextmenu", noCtx);
-      document.removeEventListener("keydown", noKey);
-    };
-  },[]);
-
-  // Exit fullscreen when results screen is shown — must be before any conditional returns
-  useEffect(()=>{
-    if(step===7){ programmaticExitRef.current=true; exitFullscreen(); }
-  },[step]);
-
-  // Detect when user manually exits fullscreen during an active exam → show interrupt modal
-  // Skip entirely on iOS — fullscreen API not supported, would fire immediately
-  useEffect(()=>{
-    if(isIOS) return;
-    const handler = () => {
-      if(document.fullscreenElement) return; // still in fullscreen — ignore
-      if(programmaticExitRef.current){ programmaticExitRef.current=false; return; } // we triggered it
-      // Check if exam is active (steps 2–5, not on results or lobby)
-      setStep(s=>{
-        if(s>=2&&s<=5){ setExitReason("fullscreen"); setExitConfirm(true); }
-        return s;
-      });
-    };
-    document.addEventListener("fullscreenchange", handler);
-    document.addEventListener("webkitfullscreenchange", handler);
-    return ()=>{
-      document.removeEventListener("fullscreenchange", handler);
-      document.removeEventListener("webkitfullscreenchange", handler);
-    };
-  },[]);
 
   if(!dbReady) return (
     <div style={{minHeight:"100vh",background:"#0F172A",display:"flex",flexDirection:"column",
@@ -8904,140 +10144,163 @@ export default function App() {
             Check your internet connection and try again.
           </div>
           <button type="button" onClick={()=>window.location.reload()} style={{
-            background:"#11CD87",color:"#064E3B",border:"none",borderRadius:12,
+            background:"#2D5DDC",color:"#fff",border:"none",borderRadius:12,
             padding:"12px 32px",fontSize:14,fontWeight:800,cursor:"pointer",minHeight:44,
           }}>Try Again</button>
         </div>
       ):(
-        <div role="status" aria-live="polite" aria-label="Loading platform">
-          <div aria-hidden="true" style={{width:48,height:48,border:"4px solid rgba(17,205,135,.2)",borderTopColor:"#11CD87",
-            borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
-          <div aria-hidden="true" style={{color:"rgba(255,255,255,.5)",fontSize:14,fontWeight:600}}>Loading platform…</div>
-          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        <div role="status" aria-live="polite" aria-label="Loading platform" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:24,textAlign:"center"}}>
+          <div style={{fontSize:72,lineHeight:1,animation:"owlBob 2.4s ease-in-out infinite",userSelect:"none"}} aria-hidden="true">🦉</div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#2D5DDC,#1a3fa8)",
+              display:"flex",alignItems:"center",justifyContent:"center",
+              boxShadow:"0 4px 16px rgba(45,93,220,.4)",flexShrink:0}}>
+              <span style={{color:"#fff",fontWeight:900,fontSize:18,letterSpacing:"-0.03em"}}>L</span>
+            </div>
+            <span style={{color:"#fff",fontWeight:800,fontSize:18,letterSpacing:"-0.03em"}}>LingvoConnect</span>
+          </div>
+          <div style={{height:20,position:"relative",width:320,overflow:"hidden"}} aria-hidden="true">
+            {[
+              "Teaching the server to spell 'accommodation'…",
+              "Bribing the AI examiner for a band 9…",
+              "Sharpening 40 virtual pencils…",
+              "Converting coffee into IELTS scores…",
+              "Convincing the parrot to stop saying 'band 6.5'…",
+              "Loading vocabulary: ubiquitous, ephemeral…",
+              "Making sure the examiner had breakfast…",
+            ].map((msg,i)=>(
+              <div key={i} style={{
+                position:"absolute",width:"100%",textAlign:"center",
+                color:"rgba(255,255,255,.45)",fontSize:12,fontWeight:500,
+                animation:`msgCycle 14s ${i*2}s ease-in-out infinite`,opacity:0,
+              }}>{msg}</div>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:8}} aria-hidden="true">
+            {[0,1,2].map(i=>(
+              <div key={i} style={{width:8,height:8,borderRadius:"50%",background:"#2D5DDC",
+                animation:`dotPulse 1.4s ${i*0.22}s ease-in-out infinite`}}/>
+            ))}
+          </div>
+          <style>{`
+            @keyframes owlBob{
+              0%,100%{transform:translateY(0) rotate(0deg)}
+              30%{transform:translateY(-10px) rotate(-6deg)}
+              70%{transform:translateY(-5px) rotate(6deg)}
+            }
+            @keyframes dotPulse{
+              0%,80%,100%{transform:scale(0.7);opacity:0.35}
+              40%{transform:scale(1.25);opacity:1}
+            }
+            @keyframes msgCycle{
+              0%{opacity:0;transform:translateY(8px)}
+              4%{opacity:1;transform:translateY(0)}
+              11%{opacity:1;transform:translateY(0)}
+              15%{opacity:0;transform:translateY(-8px)}
+              100%{opacity:0;transform:translateY(8px)}
+            }
+          `}</style>
         </div>
       )}
     </div>
   );
 
-  // After registration form → go to lobby (step 1)
-  const handleRegComplete = (info) => {
-    const regId = genId("REG");
-    const regRecord = {
-      id: regId,
-      candidate: info,
-      status: "registered",
-      registeredAt: new Date().toISOString(),
-      timestamp: Date.now(),
-      date: new Date().toLocaleDateString("en-GB"),
-    };
+  // Student portal handlers
+  const handleStudentLogin = (student) => {
+    setStudentUser(student);
+    navigate("/student"); // view logic handles pending/force_pw_change from studentUser.status
+  };
+  const handlePasswordChanged = () => {
+    const updated = getStudentSession();
+    setStudentUser({ ...(updated || studentUser), force_pw_change: false });
+  };
+  const handleStudentLogout = () => {
+    clearStudentSession();
+    setStudentUser(null);
+    navigate("/");
+  };
+  const handleStudentStartTest = async ({ assignment, candidateInfo }) => {
+    const mc = assignment.auto_save?.moduleConfig || null;
+    const effectiveAssignment = mc ? { ...assignment, ...mc } : assignment;
+    const suiteId = assignment.suiteId || assignment.test_suite_id;
 
-    // 1. Update _db immediately and notify all listeners (admin dashboard updates live)
-    const liveDb = loadDB();
-    liveDb.participants = [regRecord, ...(liveDb.participants||[])];
-    try{ localStorage.setItem(DB_KEY, JSON.stringify(liveDb)); }catch{}
-    notifyDbChange(); // push to any open admin dashboard on this device
+    const tryBuild = (db) => effectiveAssignment.singleModule
+      ? buildModuleData(effectiveAssignment, db)
+      : (() => {
+          const suite = (db.testSuites||[]).find(s => s.id === suiteId);
+          return suite ? buildSuiteData(suite, db) : null;
+        })();
 
-    // 2. Move student to Lobby instantly — no waiting for Supabase
-    setCand(info);
-    setStep(1);
+    // singleModule string is NOT content — only actual test data objects count
+    const hasContent = (r) => r && (r.readingData || r.writingData || r.listeningData);
 
-    // 3. Save to Supabase — row insert + blob signal so admin Realtime fires immediately
-    const saveToCloud = async () => {
-      const email = (info?.email||"").toLowerCase().trim();
-      if(supabase) {
-        // Insert individual row
-        for(let attempt=0; attempt<3; attempt++){
-          try{
-            if(attempt>0) await new Promise(r=>setTimeout(r,1000*attempt));
-            const rowId = regId + "-" + Date.now().toString(36);
-            const {error} = await supabase.from("participants").insert({id:rowId, email, type:"registration", data:regRecord});
-            if(!error){ console.log("[Reg] row saved on attempt",attempt+1); break; }
-            console.warn(`[Reg] row insert attempt ${attempt+1} failed:`, error.message);
-          }catch(e){ console.warn(`[Reg] row insert attempt ${attempt+1} error:`,e); }
-        }
-        // Signal admins via blob Realtime — tiny write, triggers cross-device refresh instantly
-        _flushConfig({...loadDB(), _lastRegTs: Date.now()});
+    // Fast path: use already-loaded DB (avoids network call when Phase 2 already ran)
+    let db = loadDB();
+    let resolvedSuite = tryBuild(db);
+
+    if (!hasContent(resolvedSuite)) {
+      // Tests not yet in memory — fetch fresh from Supabase, retry once if first attempt fails
+      console.log("[StartTest] tests not in memory, fetching fresh. db.tests:", db.tests?.length, "suiteId:", suiteId);
+      _invalidateTestItemCache();
+      await reloadDB();
+      db = loadDB();
+      resolvedSuite = tryBuild(db);
+
+      // If still no tests, wait 3s and retry (Supabase may have been waking from pause)
+      if (!hasContent(resolvedSuite) && (db.tests?.length||0) === 0) {
+        console.log("[StartTest] still no tests after reload, waiting 3s and retrying...");
+        await new Promise(r => setTimeout(r, 3000));
+        _invalidateTestItemCache();
+        await reloadDB();
+        db = loadDB();
+        resolvedSuite = tryBuild(db);
       }
-    };
-    saveToCloud();
-  };
-
-  // Auto-save partial results after each module so admin sees data even if student abandons
-  const autoSave = async (updatedScores) => {
-    if(!candidate) return;
-    scoresRef.current = updatedScores;
-    if(!sessionIdRef.current) sessionIdRef.current = genId("IELTS");
-    const L = updatedScores.listening||null;
-    const R = updatedScores.reading||null;
-    const W = updatedScores.writing||null;
-    const bands = [
-      L ? listeningBand(L.correct, L.total) : null,
-      R ? readingBand(R.correct, R.total) : null,
-      W?.band ?? null,
-    ].filter(b=>b!=null);
-    const partial = {
-      id: sessionIdRef.current,
-      candidate, status:"in_progress",
-      date: new Date().toLocaleDateString("en-GB"),
-      timestamp: Date.now(),
-      suiteId: activeSuiteRef.current?.id||null,
-      ...(L ? {listeningScore:`${L.correct}/${L.total}`, listeningBand:listeningBand(L.correct,L.total), listeningAnswers:L.answers, allListeningQuestions:L.allQuestions||[]} : {}),
-      ...(R ? {readingScore:`${R.correct}/${R.total}`,   readingBand:readingBand(R.correct,R.total),     readingAnswers:R.answers,   allReadingQuestions:R.allQuestions||[]}   : {}),
-      ...(W ? {writingBand:W.band, writingTexts:W.texts, writingFeedback:W.aiFeedback, writingAiDetection:W.aiDetection} : {}),
-      overall: bands.length ? overallBand(bands) : null,
-    };
-    // Save to memory + localStorage
-    const curDbAS = loadDB();
-    curDbAS.participants = [partial, ...(curDbAS.participants||[]).filter(p=>p.id!==partial.id)];
-    try { localStorage.setItem(DB_KEY, JSON.stringify(curDbAS)); } catch{}
-    notifyDbChange();
-    // Supabase INSERT — always fresh row ID to bypass RLS UPDATE block
-    if(supabase) {
-      try {
-        const email=(candidate.email||"").toLowerCase().trim();
-        const rowId = partial.id + "-" + Date.now().toString(36);
-        const {error} = await supabase.from("participants").insert({id:rowId, email, type:"attempt", data:partial});
-        if(error) console.warn("[autoSave] Supabase insert failed:", error.message);
-      } catch(e) { console.warn("[autoSave] Supabase error:", e); }
     }
-  };
 
-  // From lobby "Begin Test" → enter fullscreen ONCE for the whole exam → advance to listening
-  const handleStartTest = () => {
-    sessionIdRef.current = genId("IELTS"); // fresh session ID for each test run
-    scoresRef.current = {};                // clear any stale scores from previous session
-    setScores({});
-    const suite = resolveTestSuite(candidate.email);
-    setActiveSuite(suite);
-    activeSuiteRef.current = suite;
+    console.log("[StartTest] suiteId:", suiteId, "db.tests:", db.tests?.length, "db.testSuites:", db.testSuites?.length);
+    console.log("[StartTest] resolvedSuite:", resolvedSuite ? {readingData:!!resolvedSuite.readingData, writingData:!!resolvedSuite.writingData, listeningData:!!resolvedSuite.listeningData} : null);
+
+    if (!resolvedSuite) {
+      alert("Test data not found. Please contact your administrator.\n\nSuite ID: " + suiteId + "\nSuites in DB: " + (db.testSuites?.length||0));
+      return;
+    }
+    if (!hasContent(resolvedSuite)) {
+      alert("Test content could not be loaded. Please refresh the page and try again.\n\nIf the problem persists, ask your admin to click 'Sync Tests to Cloud' in the Tests panel.\n\nDiagnostics: Tests in DB=" + (db.tests?.length||0) + " | Suite=" + (resolvedSuite?.name||suiteId) + " | Reading=" + !!resolvedSuite?.readingData + " | Writing=" + !!resolvedSuite?.writingData + " | Listening=" + !!resolvedSuite?.listeningData);
+      return;
+    }
+
+    const mod = effectiveAssignment.singleModule;
+    const initialStep = mod === "reading" ? 3
+      : (mod === "writing1" || mod === "writing2") ? 4
+      : 2; // listening or full suite
+    sessionStorage.setItem("ielts_test_init", JSON.stringify({
+      candidateInfo,
+      assignmentId: assignment.id,
+      resolvedSuite,
+      sessionId: genId("IELTS"),
+      initialStep,
+    }));
     enterFullscreen();
-    // Single-module: jump straight to the relevant step
-    const mod = suite?.singleModule;
-    if(mod==="reading")              setStep(3);
-    else if(mod==="writing1"||mod==="writing2") setStep(4);
-    else                             setStep(2); // full suite or listening-only
+    navigate("/test");
   };
 
-  // Confirm exit exam — exits fullscreen and resets everything
-  const handleExitExam = () => {
-    programmaticExitRef.current = true;
-    exitFullscreen();
-    setExitConfirm(false);
-    setView("home");
-    setStep(0);
-    setCand(null);
-    setActiveSuite(null);
-    setScores({});
-    setBooking(null);
-    setBreakNext(null);
-    setSpeakingExamDone(false);
-    setSpeakingBand(null);
-  };
+  if(view==="admin") return <AdminDashboard onExit={()=>navigate("/")}/>;
 
-  if(view==="admin") return <AdminDashboard onExit={()=>{ window.location.hash=""; setView("home"); }}/>;
+  if(view==="signup") return <SignUpForm onBack={()=>navigate("/")}/>;
 
-  // Is the exam actively running (steps 2–5 = Listening/Reading/Writing/Speaking, or on break)
-  const examActive = view==="test" && (step>=2 && step<=5 || breakNext!==null);
+  // /login — show login form; redirect to /student if already authenticated
+  if(view==="login") {
+    if(studentUser && studentUser.status !== "pending") return <Navigate to="/student" replace/>;
+    return <StudentLogin onLogin={handleStudentLogin} onBack={()=>navigate("/")} onSignUp={()=>navigate("/signup")}/>;
+  }
+
+  // Student portal routing — /student and all /student/* paths
+  if(view==="student") {
+    if(!studentUser) return <Navigate to="/login" replace/>;
+    if(studentUser.status==="pending") return <PendingApprovalScreen student={studentUser} onLogout={handleStudentLogout}/>;
+    if(studentUser.force_pw_change) return <ChangePasswordScreen student={studentUser} onDone={handlePasswordChanged}/>;
+    return <StudentDashboard student={studentUser} onStartTest={handleStudentStartTest} onLogout={handleStudentLogout}/>;
+  }
 
   // Maintenance mode — admin can still access via #admin in URL
   if(MAINTENANCE_MODE && view !== "admin") return <MaintenanceScreen />;
@@ -9052,120 +10315,11 @@ export default function App() {
         </div>
       )}
       <header>
-        <TopBar onAdmin={()=>setView("admin")}/>
+        <TopBar onAdmin={()=>navigate("/admin")} onLogin={()=>navigate("/login")} onSignUp={()=>navigate("/signup")}/>
       </header>
 
-      {/* Exit Exam button is now inline in each SectionHeader */}
-
-      {/* Exit confirmation modal */}
-      {exitConfirm&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.85)",zIndex:9999,
-          display:"flex",alignItems:"center",justifyContent:"center",padding:24,backdropFilter:"blur(6px)"}}>
-          <div style={{background:"#fff",borderRadius:20,padding:36,maxWidth:440,width:"100%",
-            textAlign:"center",boxShadow:"0 24px 80px rgba(0,0,0,.5)",animation:"fadeUp .2s ease both"}}>
-            {exitReason==="fullscreen"?(
-              <>
-                <div style={{fontSize:52,marginBottom:12}}>🚫</div>
-                <h2 style={{fontSize:22,fontWeight:800,color:C.s900,marginBottom:10,letterSpacing:"-0.02em"}}>
-                  Test Interrupted
-                </h2>
-                <p style={{fontSize:14,color:C.s600,lineHeight:1.7,marginBottom:24}}>
-                  You exited full-screen mode.<br/>
-                  <strong style={{color:C.rose}}>The exam must be taken in full-screen.</strong><br/>
-                  Return to full-screen to continue, or exit the exam.
-                </p>
-              </>
-            ):(
-              <>
-                <div style={{fontSize:48,marginBottom:16}}>⚠️</div>
-                <h2 style={{fontSize:22,fontWeight:800,color:C.s900,marginBottom:10,letterSpacing:"-0.02em"}}>
-                  Exit Exam?
-                </h2>
-                <p style={{fontSize:14,color:C.s600,lineHeight:1.7,marginBottom:28}}>
-                  Are you sure you want to close the exam?<br/>
-                  <strong style={{color:C.rose}}>Your progress will be lost</strong> and you will return to the home screen.
-                </p>
-              </>
-            )}
-            <div style={{display:"flex",gap:12}}>
-              <button type="button" onClick={()=>{ setExitConfirm(false); if(exitReason==="fullscreen") enterFullscreen(); }} style={{
-                flex:1,padding:"13px",borderRadius:12,border:`2px solid ${C.s200}`,
-                background:"#fff",color:C.s800,fontSize:14,fontWeight:700,cursor:"pointer",
-              }}>
-                {exitReason==="fullscreen"?"↩ Return to Full-Screen":"← Continue Exam"}
-              </button>
-              <button type="button" onClick={handleExitExam} style={{
-                flex:1,padding:"13px",borderRadius:12,border:"none",
-                background:C.rose,color:"#fff",fontSize:14,fontWeight:800,cursor:"pointer",
-              }}>
-                Yes, Exit Exam
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <main id="main-content">
-      {view==="home"&&<Home onStart={()=>setView("test")} onAdmin={()=>setView("admin")}/>}
-      {view==="test"&&(
-        <>
-          <StepNav step={step} steps={STEPS}/>
-          {step===0&&<Registration onNext={handleRegComplete}/>}
-          {step===1&&candidate&&<TestLobby candidate={candidate} onStart={handleStartTest}/>}
-          {/* Break screen between sections */}
-          {breakNext&&(
-            <BreakScreen nextSection={breakNext.label} onContinue={()=>{ setStep(breakNext.step); setBreakNext(null); }}/>
-          )}
-          {!breakNext&&step===2&&<ListeningTest testData={activeSuite?.listeningData} candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={r=>{const ns={...scoresRef.current,listening:r}; setScores(ns); autoSave(ns); activeSuite?.singleModule?setStep(7):setBreakNext({label:"Reading Test",step:3});}}/>}
-          {!breakNext&&step===3&&<ReadingTest   testData={activeSuite?.readingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onAutoSave={r=>{const ns={...scoresRef.current,reading:r}; setScores(ns); autoSave(ns);}} onComplete={r=>{const ns={...scoresRef.current,reading:r};  setScores(ns); autoSave(ns); activeSuite?.singleModule?setStep(7):setBreakNext({label:"Writing Test",step:4});}}/>}
-          {!breakNext&&step===4&&<WritingTest   testData={activeSuite?.writingData}   candidateInfo={candidate} onExit={()=>{setExitReason("manual");setExitConfirm(true);}} onComplete={w=>{const ns={...scoresRef.current,writing:w};  setScores(ns); autoSave(ns); activeSuite?.singleModule?setStep(6):setStep(5);}}/>}
-          {!breakNext&&step===5&&!speakingExamDone&&(()=>{
-            const aiSpeakingOn = !!(loadDB().aiSpeakingEnabled);
-            if(!aiSpeakingOn) { setTimeout(()=>setSpeakingExamDone(true),0); return null; }
-            return (
-              <SpeakingExam
-                candidateInfo={candidate}
-                onComplete={r=>{setSpeakingBand(r.speakingBand); setSpeakingExamDone(true);}}
-                onSkip={()=>setSpeakingExamDone(true)}
-              />
-            );
-          })()}
-          {!breakNext&&step===5&&speakingExamDone&&(
-            <SpeakingBooking candidateInfo={candidate} onComplete={b=>{setBooking(b);setStep(6);}}/>
-          )}
-          {/* Step 6: AI checks writing in background — "results on the way" screen */}
-          {/* Use scoresRef.current (not React state) — state may lag after async await */}
-          {step===6&&(
-            <ResultsLoading
-              writingTexts={scoresRef.current.writing?.texts}
-              writingTaskData={scoresRef.current.writing?.taskData||activeSuite?.writingData}
-              onComplete={async aiResult=>{
-                const ns = {...scoresRef.current, writing:{...(scoresRef.current.writing||{}), band:aiResult.band, aiFeedback:aiResult.aiFeedback, aiDetection:aiResult.aiDetection}};
-                scoresRef.current = ns; // update ref synchronously so step-7 render reads correct data
-                setScores(ns);
-                await autoSave(ns);
-                setStep(7);
-              }}
-            />
-          )}
-          {/* Step 7: Final results — pass scoresRef.current (always up-to-date) not stale React state */}
-          {step===7&&(
-            <Results
-              scores={{
-                listening: scoresRef.current.listening||null,
-                reading:   scoresRef.current.reading  ||null,
-                writing:   scoresRef.current.writing  ||null,
-              }}
-              speakingBand={speakingBand??null}
-              candidateInfo={candidate||{name:"Candidate",email:""}}
-              booking={booking}
-              suiteName={activeSuite?.name}
-              suiteId={activeSuite?.id}
-              sessionId={sessionIdRef.current}
-            />
-          )}
-        </>
-      )}
+      {view==="home"&&<HomePage onStart={()=>navigate("/test")} onAdmin={()=>navigate("/admin")}/>}
       </main>
       <SpeedInsights />
     </div>

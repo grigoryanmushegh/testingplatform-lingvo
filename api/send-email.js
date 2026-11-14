@@ -6,10 +6,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const SERVICE_ID   = process.env.VITE_EMAILJS_SERVICE      || "service_pkjnqeg";
-  const TEMPLATE_ID  = process.env.VITE_EMAILJS_TEMPLATE     || "template_s4l22xj";
-  const PUBLIC_KEY   = process.env.VITE_EMAILJS_KEY          || "w3EVomJS4Qe3Chfan";
-  const PRIVATE_KEY  = process.env.VITE_EMAILJS_PRIVATE_KEY  || "ZoHI1suYN0FI68PnoY950";
+  const SERVICE_ID   = process.env.EMAILJS_SERVICE  || process.env.VITE_EMAILJS_SERVICE  || "";
+  const TEMPLATE_ID  = process.env.EMAILJS_TEMPLATE || process.env.VITE_EMAILJS_TEMPLATE || "";
+  const PUBLIC_KEY   = process.env.EMAILJS_KEY      || process.env.VITE_EMAILJS_KEY      || "";
+  const PRIVATE_KEY  = process.env.EMAILJS_PRIVATE_KEY || process.env.VITE_EMAILJS_PRIVATE_KEY || "";
+
+  if (!SERVICE_ID || !TEMPLATE_ID || !PUBLIC_KEY || !PRIVATE_KEY) {
+    return res.status(500).json({ error: "EmailJS is not configured on the server. Add EMAILJS_SERVICE, EMAILJS_TEMPLATE, EMAILJS_KEY, EMAILJS_PRIVATE_KEY in Vercel environment variables." });
+  }
 
   const params = req.body || {};
 

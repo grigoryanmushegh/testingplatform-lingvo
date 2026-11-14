@@ -3,30 +3,61 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>LingvoConnect IELTS</title>
-    <meta name="description" content="Official IELTS Mock Test Platform — LingvoConnect" />
+    <title>LingvoConnect</title>
+    <meta name="description" content="LingvoConnect — Language Learning Platform" />
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
     <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      body { margin: 0; font-family: 'Inter', system-ui, sans-serif; }
       #root-loader {
         display:flex;align-items:center;justify-content:center;
-        height:100vh;background:#F5FEFA;font-family:sans-serif;
+        height:100vh;background:#EEEFF1;font-family:'Inter',sans-serif;
       }
-      #root-loader .dot {
-        width:40px;height:40px;border-radius:50%;
-        border:4px solid #E6FAF4;border-top-color:#11CD87;
-        animation:lspin .8s linear infinite;margin:0 auto 16px;
+      #root-loader .lc-logo {
+        width:52px;height:52px;border-radius:16px;
+        background:linear-gradient(135deg,#2D5DDC 0%,#1a3fa8 100%);
+        display:flex;align-items:center;justify-content:center;
+        margin:0 auto 20px;
+        box-shadow:0 8px 24px rgba(45,93,220,.35);
+        animation:logoFloat 2.4s ease-in-out infinite;
       }
-      @keyframes lspin{to{transform:rotate(360deg)}}
-      #root-loader p{color:#11CD87;font-weight:700;font-size:16px;margin:0}
-      #root-loader small{color:#94A3B8;font-size:12px}
+      #root-loader .lc-logo span {
+        color:#fff;font-weight:900;font-size:22px;letter-spacing:-0.04em;
+      }
+      #root-loader .lc-bar {
+        display:flex;align-items:center;justify-content:center;gap:5px;margin-bottom:8px;
+      }
+      #root-loader .lc-bar b {
+        color:#2D5DDC;font-weight:800;font-size:19px;letter-spacing:-0.04em;
+      }
+      #root-loader .lc-bar span {
+        color:#151313;font-weight:800;font-size:19px;letter-spacing:-0.04em;
+      }
+      #root-loader small{color:#94A3B8;font-size:12px;font-weight:500;display:block;margin-bottom:20px}
+      #root-loader .dots{display:flex;gap:7px;justify-content:center}
+      #root-loader .dots i {
+        width:7px;height:7px;border-radius:50%;background:#2D5DDC;display:block;
+        animation:dotPop .9s ease-in-out infinite;
+      }
+      #root-loader .dots i:nth-child(2){animation-delay:.18s}
+      #root-loader .dots i:nth-child(3){animation-delay:.36s}
+      @keyframes logoFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+      @keyframes dotPop{0%,80%,100%{transform:scale(.6);opacity:.3}40%{transform:scale(1.2);opacity:1}}
+      .admin-sidebar-btn { transition: background .12s, color .12s; }
+      .admin-sidebar-btn:hover { background: #EEEFF1 !important; color: #151313 !important; }
+      .admin-sidebar-btn.active { background: #2D5DDC !important; color: #fff !important; }
     </style>
   </head>
   <body>
     <div id="root">
       <div id="root-loader">
         <div style="text-align:center">
-          <div class="dot"></div>
-          <p>LingvoConnect IELTS</p>
+          <div class="lc-logo"><span>L</span></div>
+          <div class="lc-bar"><b>Lingvo</b><span>Connect</span></div>
           <small>Loading platform…</small>
+          <div class="dots"><i></i><i></i><i></i></div>
         </div>
       </div>
     </div>
