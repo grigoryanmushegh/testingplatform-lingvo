@@ -119,7 +119,7 @@ function buildInvoiceHtml(payment, students) {
   <!-- Print button (hidden when printing) -->
   <div class="no-print" style="text-align:right;margin-bottom:20px;display:flex;gap:10px;justify-content:flex-end">
     <button onclick="window.print()" style="background:#2D5DDC;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px">
-      🖨️ Print / Save PDF
+      Print / Save as PDF
     </button>
   </div>
 
@@ -154,7 +154,7 @@ function buildInvoiceHtml(payment, students) {
   ${deadlineFmt ? `
   <!-- Deadline -->
   <div class="deadline-banner">
-    <div class="dl-label">⏰ Payment Deadline</div>
+    <div class="dl-label">Payment Due</div>
     <div class="dl-date">${deadlineFmt}</div>
   </div>` : ""}
 
@@ -193,7 +193,7 @@ function buildInvoiceHtml(payment, students) {
   <!-- Status + Notes -->
   <div class="footer-row">
     <span class="status-badge" style="background:${statusBg};color:${statusColor}">
-      ${payment.status==="paid"?"✓":payment.status==="overdue"?"!":"○"} ${statusLabel}
+      ${statusLabel}
     </span>
     ${payment.notes ? `
     <div class="notes-box">
