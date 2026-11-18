@@ -12,7 +12,7 @@ import NotificationBell from "../admin/NotificationBell.jsx";
 import { MOCK_PAYMENTS, MOCK_GROUPS, MOCK_STUDENTS } from "../../lib/lmsDevMock.js";
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
-const BRAND   = "#C4F03B";
+const BRAND   = "#2D5DDC";
 const SIDEBAR = "#151313";
 const T = {
   bg:      "#EEEFF1",

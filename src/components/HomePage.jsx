@@ -262,22 +262,22 @@ export default function HomePage({ onStart, onStudentLogin }) {
     return () => window.removeEventListener("scroll", fn);
   }, []);
 
-  const headline1 = ["Get", "the", "IELTS", "score"];
-  const headline2 = ["you", "actually", "need."];
+  const headline1 = ["Your", "IELTS", "target"];
+  const headline2 = ["is", "3 months", "away."];
 
   const benefits = [
-    { label:"Expert IELTS teachers",  desc:"Certified teachers with 8+ years of IELTS and Cambridge prep. Small groups, real feedback.", color:AD.blue },
-    { label:"AI writing evaluation",  desc:"Submit any writing task and get an instant band score with vocabulary and grammar notes.", color:AD.green },
-    { label:"Full IELTS mock tests",  desc:"Timed Listening, Reading, Writing, and Speaking tests with automated band scores — anytime.", color:AD.amber },
-    { label:"Live group classes",     desc:"Max 8 students per group so your teacher knows your name, your level, your weakest skill.", color:"#8B5CF6" },
-    { label:"Track every result",     desc:"All your scores in one place. See exactly how each skill improves — or where you're losing points.", color:"#06B6D4" },
-    { label:"Speaking with examiner", desc:"Book one-on-one practice sessions with a certified examiner for real examiner-level feedback.", color:AD.red },
+    { label:"Expert IELTS teachers",  desc:"Certified teachers with 8+ years of IELTS and Cambridge prep. Max 8 students — your teacher knows your name, your level, your weakest point.", color:AD.blue },
+    { label:"AI writing evaluation",  desc:"Full band score across all 4 IELTS criteria — task achievement, coherence, vocabulary, grammar — with specific corrections and suggestions in under 60 seconds.", color:AD.green },
+    { label:"Full IELTS mock tests",  desc:"Timed Listening, Reading, Writing, and Speaking tests with automated band scores — structured exactly like the real exam, available anytime.", color:AD.amber },
+    { label:"Live group classes",     desc:"Attend live sessions twice a week. Everything is recorded — materials, assignments, and class replays all in one place.", color:"#8B5CF6" },
+    { label:"Track every result",     desc:"See your band for every test, every skill, every session — with a timeline showing exactly how fast you're improving.", color:"#06B6D4" },
+    { label:"Speaking with examiner", desc:"Book one-on-one sessions with a certified examiner and practise exactly how the actual test runs — timing, format, and scoring included.", color:AD.red },
   ];
 
   const steps = [
-    { n:"01", title:"Apply for a course",  desc:"Fill in a short form. We'll contact you, assess your level, and place you in the right group." },
-    { n:"02", title:"Start your classes",  desc:"Attend live sessions, get materials and assignments — everything in one place." },
-    { n:"03", title:"Track your progress", desc:"Every test result, every skill score, every session — logged automatically." },
+    { n:"01", title:"Apply for a course",  desc:"Fill in a 2-minute form. No payment needed. We'll contact you within 24 hours, assess your level, and place you in the right group." },
+    { n:"02", title:"Start your classes",  desc:"Attend live sessions twice a week. Materials, assignments, and class replays all in one place — from day one." },
+    { n:"03", title:"Track your progress", desc:"Every test result, every skill score, every session — logged automatically. You'll always know your current band and what to work on next." },
   ];
 
   const parallax = -Math.min(scrollY * 0.3, 90);
@@ -360,7 +360,7 @@ export default function HomePage({ onStart, onStudentLogin }) {
               transform: heroReady ? "translateY(0)" : "translateY(14px)",
               transition:"opacity .7s .65s cubic-bezier(0.25,0.46,0.45,0.94), transform .7s .65s cubic-bezier(0.34,1.56,0.64,1)",
             }}>
-              LingvoConnect prepares students for IELTS with expert teachers, small groups, and a platform that tracks every score — so you always know how close you are to your goal.
+              Certified IELTS teachers, groups of max 8, and a platform that scores every test automatically — so you always know exactly where you stand.
             </p>
 
             {/* CTAs */}
@@ -369,32 +369,32 @@ export default function HomePage({ onStart, onStudentLogin }) {
               transform: heroReady ? "translateY(0)" : "translateY(14px)",
               transition:"opacity .7s .8s, transform .7s .8s cubic-bezier(0.34,1.56,0.64,1)",
             }}>
-              <MagBtn onClick={onStudentLogin} className="lc-btn" style={{
-                display:"block", width:"fit-content",
-                padding:"16px 40px", fontSize:15, fontWeight:700,
-                borderRadius:14, cursor:"pointer", border:"none",
-                background:AD.blue, color:"#fff", letterSpacing:"-0.01em",
-                boxShadow:`0 8px 28px rgba(45,93,220,.38)`,
-                marginBottom:22,
-              }}>Apply for a course →</MagBtn>
-
-              <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
+              <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:10 }}>
+                <MagBtn onClick={onStudentLogin} className="lc-btn" style={{
+                  padding:"16px 40px", fontSize:15, fontWeight:700,
+                  borderRadius:14, cursor:"pointer", border:"none",
+                  background:AD.blue, color:"#fff", letterSpacing:"-0.01em",
+                  boxShadow:`0 8px 28px rgba(45,93,220,.38)`,
+                }}>Apply for a course →</MagBtn>
+                <button type="button" onClick={onStart} className="lc-ghost" style={{
+                  padding:"16px 24px", fontSize:14, fontWeight:700, borderRadius:14,
+                  cursor:"pointer", background:"transparent",
+                  border:`1.5px solid ${AD.blue}`, color:AD.blue, letterSpacing:"-0.01em",
+                }}>Free IELTS test</button>
+              </div>
+              <p style={{ fontSize:12, color:AD.muted, margin:"0 0 20px" }}>
+                No payment needed — 2-minute form, reply within 24 hours.
+              </p>
+              <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
                 <div style={{ flex:1, height:1, background:AD.border }}/>
                 <span style={{ fontSize:12, color:AD.muted, fontWeight:500 }}>already a student?</span>
                 <div style={{ flex:1, height:1, background:AD.border }}/>
               </div>
-              <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-                <button type="button" onClick={onStudentLogin} className="lc-ghost" style={{
-                  padding:"11px 22px", fontSize:13, fontWeight:700, borderRadius:12,
-                  cursor:"pointer", background:"transparent",
-                  border:`1.5px solid ${AD.border}`, color:AD.sub, letterSpacing:"-0.01em",
-                }}>Sign in to my account</button>
-                <button type="button" onClick={onStart} className="lc-ghost" style={{
-                  padding:"11px 22px", fontSize:13, fontWeight:600, borderRadius:12,
-                  cursor:"pointer", background:"transparent",
-                  border:`1.5px solid ${AD.border}`, color:AD.sub, letterSpacing:"-0.01em",
-                }}>Free IELTS test</button>
-              </div>
+              <button type="button" onClick={onStudentLogin} className="lc-ghost" style={{
+                padding:"11px 22px", fontSize:13, fontWeight:700, borderRadius:12,
+                cursor:"pointer", background:"transparent",
+                border:`1.5px solid ${AD.border}`, color:AD.sub, letterSpacing:"-0.01em",
+              }}>Sign in to my account</button>
             </div>
           </div>
 
@@ -413,11 +413,11 @@ export default function HomePage({ onStart, onStudentLogin }) {
         <div className="lc-stat-grid" style={{ maxWidth:960, margin:"0 auto", padding:"0 24px",
           display:"grid", gridTemplateColumns:"repeat(4,1fr)" }}>
           {[
-            { to:2400,  suffix:"+", label:"Students taught" },
-            { to:18000, suffix:"+", label:"Practice tests taken" },
-            { to:94,    suffix:"%", label:"Reached target score" },
-            { to:3,     suffix:" months", label:"Average time to goal" },
-          ].map(({ to, suffix, label }, i) => (
+            { to:2400,  suffix:"+", label:"Students taught", note:null },
+            { to:18000, suffix:"+", label:"Practice tests taken", note:null },
+            { to:94,    suffix:"%", label:"Reached target score", note:"based on 2023–2024 students" },
+            { to:3,     suffix:" months", label:"Average time to goal", note:null },
+          ].map(({ to, suffix, label, note }, i) => (
             <div key={label} className="lc-stat" style={{
               padding:"32px 20px", textAlign:"center",
               borderRight: i < 3 ? "1px solid rgba(255,255,255,.14)" : "none",
@@ -427,6 +427,7 @@ export default function HomePage({ onStart, onStudentLogin }) {
                 <Counter to={to} suffix={suffix}/>
               </div>
               <div style={{ fontSize:12, color:"rgba(255,255,255,.62)", fontWeight:500 }}>{label}</div>
+              {note && <div style={{ fontSize:10, color:"rgba(255,255,255,.35)", marginTop:4 }}>{note}</div>}
             </div>
           ))}
         </div>
@@ -531,10 +532,10 @@ export default function HomePage({ onStart, onStudentLogin }) {
 
             <h2 style={{ fontSize:"clamp(26px,3.8vw,48px)", fontWeight:900, color:"#fff",
               letterSpacing:"-0.05em", lineHeight:1.1, margin:"0 0 18px" }}>
-              Ready to reach your<br/>IELTS target?
+              Most students hit their target<br/>in 3 months. Yours starts now.
             </h2>
             <p style={{ fontSize:16, color:"rgba(255,255,255,.66)", margin:"0 0 44px", lineHeight:1.75 }}>
-              Apply now and our team will contact you, assess your level, and get you started in the right group within days.
+              Apply now and our team will contact you within 24 hours, assess your level, and place you in the right group.
             </p>
 
             <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
@@ -551,7 +552,10 @@ export default function HomePage({ onStart, onStudentLogin }) {
               }}>Student login</button>
             </div>
 
-            <p style={{ fontSize:12, color:"rgba(255,255,255,.36)", marginTop:24 }}>
+            <p style={{ fontSize:12, color:"rgba(255,255,255,.45)", marginTop:20 }}>
+              No payment needed — reply within 24 hours.
+            </p>
+            <p style={{ fontSize:11, color:"rgba(255,255,255,.28)", marginTop:10 }}>
               IELTS · General English · Business English · Cambridge
             </p>
           </Reveal>

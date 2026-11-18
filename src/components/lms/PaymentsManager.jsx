@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   CreditCard, Plus, Save, Loader, Trash2, Edit2, CheckCircle,
   AlertCircle, Clock, Search, Users, FileText, CalendarClock,
+  Printer, Download, X, Mail, Send,
 } from "lucide-react";
 import { getPayments, createPayment, updatePayment, deletePayment } from "../../lib/lmsDb.js";
 import { getAllStudents } from "../../lib/studentDb.js";
@@ -38,100 +39,291 @@ function PillBtn({ onClick, variant="primary", disabled, children, style={} }) {
   return <button onClick={onClick} disabled={disabled} style={{...base}}>{children}</button>;
 }
 
-// ── Invoice generator ─────────────────────────────────────────────────────────
-function generateInvoice(form, students) {
-  const st = students.find(s => s.student_id === form.student_id);
-  const name = st?.full_name || form.student_id || "Student";
-  const invoiceNo = "INV-" + Date.now().toString(36).toUpperCase();
+// ── Build invoice HTML ────────────────────────────────────────────────────────
+function buildInvoiceHtml(payment, students) {
+  const st = students.find(s => s.student_id === payment.student_id);
+  const name = st?.full_name || payment.student_id || "Student";
+  const invoiceNo = "INV-" + (payment.id ? payment.id.toString(36).toUpperCase().slice(-8) : Date.now().toString(36).toUpperCase().slice(-6));
   const issued = new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"});
-  const deadlineFmt = form.deadline
-    ? new Date(form.deadline).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})
-    : "Upon receipt";
+  const paymentDate = payment.date
+    ? new Date(payment.date).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})
+    : issued;
+  const deadlineFmt = payment.deadline
+    ? new Date(payment.deadline).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})
+    : null;
+  const typeFmt = (payment.type||"tuition").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase());
+  const statusColor = payment.status==="paid"?"#059669":payment.status==="overdue"?"#DC2626":"#D97706";
+  const statusBg    = payment.status==="paid"?"#D1FAE5":payment.status==="overdue"?"#FEE2E2":"#FEF3C7";
+  const statusLabel = (payment.status||"pending").charAt(0).toUpperCase()+(payment.status||"pending").slice(1);
 
-  const html = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<title>Invoice ${invoiceNo}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Invoice ${invoiceNo} — LingvoConnect</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;color:#151313;background:#fff;padding:40px}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;color:#151313;background:#fff;padding:40px 20px}
   .wrap{max-width:680px;margin:0 auto}
-  .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:48px}
-  .brand{font-size:22px;font-weight:800;color:#2D5DDC;letter-spacing:-0.03em}
-  .brand small{display:block;font-size:11px;font-weight:500;color:#94A3B8;letter-spacing:0}
-  .inv-title{font-size:13px;font-weight:700;color:#94A3B8;text-align:right}
-  .inv-no{font-size:22px;font-weight:800;color:#151313}
-  .parties{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:40px}
+  /* ─── Header ─── */
+  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:48px;gap:16px}
+  .brand-name{font-size:24px;font-weight:800;color:#2D5DDC;letter-spacing:-0.03em;line-height:1}
+  .brand-sub{font-size:11px;font-weight:500;color:#94A3B8;margin-top:3px;letter-spacing:.04em;text-transform:uppercase}
+  .inv-block{text-align:right}
+  .inv-label{font-size:11px;font-weight:700;color:#94A3B8;text-transform:uppercase;letter-spacing:.07em}
+  .inv-num{font-size:22px;font-weight:800;color:#151313;margin-top:4px;letter-spacing:-0.02em}
+  .inv-issued{font-size:12px;color:#64748B;margin-top:4px}
+  /* ─── Parties ─── */
+  .parties{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:36px}
   .party-label{font-size:11px;font-weight:700;color:#94A3B8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
-  .party-name{font-size:15px;font-weight:700;color:#151313}
-  .party-sub{font-size:12px;color:#64748B;margin-top:2px}
-  table{width:100%;border-collapse:collapse;margin-bottom:32px}
-  th{font-size:11px;font-weight:700;color:#94A3B8;text-transform:uppercase;letter-spacing:.07em;padding:8px 12px;background:#F8F9FA;border-bottom:2px solid #E2E6EA;text-align:left}
-  td{padding:14px 12px;border-bottom:1px solid #F1F5F9;font-size:13px}
-  .total-row td{font-weight:800;font-size:16px;color:#151313;border-top:2px solid #E2E6EA;border-bottom:none;padding-top:16px}
-  .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700}
-  .status-paid{background:#D1FAE5;color:#059669}
-  .status-pending{background:#FEF3C7;color:#D97706}
-  .status-overdue{background:#FEE2E2;color:#DC2626}
-  .deadline-box{background:#FEF3C7;border:1px solid #FDE68A;border-radius:10px;padding:14px 18px;margin-bottom:32px;display:flex;justify-content:space-between;align-items:center}
-  .deadline-label{font-size:12px;font-weight:700;color:#92400E}
-  .deadline-date{font-size:15px;font-weight:800;color:#92400E}
-  .footer{text-align:center;font-size:11px;color:#94A3B8;margin-top:48px;padding-top:24px;border-top:1px solid #E2E6EA}
-  @media print{body{padding:20px}.no-print{display:none}}
+  .party-name{font-size:16px;font-weight:800;color:#151313}
+  .party-id{font-size:12px;color:#64748B;margin-top:2px}
+  .party-email{font-size:12px;color:#2D5DDC;margin-top:2px}
+  /* ─── Deadline banner ─── */
+  .deadline-banner{background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:14px 20px;margin-bottom:28px;display:flex;justify-content:space-between;align-items:center}
+  .dl-label{font-size:12px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:.05em}
+  .dl-date{font-size:16px;font-weight:800;color:#92400E}
+  /* ─── Line-items table ─── */
+  table{width:100%;border-collapse:collapse;margin-bottom:28px}
+  thead th{font-size:11px;font-weight:700;color:#94A3B8;text-transform:uppercase;letter-spacing:.07em;padding:10px 14px;background:#F8F9FA;border-bottom:2px solid #E2E6EA;text-align:left}
+  thead th:last-child{text-align:right}
+  tbody td{padding:16px 14px;border-bottom:1px solid #F1F5F9;font-size:13px;color:#151313;vertical-align:top}
+  tbody td:last-child{text-align:right;font-weight:800;font-size:14px}
+  .item-desc{font-weight:700;font-size:14px;color:#151313}
+  .item-type{font-size:12px;color:#64748B;margin-top:3px}
+  /* ─── Totals ─── */
+  .totals{display:flex;justify-content:flex-end;margin-bottom:28px}
+  .totals-box{min-width:260px}
+  .total-row{display:flex;justify-content:space-between;padding:8px 0;font-size:13px;color:#64748B;border-bottom:1px solid #F1F5F9}
+  .grand-total{display:flex;justify-content:space-between;padding:14px 0 0;font-size:18px;font-weight:800;color:#151313;border-top:2px solid #151313;margin-top:4px}
+  /* ─── Status + Notes ─── */
+  .footer-row{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:40px}
+  .status-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:700}
+  .notes-box{font-size:12px;color:#64748B;background:#F8F9FA;border-radius:8px;padding:10px 14px;flex:1;min-width:200px}
+  .notes-label{font-weight:700;color:#151313;margin-bottom:3px;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  /* ─── Page footer ─── */
+  .page-footer{text-align:center;font-size:11px;color:#94A3B8;padding-top:20px;border-top:1px solid #E2E6EA}
+  .page-footer strong{color:#2D5DDC}
+  /* ─── Print ─── */
+  .no-print{display:block}
+  @media print{
+    .no-print{display:none!important}
+    body{padding:20px}
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="top">
-    <div class="brand">LingvoConnect<small>IELTS Platform</small></div>
-    <div class="inv-title">INVOICE<div class="inv-no">${invoiceNo}</div></div>
+
+  <!-- Print button (hidden when printing) -->
+  <div class="no-print" style="text-align:right;margin-bottom:20px;display:flex;gap:10px;justify-content:flex-end">
+    <button onclick="window.print()" style="background:#2D5DDC;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+      🖨️ Print / Save PDF
+    </button>
   </div>
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="brand-name">LingvoConnect</div>
+      <div class="brand-sub">IELTS Platform</div>
+    </div>
+    <div class="inv-block">
+      <div class="inv-label">Invoice</div>
+      <div class="inv-num">${invoiceNo}</div>
+      <div class="inv-issued">Issued ${issued}</div>
+    </div>
+  </div>
+
+  <!-- Parties -->
   <div class="parties">
     <div>
       <div class="party-label">From</div>
       <div class="party-name">LingvoConnect</div>
-      <div class="party-sub">Issue date: ${issued}</div>
+      <div class="party-id">IELTS Preparation Platform</div>
     </div>
     <div>
       <div class="party-label">Bill to</div>
       <div class="party-name">${name}</div>
-      ${st?.email ? `<div class="party-sub">${st.email}</div>` : ""}
+      ${st?.username ? `<div class="party-id">@${st.username}</div>` : ""}
+      ${st?.email ? `<div class="party-email">${st.email}</div>` : ""}
     </div>
   </div>
-  ${form.deadline ? `
-  <div class="deadline-box">
-    <div class="deadline-label">⏰ Payment Deadline</div>
-    <div class="deadline-date">${deadlineFmt}</div>
+
+  ${deadlineFmt ? `
+  <!-- Deadline -->
+  <div class="deadline-banner">
+    <div class="dl-label">⏰ Payment Deadline</div>
+    <div class="dl-date">${deadlineFmt}</div>
   </div>` : ""}
+
+  <!-- Line items -->
   <table>
-    <thead><tr><th>Description</th><th>Type</th><th>Date</th><th style="text-align:right">Amount</th></tr></thead>
+    <thead>
+      <tr>
+        <th style="width:50%">Description</th>
+        <th>Type</th>
+        <th>Date</th>
+        <th>Amount</th>
+      </tr>
+    </thead>
     <tbody>
       <tr>
-        <td>${form.description || "Tuition fee"}</td>
-        <td>${(form.type||"tuition").replace("_"," ").replace(/\b\w/g,c=>c.toUpperCase())}</td>
-        <td>${form.date || issued}</td>
-        <td style="text-align:right;font-weight:700">${Number(form.amount||0).toLocaleString()} ${form.currency||"AMD"}</td>
+        <td>
+          <div class="item-desc">${payment.description || "Tuition Fee"}</div>
+          ${payment.notes ? `<div class="item-type">${payment.notes}</div>` : ""}
+        </td>
+        <td style="font-size:12px;color:#64748B">${typeFmt}</td>
+        <td style="font-size:12px;color:#64748B">${paymentDate}</td>
+        <td>${Number(payment.amount||0).toLocaleString()} <span style="font-size:11px;color:#94A3B8;font-weight:500">${payment.currency||"AMD"}</span></td>
       </tr>
     </tbody>
-    <tfoot>
-      <tr class="total-row">
-        <td colspan="3">Total due</td>
-        <td style="text-align:right">${Number(form.amount||0).toLocaleString()} ${form.currency||"AMD"}</td>
-      </tr>
-    </tfoot>
   </table>
-  <div style="display:flex;justify-content:space-between;align-items:center">
-    <span class="badge status-${form.status||"pending"}">${(form.status||"pending").charAt(0).toUpperCase()+(form.status||"pending").slice(1)}</span>
-    ${form.notes ? `<div style="font-size:12px;color:#64748B"><strong>Note:</strong> ${form.notes}</div>` : ""}
-  </div>
-  <div class="footer">LingvoConnect · lingvoconnect.com · Thank you!</div>
-</div>
-<script>window.print()</script>
-</body></html>`;
 
-  const w = window.open("","_blank","width=800,height=900");
-  if (w) { w.document.write(html); w.document.close(); }
+  <!-- Totals -->
+  <div class="totals">
+    <div class="totals-box">
+      <div class="total-row"><span>Subtotal</span><span>${Number(payment.amount||0).toLocaleString()} ${payment.currency||"AMD"}</span></div>
+      <div class="total-row"><span>Tax / VAT</span><span>Included</span></div>
+      <div class="grand-total"><span>Total Due</span><span>${Number(payment.amount||0).toLocaleString()} ${payment.currency||"AMD"}</span></div>
+    </div>
+  </div>
+
+  <!-- Status + Notes -->
+  <div class="footer-row">
+    <span class="status-badge" style="background:${statusBg};color:${statusColor}">
+      ${payment.status==="paid"?"✓":payment.status==="overdue"?"!":"○"} ${statusLabel}
+    </span>
+    ${payment.notes ? `
+    <div class="notes-box">
+      <div class="notes-label">Internal Note</div>
+      ${payment.notes}
+    </div>` : ""}
+  </div>
+
+  <!-- Page footer -->
+  <div class="page-footer">
+    <strong>LingvoConnect</strong> · lingvoconnect.com · Thank you for your payment!
+  </div>
+
+</div>
+</body>
+</html>`;
+}
+
+// ── Invoice Modal ─────────────────────────────────────────────────────────────
+function InvoiceModal({ payment, students, onClose }) {
+  const iframeRef = useRef(null);
+  const html = buildInvoiceHtml(payment, students);
+  const st   = students.find(s => s.student_id === payment.student_id);
+  const [sending, setSending] = useState(false);
+  const [sendMsg, setSendMsg] = useState("");
+
+  // Close on Escape
+  useEffect(() => {
+    const h = e => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  const handlePrint = () => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.print();
+    }
+  };
+
+  const handleDownload = () => {
+    const blob = new Blob([html], { type: "text/html" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    const invoiceNo = "INV-" + (payment.id ? payment.id.toString(36).toUpperCase().slice(-8) : Date.now().toString(36).toUpperCase().slice(-6));
+    a.href     = url;
+    a.download = `${invoiceNo}-${(st?.full_name||"student").replace(/\s+/g,"-")}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSendEmail = () => {
+    if (!st?.email) {
+      setSendMsg("No email on file for this student.");
+      return;
+    }
+    const invoiceNo = "INV-" + (payment.id ? payment.id.toString(36).toUpperCase().slice(-8) : Date.now().toString(36).toUpperCase().slice(-6));
+    const subject  = encodeURIComponent(`Invoice ${invoiceNo} from LingvoConnect`);
+    const bodyText = `Dear ${st.full_name},\n\nPlease find your invoice details below:\n\nInvoice No: ${invoiceNo}\nDescription: ${payment.description||"Tuition Fee"}\nAmount: ${Number(payment.amount||0).toLocaleString()} ${payment.currency||"AMD"}\nStatus: ${payment.status||"pending"}\n${payment.deadline ? `\nPayment deadline: ${payment.deadline}` : ""}\n\nThank you for choosing LingvoConnect.\n\nBest regards,\nLingvoConnect Team`;
+    const body = encodeURIComponent(bodyText);
+    window.open(`mailto:${st.email}?subject=${subject}&body=${body}`, "_blank");
+    setSendMsg(`Email composer opened for ${st.email}`);
+    setTimeout(() => setSendMsg(""), 5000);
+  };
+
+  return (
+    <div style={{
+      position:"fixed",inset:0,zIndex:9999,
+      background:"rgba(0,0,0,.55)",backdropFilter:"blur(4px)",
+      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+      padding:"16px",
+    }}
+    onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{
+        width:"100%",maxWidth:760,maxHeight:"90vh",
+        background:AD.surface,borderRadius:20,border:`1px solid ${AD.border}`,
+        boxShadow:"0 24px 64px rgba(0,0,0,.3)",
+        display:"flex",flexDirection:"column",overflow:"hidden",
+      }}>
+        {/* Modal header */}
+        <div style={{
+          display:"flex",alignItems:"center",justifyContent:"space-between",
+          padding:"14px 20px",borderBottom:`1px solid ${AD.border}`,
+          background:AD.bg,flexShrink:0,
+        }}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <FileText size={16} color={AD.blue}/>
+            <span style={{fontWeight:800,fontSize:14,color:AD.text}}>Invoice Preview</span>
+            {st && <span style={{fontSize:12,color:AD.sub}}>— {st.full_name}</span>}
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:AD.sub,display:"flex",padding:4,borderRadius:6}}>
+            <X size={18}/>
+          </button>
+        </div>
+
+        {/* Action bar */}
+        <div style={{
+          display:"flex",gap:8,padding:"10px 16px",
+          borderBottom:`1px solid ${AD.border}`,
+          background:"#fff",flexShrink:0,flexWrap:"wrap",alignItems:"center",
+        }}>
+          <PillBtn onClick={handlePrint} style={{gap:6,padding:"7px 14px"}}>
+            <Printer size={14}/> Print / Save PDF
+          </PillBtn>
+          <PillBtn variant="ghost" onClick={handleDownload} style={{gap:6,padding:"7px 14px"}}>
+            <Download size={14}/> Download
+          </PillBtn>
+          <PillBtn variant="ghost" onClick={handleSendEmail} disabled={sending} style={{gap:6,padding:"7px 14px"}}>
+            <Send size={14}/> Send Invoice
+          </PillBtn>
+          {sendMsg && (
+            <span style={{fontSize:12,color:sendMsg.startsWith("No")?AD.red:AD.green,fontWeight:600}}>
+              {sendMsg}
+            </span>
+          )}
+        </div>
+
+        {/* Invoice iframe */}
+        <iframe
+          ref={iframeRef}
+          srcDoc={html}
+          title="Invoice Preview"
+          style={{flex:1,border:"none",minHeight:400}}
+          sandbox="allow-scripts allow-modals"
+        />
+      </div>
+    </div>
+  );
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -147,6 +339,7 @@ export default function PaymentsManager() {
   const [saving, setSaving]     = useState(false);
   const [err, setErr]           = useState("");
   const [hoverId, setHoverId]   = useState(null);
+  const [invoiceRec, setInvoiceRec] = useState(null);
 
   const today = new Date().toISOString().split("T")[0];
   const emptyForm = () => ({ student_id:"", amount:"", currency:"AMD", type:"tuition", status:"paid", date:today, deadline:"", description:"", notes:"" });
@@ -221,11 +414,20 @@ export default function PaymentsManager() {
     <div style={{padding:"4px 0",fontFamily:"inherit"}}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
+      {/* Invoice Modal */}
+      {invoiceRec && (
+        <InvoiceModal
+          payment={invoiceRec}
+          students={students}
+          onClose={() => setInvoiceRec(null)}
+        />
+      )}
+
       {/* Header */}
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20,gap:12,flexWrap:"wrap"}}>
         <div>
           <h2 style={{margin:0,fontSize:22,fontWeight:800,color:AD.text,letterSpacing:"-0.03em"}}>Payments</h2>
-          <p style={{margin:"4px 0 0",color:AD.sub,fontSize:13}}>Record and track student tuition payments</p>
+          <p style={{margin:"4px 0 0",color:AD.sub,fontSize:13}}>Record, track and invoice student tuition payments</p>
         </div>
         <PillBtn onClick={openNew}><Plus size={15}/> New Payment</PillBtn>
       </div>
@@ -319,8 +521,11 @@ export default function PaymentsManager() {
           {err && <div style={{color:AD.red,fontSize:12,marginTop:8,fontWeight:600}}>{err}</div>}
 
           <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",marginTop:18,flexWrap:"wrap"}}>
-            <PillBtn variant="ghost" onClick={()=>generateInvoice(form, students)} style={{gap:6}}>
-              <FileText size={14}/> Generate Invoice
+            <PillBtn variant="ghost" onClick={()=>{
+              if (!form.student_id) { setErr("Select a student first"); return; }
+              setInvoiceRec({...form, id: editRec?.id || null});
+            }} style={{gap:6}}>
+              <FileText size={14}/> Preview Invoice
             </PillBtn>
             <div style={{display:"flex",gap:8}}>
               <PillBtn variant="ghost" onClick={closeForm}>Cancel</PillBtn>
@@ -366,7 +571,7 @@ export default function PaymentsManager() {
           {/* Table header */}
           <div style={{
             display:"grid",
-            gridTemplateColumns:"1.4fr 1fr 100px 80px 90px 90px 110px 80px",
+            gridTemplateColumns:"1.4fr 1fr 100px 80px 90px 90px 110px 100px",
             padding:"10px 16px",
             background:AD.bg,borderBottom:`1px solid ${AD.border}`,
             fontSize:11,fontWeight:700,color:AD.muted,textTransform:"uppercase",letterSpacing:".07em",
@@ -386,7 +591,7 @@ export default function PaymentsManager() {
                 onMouseLeave={()=>setHoverId(null)}
                 style={{
                   display:"grid",
-                  gridTemplateColumns:"1.4fr 1fr 100px 80px 90px 90px 110px 80px",
+                  gridTemplateColumns:"1.4fr 1fr 100px 80px 90px 90px 110px 100px",
                   padding:"13px 16px",
                   borderBottom: i<filtered.length-1?`1px solid ${AD.border}`:"none",
                   background: isH?"#F8F9FF":AD.surface,
@@ -413,8 +618,8 @@ export default function PaymentsManager() {
                   </span>
                 </div>
                 <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
-                  <button onClick={()=>generateInvoice(p, students)} title="Invoice" style={{background:"none",border:`1px solid ${AD.border}`,borderRadius:8,padding:"5px 8px",cursor:"pointer",color:AD.sub,display:"flex",alignItems:"center"}}>
-                    <FileText size={13}/>
+                  <button onClick={()=>setInvoiceRec(p)} title="View Invoice" style={{background:AD.blueLt,border:`1px solid ${AD.blue}30`,borderRadius:8,padding:"5px 8px",cursor:"pointer",color:AD.blue,display:"flex",alignItems:"center",gap:4,fontSize:11,fontWeight:600}}>
+                    <FileText size={12}/> Invoice
                   </button>
                   <button onClick={()=>openEdit(p)} title="Edit" style={{background:"none",border:`1px solid ${AD.border}`,borderRadius:8,padding:"5px 8px",cursor:"pointer",color:AD.sub,display:"flex",alignItems:"center"}}>
                     <Edit2 size={13}/>

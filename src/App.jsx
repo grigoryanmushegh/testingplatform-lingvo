@@ -5266,6 +5266,8 @@ export function AdminDashboard({ onExit }) {
   const [db, setDb]           = useState(loadDB());
   const [selected, setSelected] = useState(null);
   const [overdueCount, setOverdueCount] = useState(0);
+  const [headerSearchQ, setHeaderSearchQ] = useState("");
+  const [globalStudentSearch, setGlobalStudentSearch] = useState("");
   useEffect(() => {
     lmsGetPayments({ status:"overdue" }).then(p => setOverdueCount(p.length)).catch(()=>{});
   }, [tab]);
@@ -5761,15 +5763,21 @@ export function AdminDashboard({ onExit }) {
           </div>
 
           {/* Center: search */}
-          <div style={{flex:1,maxWidth:500,display:"flex",alignItems:"center",background:AD.bg,borderRadius:12,border:`1px solid ${AD.border}`}}>
+          <form onSubmit={e=>{e.preventDefault();if(headerSearchQ.trim()){setGlobalStudentSearch(headerSearchQ.trim());navTo("students");}}} style={{flex:1,maxWidth:500,display:"flex",alignItems:"center",background:AD.bg,borderRadius:12,border:`1px solid ${AD.border}`,overflow:"hidden"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,padding:"0 16px",flex:1,height:42}}>
-              <Search size={14} color={AD.muted}/>
-              <span style={{fontSize:13,color:AD.muted}}>Search courses, lessons or students…</span>
+              <Search size={14} color={AD.muted} style={{flexShrink:0}}/>
+              <input
+                value={headerSearchQ}
+                onChange={e=>setHeaderSearchQ(e.target.value)}
+                placeholder="Search students by name or email…"
+                style={{border:"none",outline:"none",background:"transparent",fontSize:13,color:AD.text,width:"100%",fontFamily:"inherit"}}
+              />
+              {headerSearchQ&&<button type="button" onClick={()=>{setHeaderSearchQ("");setGlobalStudentSearch("");}} style={{border:"none",background:"none",cursor:"pointer",color:AD.muted,padding:0,lineHeight:1,fontSize:16}}>×</button>}
             </div>
-            <div style={{background:AD.blue,height:42,width:44,borderRadius:"0 11px 11px 0",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
+            <button type="submit" style={{background:AD.blue,height:42,width:44,borderRadius:0,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,border:"none"}}>
               <Search size={15} color="#fff" strokeWidth={2.2}/>
-            </div>
-          </div>
+            </button>
+          </form>
 
           {/* Right: dev + bell + user chip */}
           <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
@@ -5816,7 +5824,7 @@ export function AdminDashboard({ onExit }) {
                   <p style={{fontSize:13,color:AD.muted,margin:"5px 0 0",fontWeight:400}}>Here's what's happening in your platform today.</p>
                 </div>
                 <button type="button" onClick={()=>navTo("addtest")}
-                  style={{display:"flex",alignItems:"center",gap:8,background:AD.green,color:AD.text,border:"none",borderRadius:12,padding:"11px 22px",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit",flexShrink:0,letterSpacing:"-0.01em"}}>
+                  style={{display:"flex",alignItems:"center",gap:8,background:AD.blue,color:"#fff",border:"none",borderRadius:12,padding:"11px 22px",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit",flexShrink:0,letterSpacing:"-0.01em"}}>
                   <span style={{fontSize:18,lineHeight:1,marginTop:-1}}>+</span> Create Test
                 </button>
               </div>
@@ -5849,7 +5857,7 @@ export function AdminDashboard({ onExit }) {
                         </div>
                         <div style={{display:"flex",alignItems:"flex-end",gap:8}}>
                           <span style={{fontSize:34,fontWeight:800,color:alert&&val>0?AD.red:AD.text,letterSpacing:"-0.05em",lineHeight:1}}>{val}</span>
-                          {delta!==null&&<span style={{fontSize:13,fontWeight:700,color:AD.green,marginBottom:4}}>+{delta}</span>}
+                          {delta!==null&&<span style={{fontSize:13,fontWeight:700,color:AD.blue,marginBottom:4}}>+{delta}</span>}
                         </div>
                       </div>
                     ))}
@@ -6192,7 +6200,7 @@ export function AdminDashboard({ onExit }) {
           {tab==="export"&&<ExportTab/>}
           {tab==="settings"&&<AdminSettings/>}
           {tab==="users"&&isSuperAdmin&&<SuperAdminPanel currentUser={session}/>}
-          {tab==="students"&&<StudentsManager testSuites={db.testSuites||[]} adminName={session?.username||"admin"} isTeacher={isTeacher}/>}
+          {tab==="students"&&<StudentsManager key={globalStudentSearch} testSuites={db.testSuites||[]} adminName={session?.username||"admin"} isTeacher={isTeacher} initialSearch={globalStudentSearch}/>}
           {tab==="pending"&&<PendingStudentsManager adminName={session?.username||"admin"}/>}
           {tab==="staff"&&<StaffManager db={db} onSave={async patch=>{const nd={...db,...patch};setInternalDb(nd);try{localStorage.setItem(DB_KEY,JSON.stringify(nd));}catch{}await _flushConfig(nd);notifyDbChange();refresh();}}/>}
           {tab==="lms"&&<GroupManager db={db}/>}
@@ -8238,7 +8246,7 @@ function AssignManager() {
   return (
     <div>
       <h2 style={{fontSize:22,fontWeight:800,color:C.s900,letterSpacing:"-0.03em",marginBottom:6}}>Test Assignments</h2>
-      <p style={{color:C.s400,fontSize:14,marginBottom:24}}>Assign a specific test to a student. They'll receive it automatically on their next registration.</p>
+      <p style={{color:C.s400,fontSize:14,marginBottom:24}}>Assign a specific test to a student. It will appear in their dashboard on their next login.</p>
 
       {/* Assign form */}
       <div style={{...cardStyle({padding:24,marginBottom:28})}}>

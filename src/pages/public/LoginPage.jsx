@@ -72,7 +72,7 @@ export default function LoginPage() {
           <h1 style={{ color:AD.text, fontWeight:800, fontSize:26, letterSpacing:"-0.04em",
             margin:0, lineHeight:1.15 }}>Sign in</h1>
           <p style={{ color:AD.muted, fontSize:13, margin:"6px 0 24px", fontWeight:500 }}>
-            Students and teachers use the same form
+            Sign in to your LingvoConnect account
           </p>
           <div style={{ height:1, background:AD.border, margin:"0 -32px 28px" }}/>
         </div>
@@ -155,7 +155,7 @@ export default function LoginPage() {
             <button type="button" onClick={() => navigate("/signup")} style={{
               background:"none",border:"none",cursor:"pointer",
               fontSize:13,fontWeight:700,color:AD.blue,padding:0,
-            }}>Apply to join</button>
+            }}>Sign up</button>
           </div>
         </form>
       </div>

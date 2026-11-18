@@ -1569,11 +1569,11 @@ function StudentProfileTab({ student, onLogout }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ADMIN: STUDENTS MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
-export function StudentsManager({ testSuites=[], adminName="admin", isTeacher=false }) {
+export function StudentsManager({ testSuites=[], adminName="admin", isTeacher=false, initialSearch="" }) {
   const [students, setStudents]       = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading]         = useState(true);
-  const [search, setSearch]           = useState("");
+  const [search, setSearch]           = useState(initialSearch);
   const [profile, setProfile]         = useState(null);
   const [profileAttempts, setProfileAttempts] = useState([]);
   const [modal, setModal]             = useState(null);

@@ -123,20 +123,22 @@ export default function NotificationBell({ payments, groups, students, onNav }) 
         onClick={() => setOpen(v => !v)}
         style={{
           position:"relative", display:"flex", alignItems:"center", justifyContent:"center",
-          width:36, height:36, borderRadius:8, border:"none", cursor:"pointer",
-          background: open ? "rgba(255,255,255,.12)" : "transparent",
-          color:"rgba(255,255,255,.7)", transition:"background .15s",
+          width:36, height:36, borderRadius:8, border:`1px solid ${C.border}`, cursor:"pointer",
+          background: open ? C.bg : "transparent",
+          color: open ? C.fg : C.s500, transition:"background .15s, color .15s",
         }}
+        onMouseEnter={e => { e.currentTarget.style.background = C.bg; e.currentTarget.style.color = C.fg; }}
+        onMouseLeave={e => { e.currentTarget.style.background = open ? C.bg : "transparent"; e.currentTarget.style.color = open ? C.fg : C.s500; }}
       >
         <Bell size={18}/>
         {unread.length > 0 && (
           <span style={{
-            position:"absolute", top:4, right:4,
+            position:"absolute", top:3, right:3,
             width:16, height:16, borderRadius:"50%",
             background: C.red, color:"#fff",
             fontSize:9, fontWeight:800,
             display:"flex", alignItems:"center", justifyContent:"center",
-            border:"2px solid #0A0F1E",
+            border:"2px solid #FCFCFC",
           }}>{unread.length > 9 ? "9+" : unread.length}</span>
         )}
       </button>

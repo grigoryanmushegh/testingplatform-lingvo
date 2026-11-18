@@ -19,8 +19,8 @@ async function tryOrMock(realFn, mockFn, ...args) {
 const T = {
   blue:    "#2D5DDC",
   blueLt:  "#EBF0FF",
-  green:   "#C4F03B",
-  greenLt: "#F5FCDB",
+  green:   "#10B981",
+  greenLt: "#D1FAE5",
   teal:    "#2D5DDC",
   tealLt:  "#EBF0FF",
   amber:   "#F59E0B",
