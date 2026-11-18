@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import {
   CreditCard, Plus, Save, Loader, Trash2, Edit2, CheckCircle,
   AlertCircle, Clock, Search, Users, FileText, CalendarClock,
@@ -62,9 +64,10 @@ function buildInvoiceHtml(payment, students) {
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Invoice ${invoiceNo} — LingvoConnect</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;color:#151313;background:#fff;padding:40px 20px}
+  body{font-family:'Montserrat',sans-serif;color:#151313;background:#fff;padding:40px 20px}
   .wrap{max-width:680px;margin:0 auto}
   /* ─── Header ─── */
   .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:48px;gap:16px}
@@ -127,7 +130,6 @@ function buildInvoiceHtml(payment, students) {
   <div class="header">
     <div>
       <div class="brand-name">LingvoConnect</div>
-      <div class="brand-sub">IELTS Platform</div>
     </div>
     <div class="inv-block">
       <div class="inv-label">Invoice</div>
@@ -234,16 +236,149 @@ function InvoiceModal({ payment, students, onClose }) {
   };
 
   const handleDownload = () => {
-    const blob = new Blob([html], { type: "text/html" });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
     const invoiceNo = "INV-" + (payment.id ? payment.id.toString(36).toUpperCase().slice(-8) : Date.now().toString(36).toUpperCase().slice(-6));
-    a.href     = url;
-    a.download = `${invoiceNo}-${(st?.full_name||"student").replace(/\s+/g,"-")}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const name = st?.full_name || payment.student_id || "Student";
+    const issued = new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"});
+    const paymentDate = payment.date
+      ? new Date(payment.date).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})
+      : issued;
+    const deadlineFmt = payment.deadline
+      ? new Date(payment.deadline).toLocaleDateString("en-GB",{day:"2-digit",month:"long",year:"numeric"})
+      : null;
+    const typeFmt = (payment.type||"tuition").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase());
+    const statusLabel = (payment.status||"pending").charAt(0).toUpperCase()+(payment.status||"pending").slice(1);
+    const amount = Number(payment.amount||0).toLocaleString() + " " + (payment.currency||"AMD");
+
+    const doc = new jsPDF({ unit:"pt", format:"a4" });
+    const W = doc.internal.pageSize.getWidth();
+    const blue = [45,93,220];
+    const dark = [21,19,19];
+    const muted = [148,163,184];
+
+    // Header
+    doc.setFont("helvetica","bold");
+    doc.setFontSize(20);
+    doc.setTextColor(...blue);
+    doc.text("LingvoConnect", 40, 60);
+
+    doc.setFont("helvetica","bold");
+    doc.setFontSize(10);
+    doc.setTextColor(...muted);
+    doc.text("INVOICE", W-40, 48, { align:"right" });
+    doc.setFontSize(18);
+    doc.setTextColor(...dark);
+    doc.text(invoiceNo, W-40, 66, { align:"right" });
+    doc.setFontSize(10);
+    doc.setTextColor(...muted);
+    doc.text(`Issued ${issued}`, W-40, 80, { align:"right" });
+
+    // Divider
+    doc.setDrawColor(226,230,234);
+    doc.setLineWidth(1);
+    doc.line(40, 90, W-40, 90);
+
+    // Parties
+    doc.setFontSize(9);
+    doc.setFont("helvetica","bold");
+    doc.setTextColor(...muted);
+    doc.text("FROM", 40, 110);
+    doc.text("BILL TO", W/2, 110);
+
+    doc.setFontSize(13);
+    doc.setFont("helvetica","bold");
+    doc.setTextColor(...dark);
+    doc.text("LingvoConnect", 40, 128);
+    doc.text(name, W/2, 128);
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica","normal");
+    doc.setTextColor(100,116,139);
+    doc.text("IELTS Preparation Platform", 40, 143);
+    if (st?.username) doc.text(`@${st.username}`, W/2, 143);
+    if (st?.email)   doc.text(st.email, W/2, 157);
+
+    // Deadline banner
+    let y = 175;
+    if (deadlineFmt) {
+      doc.setFillColor(255,251,235);
+      doc.roundedRect(40, y, W-80, 36, 4, 4, "F");
+      doc.setFontSize(9);
+      doc.setFont("helvetica","bold");
+      doc.setTextColor(146,64,14);
+      doc.text("PAYMENT DUE", 55, y+15);
+      doc.setFontSize(13);
+      doc.text(deadlineFmt, W-55, y+20, { align:"right" });
+      y += 52;
+    }
+
+    // Line items table
+    autoTable(doc, {
+      startY: y,
+      margin: { left:40, right:40 },
+      head: [["Description","Type","Date","Amount"]],
+      body: [[
+        { content: payment.description || "Tuition Fee", styles:{ fontStyle:"bold" } },
+        typeFmt,
+        paymentDate,
+        { content: amount, styles:{ fontStyle:"bold", halign:"right" } },
+      ]],
+      headStyles: { fillColor:[248,249,250], textColor:muted, fontStyle:"bold", fontSize:9 },
+      bodyStyles: { fontSize:12, textColor:dark },
+      columnStyles: { 3:{ halign:"right" } },
+      styles: { font:"helvetica", cellPadding:10 },
+    });
+
+    y = doc.lastAutoTable.finalY + 16;
+
+    // Totals
+    doc.setFontSize(11);
+    doc.setFont("helvetica","normal");
+    doc.setTextColor(100,116,139);
+    doc.text("Subtotal", W-180, y);
+    doc.text(amount, W-40, y, { align:"right" });
+    y += 18;
+    doc.text("Tax / VAT", W-180, y);
+    doc.text("Included", W-40, y, { align:"right" });
+    y += 10;
+    doc.setDrawColor(...dark);
+    doc.setLineWidth(1.5);
+    doc.line(W-200, y, W-40, y);
+    y += 14;
+    doc.setFontSize(14);
+    doc.setFont("helvetica","bold");
+    doc.setTextColor(...dark);
+    doc.text("Total Due", W-200, y);
+    doc.text(amount, W-40, y, { align:"right" });
+
+    // Status badge
+    y += 24;
+    const statusColors = {
+      paid:    { bg:[209,250,229], fg:[5,150,105] },
+      overdue: { bg:[254,226,226], fg:[220,38,38] },
+      pending: { bg:[254,243,199], fg:[217,119,6] },
+    };
+    const sc = statusColors[payment.status] || statusColors.pending;
+    doc.setFillColor(...sc.bg);
+    doc.roundedRect(40, y, 80, 24, 12, 12, "F");
+    doc.setFontSize(11);
+    doc.setFont("helvetica","bold");
+    doc.setTextColor(...sc.fg);
+    doc.text(statusLabel, 80, y+16, { align:"center" });
+
+    // Footer
+    const pageH = doc.internal.pageSize.getHeight();
+    doc.setDrawColor(226,230,234);
+    doc.setLineWidth(1);
+    doc.line(40, pageH-50, W-40, pageH-50);
+    doc.setFontSize(10);
+    doc.setFont("helvetica","bold");
+    doc.setTextColor(...blue);
+    doc.text("LingvoConnect", W/2, pageH-33, { align:"center" });
+    doc.setFont("helvetica","normal");
+    doc.setTextColor(...muted);
+    doc.text("lingvoconnect.com · Thank you for your payment!", W/2, pageH-18, { align:"center" });
+
+    doc.save(`${invoiceNo}-${name.replace(/\s+/g,"-")}.pdf`);
   };
 
   const handleSendEmail = () => {
