@@ -73,6 +73,7 @@ export default function AppRoutes() {
       <Route path="/admin/attendance" element={<AdminPage />} />
       <Route path="/admin/materials" element={<AdminPage />} />
       <Route path="/admin/payments" element={<AdminPage />} />
+      <Route path="/admin/certificates" element={<AdminPage />} />
 
       {/* Teacher LMS portal */}
       <Route path="/teacher" element={<TeacherDashboardPage />} />

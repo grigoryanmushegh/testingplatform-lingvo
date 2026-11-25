@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useLayoutEffect, useCallback } from "react";
 import { useNavigate, useLocation, Navigate } from "react-router-dom";
 import { LayoutDashboard, GraduationCap, Clock, BookOpen, ClipboardList, Users, Settings, UserCog, BookMarked, Mic, BarChart2, RefreshCw, LogOut, ArrowLeft, FileText, Award, CheckCircle, AlertCircle, TrendingUp, CalendarDays, MessageSquare, User, Info, ChevronRight, ChevronLeft, Trash2, Headphones, Pencil, Flag, ChevronUp, ChevronDown, Star, FlaskConical, FolderOpen, FilePlus, Download, Music, Volume2, Layers, School, CreditCard, Search } from "lucide-react";
+import CertificateGenerator from "./components/admin/CertificateGenerator.jsx";
 import GroupManager from "./components/lms/GroupManager.jsx";
 import MaterialsTasksManager from "./components/lms/MaterialsTasksManager.jsx";
 import PaymentsManager from "./components/lms/PaymentsManager.jsx";
@@ -5254,13 +5255,15 @@ export function AdminDashboard({ onExit }) {
     return { "":"overview", students:"students", pending:"pending", tests:"suites",
              assignments:"assign", staff:"staff", settings:"settings",
              users:"users", participants:"participants", create:"addtest", export:"export",
-             lms:"lms", materials:"materials", payments:"payments" }[seg] ?? "overview";
+             lms:"lms", materials:"materials", payments:"payments",
+             certificates:"certificates" }[seg] ?? "overview";
   })();
   const navTo = t => {
     const seg = { overview:"", students:"students", pending:"pending", suites:"tests",
                   assign:"assignments", staff:"staff", settings:"settings",
                   users:"users", participants:"participants", addtest:"create", export:"export",
-                  lms:"lms", materials:"materials", payments:"payments" }[t] ?? "";
+                  lms:"lms", materials:"materials", payments:"payments",
+                  certificates:"certificates" }[t] ?? "";
     navigate(seg ? `/admin/${seg}` : "/admin");
   };
   const [db, setDb]           = useState(loadDB());
@@ -5646,12 +5649,14 @@ export function AdminDashboard({ onExit }) {
     overview: LayoutDashboard, students: GraduationCap, pending: Clock,
     suites: BookOpen, addtest: Flag, assign: ClipboardList, staff: Users,
     lms: School, materials: BookMarked, payments: CreditCard,
+    certificates: Award,
     settings: Settings, users: UserCog, export: Download,
   };
   const allNavItems=[
     ["overview","Dashboard"],["students","Students"],["pending","Pending Students"],
     ["suites","Tests"],["addtest","Create Test"],["assign","Assignments"],
     ["lms","LMS Groups"],["materials","Materials & Tasks"],["payments","Payments"],
+    ["certificates","Certificates"],
     ["export","Export"],
     ["settings","Settings"],
     ...(isSuperAdmin ? [["staff","Staff Accounts"]] : []),
@@ -6206,6 +6211,7 @@ export function AdminDashboard({ onExit }) {
           {tab==="lms"&&<GroupManager db={db}/>}
           {tab==="materials"&&<MaterialsTasksManager/>}
           {tab==="payments"&&<PaymentsManager/>}
+          {tab==="certificates"&&<CertificateGenerator/>}
         </main>
       </div>
 
